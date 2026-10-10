@@ -1,6 +1,7 @@
 "use client";
 
 import { Button } from "@/components/Button";
+import { InstallOffer } from "@/components/InstallOffer";
 import { api } from "@/convex/_generated/api";
 import { useAuthActions } from "@convex-dev/auth/react";
 import { useConvexAuth, useQuery } from "convex/react";
@@ -23,6 +24,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     return (
       <main className="mx-auto flex min-h-dvh w-full max-w-lg flex-col justify-center gap-4 px-5">
         <h1 className="text-3xl font-semibold tracking-tight">Sign in to log a workout.</h1>
+        <InstallOffer />
         <Link
           href="/signin"
           className="inline-flex min-h-12 items-center justify-center rounded-xl bg-accent px-4 font-semibold text-accent-ink"
@@ -60,16 +62,19 @@ function AccountHeader() {
   }
 
   return (
-    <header className="flex items-center justify-between gap-3 border-b border-line px-4 py-4">
-      <div className="min-w-0">
-        <p className="text-sm font-semibold tracking-[0.16em] text-accent uppercase">
-          Workout
-        </p>
-        <p className="truncate text-sm text-muted">{label}</p>
+    <header className="border-b border-line px-4 py-4">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-sm font-semibold tracking-[0.16em] text-accent uppercase">
+            Workout
+          </p>
+          <p className="truncate text-sm text-muted">{label}</p>
+        </div>
+        <Button variant="ghost" onClick={() => void onSignOut()} disabled={pending}>
+          {pending ? "Signing out…" : "Sign out"}
+        </Button>
       </div>
-      <Button variant="ghost" onClick={() => void onSignOut()} disabled={pending}>
-        {pending ? "Signing out…" : "Sign out"}
-      </Button>
+      <InstallOffer className="mt-3" />
     </header>
   );
 }
@@ -82,7 +87,7 @@ function BottomNav() {
   return (
     <nav
       aria-label="Primary"
-      className="fixed inset-x-0 bottom-0 border-t border-line bg-background/95 backdrop-blur"
+      className="fixed inset-x-0 bottom-0 border-t border-line bg-background/95 pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] backdrop-blur"
     >
       <div className="mx-auto flex max-w-lg pb-[env(safe-area-inset-bottom)]">
         <NavLink href="/" active={logActive}>

@@ -1,8 +1,14 @@
 import type { Metadata, Viewport } from "next";
 import { Outfit } from "next/font/google";
+import Script from "next/script";
 import { ConvexAuthNextjsServerProvider } from "@convex-dev/auth/nextjs/server";
 import { ConvexClientProvider } from "@/components/ConvexClientProvider";
 import { SetupRequired } from "@/components/SetupRequired";
+import {
+  pwaDescription,
+  pwaName,
+  pwaThemeColor,
+} from "@/lib/pwa/manifest";
 import "./globals.css";
 
 const outfit = Outfit({
@@ -12,17 +18,36 @@ const outfit = Outfit({
 
 export const metadata: Metadata = {
   title: {
-    default: "Workout",
-    template: "%s · Workout",
+    default: pwaName,
+    template: `%s · ${pwaName}`,
   },
-  description: "Log sets, reps, and weight, then come back to the history.",
-  applicationName: "Workout",
+  description: pwaDescription,
+  applicationName: pwaName,
+  appleWebApp: {
+    capable: true,
+    title: pwaName,
+    statusBarStyle: "black",
+  },
+  icons: {
+    icon: [
+      { url: "/icons/icon-192.png", sizes: "192x192", type: "image/png" },
+      { url: "/icons/icon-512.png", sizes: "512x512", type: "image/png" },
+    ],
+    apple: [
+      {
+        url: "/icons/apple-touch-icon.png",
+        sizes: "180x180",
+        type: "image/png",
+      },
+    ],
+  },
 };
 
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  themeColor: "#12110e",
+  viewportFit: "cover",
+  themeColor: pwaThemeColor,
 };
 
 export default function RootLayout({
@@ -35,6 +60,9 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={`${outfit.variable} antialiased`}>
+        <Script id="pwa-install-prompt" strategy="beforeInteractive">
+          {`window.__deferredInstallPrompt=null;window.addEventListener("beforeinstallprompt",function(event){event.preventDefault();window.__deferredInstallPrompt=event;window.dispatchEvent(new Event("pwa-installable"));});window.addEventListener("appinstalled",function(){window.__deferredInstallPrompt=null;window.dispatchEvent(new Event("pwa-installed"));});`}
+        </Script>
         {configured ? (
           <ConvexAuthNextjsServerProvider>
             <ConvexClientProvider>{children}</ConvexClientProvider>
