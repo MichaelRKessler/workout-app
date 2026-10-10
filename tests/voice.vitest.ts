@@ -194,10 +194,12 @@ describe("gemini request", () => {
     const body = JSON.parse(String(init?.body)) as {
       contents: Array<{ parts: Array<Record<string, unknown>> }>;
       generationConfig: {
+        temperature?: number;
         responseFormat: { text: { mimeType: string; schema: { required: string[] } } };
       };
     };
-    expect(body.generationConfig.responseFormat.text.mimeType).toBe("application/json");
+    expect(body.generationConfig.temperature).toBeUndefined();
+    expect(body.generationConfig.responseFormat.text.mimeType).toBe("APPLICATION_JSON");
     expect(body.generationConfig.responseFormat.text.schema).toEqual(WORKOUT_RESPONSE_SCHEMA);
     expect(body.contents[0]?.parts[1]).toEqual({
       inlineData: { mimeType: "audio/m4a", data: "AAAA" },
@@ -210,6 +212,76 @@ describe("gemini request", () => {
   test("maps a Chrome webm recording onto Gemini's audio/webm type", () => {
     expect(geminiAudioMimeType("audio/webm;codecs=opus")).toBe("audio/webm");
     expect(geminiAudioMimeType("audio/mp4")).toBe("audio/m4a");
+  });
+
+  test("a rejected Gemini response stays friendly and logs the upstream error", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const audioBase64 = "QQ".repeat(50);
+    const fetchImpl = vi.fn<typeof fetch>(async () => {
+      return new Response(
+        JSON.stringify({
+          error: {
+            code: 400,
+            status: "INVALID_ARGUMENT",
+            message:
+              'Invalid value at \'generation_config.response_format.text.mime_type\', "application/json"',
+          },
+        }),
+        { status: 400 },
+      );
+    });
+
+    await expect(
+      parseWorkoutAudio({
+        apiKey: "AQ.test-secret-key",
+        audioBase64,
+        mimeType: "audio/webm;codecs=opus",
+        fetchImpl,
+      }),
+    ).rejects.toThrow(/could not read that recording/);
+
+    const logged = errorSpy.mock.calls.flat().map((part) => JSON.stringify(part)).join(" ");
+    expect(logged).toMatch(/INVALID_ARGUMENT/);
+    expect(logged).toMatch(/application\/json/);
+    expect(logged).toMatch(/audio\/webm/);
+    expect(logged).not.toContain("AQ.test-secret-key");
+    expect(logged).not.toContain(audioBase64);
+    errorSpy.mockRestore();
+  });
+
+  test("thinking text is ignored and the structured set is kept", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async () => {
+      return new Response(
+        JSON.stringify({
+          candidates: [
+            {
+              content: {
+                parts: [
+                  { thought: true, text: "The speaker said three sets." },
+                  { text: JSON.stringify(benchThreeSets) },
+                ],
+              },
+            },
+          ],
+        }),
+        { status: 200 },
+      );
+    });
+
+    const proposal = await parseWorkoutAudio({
+      apiKey: "test-gemini-key",
+      audioBase64: "AAAA",
+      mimeType: "audio/webm;codecs=opus",
+      fetchImpl,
+    });
+    expect(proposal).toEqual({
+      exerciseName: "bench press",
+      sets: [
+        { reps: 10, weightLb: 135 },
+        { reps: 10, weightLb: 135 },
+        { reps: 10, weightLb: 135 },
+      ],
+    });
   });
 });
 

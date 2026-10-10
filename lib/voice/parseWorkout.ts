@@ -62,17 +62,23 @@ export async function parseWorkoutAudio(options: {
           },
         ],
         generationConfig: {
-          temperature: 0,
+          // Gemini 3.8 deprecates temperature, topP, and topK. The schema constrains the output.
           responseFormat: {
             text: {
-              mimeType: "application/json",
+              // Proto enum. The IANA string "application/json" is a 400 before the audio is read.
+              mimeType: "APPLICATION_JSON",
               schema: WORKOUT_RESPONSE_SCHEMA,
             },
           },
         },
       }),
     });
-  } catch {
+  } catch (error) {
+    console.error("Gemini voice parse request failed", {
+      model,
+      mimeType,
+      message: error instanceof Error ? error.message : "unknown",
+    });
     throw new VoiceParseError(
       "The voice service did not answer. Log the set by hand.",
       "unavailable",
@@ -81,6 +87,12 @@ export async function parseWorkoutAudio(options: {
 
   const raw = await response.text();
   if (!response.ok) {
+    console.error("Gemini voice parse rejected the recording", {
+      status: response.status,
+      model,
+      mimeType,
+      upstream: summarizeGeminiError(raw),
+    });
     throw new VoiceParseError(
       "The voice service could not read that recording. Log the set by hand.",
       "unavailable",
@@ -162,6 +174,7 @@ function extractCandidateText(payload: unknown): string {
     );
   }
   const text = parts
+    .filter((part) => !(isRecord(part) && part.thought === true))
     .map((part) => (isRecord(part) && typeof part.text === "string" ? part.text : ""))
     .join("")
     .trim();
@@ -172,6 +185,33 @@ function extractCandidateText(payload: unknown): string {
     );
   }
   return text;
+}
+
+function summarizeGeminiError(raw: string): string {
+  let message = raw.trim();
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (
+      isRecord(parsed) &&
+      isRecord(parsed.error) &&
+      typeof parsed.error.message === "string" &&
+      parsed.error.message.trim().length > 0
+    ) {
+      const status =
+        typeof parsed.error.status === "string" ? `${parsed.error.status}: ` : "";
+      message = `${status}${parsed.error.message.trim()}`;
+    }
+  } catch {
+    message = raw.trim();
+  }
+  return redactSecrets(message).slice(0, 500);
+}
+
+function redactSecrets(value: string): string {
+  return value
+    .replace(/AQ\.[A-Za-z0-9._\-]+/g, "[redacted]")
+    .replace(/AIza[0-9A-Za-z_\-]+/g, "[redacted]")
+    .replace(/[A-Za-z0-9+/]{80,}={0,2}/g, "[redacted]");
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
