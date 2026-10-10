@@ -1,6 +1,7 @@
 "use client";
 
 import { Button } from "@/components/Button";
+import { InstallOffer } from "@/components/InstallOffer";
 import { readableError } from "@/lib/errors";
 import { useAuthActions } from "@convex-dev/auth/react";
 import { useConvexAuth } from "convex/react";
@@ -54,6 +55,7 @@ export function SignInScreen() {
           {pending ? "Redirecting to Google…" : "Sign in with Google"}
         </Button>
       </form>
+      <InstallOffer className="mt-6" />
       {error ? (
         <p role="alert" className="mt-4 text-sm leading-6 text-danger">
           {error}
