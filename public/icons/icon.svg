@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="Workout">
+  <rect width="512" height="512" fill="#12110e"/>
+  <g fill="#d6f25c" transform="rotate(35 256 256)">
+    <rect x="174" y="222" width="164" height="68" rx="34"/>
+    <rect x="86" y="166" width="48" height="180" rx="24"/>
+    <rect x="158" y="166" width="48" height="180" rx="24"/>
+    <rect x="306" y="166" width="48" height="180" rx="24"/>
+    <rect x="378" y="166" width="48" height="180" rx="24"/>
+  </g>
+</svg>
