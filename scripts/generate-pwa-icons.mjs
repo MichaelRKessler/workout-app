@@ -7,10 +7,49 @@
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { crc32, deflateSync } from "node:zlib";
 import { Resvg } from "@resvg/resvg-js";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const svg = readFileSync(resolve(root, "public/icons/icon.svg"));
+
+function pngChunk(type, data) {
+  const length = Buffer.alloc(4);
+  length.writeUInt32BE(data.length);
+  const name = Buffer.from(type);
+  const checksum = Buffer.alloc(4);
+  checksum.writeUInt32BE(crc32(Buffer.concat([name, data])) >>> 0);
+  return Buffer.concat([length, name, data, checksum]);
+}
+
+/** Opaque RGB PNG. The icon test and install surfaces expect color type 2. */
+function rgbPng(width, height, rgba) {
+  const raw = Buffer.alloc((width * 3 + 1) * height);
+  for (let y = 0; y < height; y += 1) {
+    const row = y * (width * 3 + 1);
+    raw[row] = 0;
+    for (let x = 0; x < width; x += 1) {
+      const source = (y * width + x) * 4;
+      const dest = row + 1 + x * 3;
+      const alpha = rgba[source + 3] / 255;
+      raw[dest] = Math.round(0x12 * (1 - alpha) + rgba[source] * alpha);
+      raw[dest + 1] = Math.round(0x11 * (1 - alpha) + rgba[source + 1] * alpha);
+      raw[dest + 2] = Math.round(0x0e * (1 - alpha) + rgba[source + 2] * alpha);
+    }
+  }
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(width, 0);
+  ihdr.writeUInt32BE(height, 4);
+  ihdr[8] = 8;
+  ihdr[9] = 2;
+  const signature = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+  return Buffer.concat([
+    signature,
+    pngChunk("IHDR", ihdr),
+    pngChunk("IDAT", deflateSync(raw)),
+    pngChunk("IEND", Buffer.alloc(0)),
+  ]);
+}
 
 function render(size) {
   const resvg = new Resvg(svg, {
@@ -21,7 +60,7 @@ function render(size) {
   if (image.width !== size || image.height !== size) {
     throw new Error(`expected ${size}px, got ${image.width}x${image.height}`);
   }
-  return image.asPng();
+  return rgbPng(size, size, image.pixels);
 }
 
 function writeIco(path, images) {
