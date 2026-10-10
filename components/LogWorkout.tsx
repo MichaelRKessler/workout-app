@@ -2,6 +2,7 @@
 
 import { Button } from "@/components/Button";
 import { LocalTime } from "@/components/LocalTime";
+import { VoiceLogger } from "@/components/VoiceLogger";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { formatExerciseName } from "@/convex/lib/exerciseName";
@@ -179,6 +180,8 @@ export function LogWorkout() {
         </div>
         <p className="text-sm text-muted">{sets?.length ?? 0} sets</p>
       </div>
+
+      <VoiceLogger sessionId={openSession._id} />
 
       <form onSubmit={(event) => void onAddSet(event)} className="flex flex-col gap-3">
         <div className="relative">

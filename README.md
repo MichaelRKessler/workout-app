@@ -4,7 +4,7 @@ A mobile-friendly workout log. Sign in with Google, record sets, reps, and weigh
 
 Push-ups and bench press show up as examples when you have not saved them yet. They are not a fixed exercise list. Type any name to add it.
 
-Voice logging is not part of this version.
+During an open workout you can also tap the mic and say a set, for example “bench press, three sets of ten at 135” or “push-ups 20”. The app shows the exercise, sets, reps, and weight so you can edit them. Nothing is written until you confirm. The manual form still works when the mic or the voice service is unavailable.
 
 ## Run it locally
 
@@ -44,6 +44,8 @@ Nothing secret belongs in the repo. `.env.example` only has placeholders.
 | --- | --- |
 | `NEXT_PUBLIC_CONVEX_URL` | Printed by `npx convex dev`. Same value as the deployment URL in the Convex dashboard under Settings → URL & Deploy Key. It looks like `https://<name>.convex.cloud`. |
 | `CONVEX_DEPLOYMENT` | Written by `npx convex dev`. The CLI uses it to find the dev deployment. Do not invent this yourself. |
+| `GEMINI_API_KEY` | A Gemini API key from Google AI Studio. Server-only: `.env.local` locally, and the Vercel project environment when you deploy. Do not put it on the Convex deployment, and do not prefix it with `NEXT_PUBLIC_`. Voice logging shows a clear message and the manual form still works when it is missing. |
+| `GEMINI_MODEL` | Optional. Overrides the Flash model id in `lib/voice/model.ts` (`gemini-3.8-flash`). Same Next.js server environment as `GEMINI_API_KEY`. |
 
 ### Convex deployment environment
 
@@ -82,6 +84,12 @@ The host is the Convex HTTP Actions URL (the deployment URL with `.convex.site` 
 
 Sign-in uses [Convex Auth](https://labs.convex.dev/auth) with the Google provider, so there is no second auth vendor.
 
+## Voice logging
+
+The mic records a short clip in the browser (up to 20 seconds) and sends it to `POST /api/voice`. That route checks the Convex Auth session, then calls Gemini Flash (`gemini-3.8-flash` unless `GEMINI_MODEL` is set) with structured output. The key is read on the server from `GEMINI_API_KEY`.
+
+Mobile Safari records `audio/mp4`, which the server sends to Gemini as `audio/m4a`. Mobile Chrome records `audio/webm`. The microphone needs a secure page, so use localhost or HTTPS. If permission is denied, recording is unavailable, or the key is missing, the message says so and you can still type the set.
+
 ## Check the project
 
 ```bash
@@ -98,6 +106,6 @@ npm run build
 This repo is ready to put on Vercel, and it is not linked to a Vercel project.
 
 1. Create a Vercel project from this repo when you want to deploy. Do not commit a `.vercel` directory.
-2. Set `NEXT_PUBLIC_CONVEX_URL` in the Vercel project environment to the Convex deployment you want that site to use.
+2. Set `NEXT_PUBLIC_CONVEX_URL` in the Vercel project environment to the Convex deployment you want that site to use. Set `GEMINI_API_KEY` there too, as a server variable, if you want voice logging. Do not mark it as exposed to the browser.
 3. On that Convex deployment, set `SITE_URL` to the Vercel origin and add that origin plus `https://<deployment>.convex.site/api/auth/callback/google` on the Google OAuth client. Production should use `npx convex deploy` only when you intend to update the production Convex deployment.
 4. Use a separate Google OAuth client, or extra redirect URIs, for production. Dev and production Convex deployments do not share environment variables.
