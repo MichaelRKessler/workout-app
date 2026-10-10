@@ -139,16 +139,19 @@ try {
     await sleep(250);
   }
 
+  await sleep(500);
   const evaluated = await send(
     "Runtime.evaluate",
     {
       expression: `({
         installPromptSeen: window.__installPromptSeen === true,
+        deferredInstall: window.__deferredInstallPrompt == null ? window.__deferredInstallPrompt : "captured",
         manifestHref: document.querySelector('link[rel="manifest"]')?.href ?? null,
         themeColor: document.querySelector('meta[name="theme-color"]')?.content ?? null,
+        mobileCapable: document.querySelector('meta[name="mobile-web-app-capable"]')?.content ?? null,
         appleCapable: document.querySelector('meta[name="apple-mobile-web-app-capable"]')?.content ?? null,
         appleTouchIcon: document.querySelector('link[rel="apple-touch-icon"]')?.href ?? null,
-        serviceWorker: "serviceWorker" in navigator
+        serviceWorkerController: navigator.serviceWorker?.controller ? "controlled" : "none"
       })`,
       returnByValue: true,
     },
@@ -178,8 +181,15 @@ try {
       `Installability errors: ${errors.map((error) => error.errorId).join(", ")}`,
     );
   }
+  if (report.page?.deferredInstall !== "captured") {
+    throw new Error("beforeinstallprompt was not captured for the Install app button");
+  }
+  if (report.page?.serviceWorkerController !== "none") {
+    throw new Error("A service worker is controlling the page");
+  }
   ws.close();
 } finally {
   chrome.kill();
-  await rm(profile, { recursive: true, force: true });
+  await sleep(300);
+  await rm(profile, { recursive: true, force: true }).catch(() => {});
 }

@@ -85,6 +85,16 @@ test("icons are opaque PNGs with the glyph inside the maskable safe zone", () =>
   }
 });
 
+test("the manifest link is in the initial document head", () => {
+  const layout = fs.readFileSync(path.join(root, "app/layout.tsx"), "utf8");
+  assert.match(layout, /<link rel="manifest" href="\/manifest\.webmanifest" \/>/);
+  assert.equal(fs.existsSync(path.join(root, "app/manifest.ts")), false);
+  assert.equal(
+    fs.existsSync(path.join(root, "app/manifest.webmanifest/route.ts")),
+    true,
+  );
+});
+
 test("no service worker is shipped that could cache workouts", () => {
   for (const relative of [
     "public/sw.js",

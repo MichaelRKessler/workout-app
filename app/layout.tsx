@@ -23,24 +23,6 @@ export const metadata: Metadata = {
   },
   description: pwaDescription,
   applicationName: pwaName,
-  appleWebApp: {
-    capable: true,
-    title: pwaName,
-    statusBarStyle: "black",
-  },
-  icons: {
-    icon: [
-      { url: "/icons/icon-192.png", sizes: "192x192", type: "image/png" },
-      { url: "/icons/icon-512.png", sizes: "512x512", type: "image/png" },
-    ],
-    apple: [
-      {
-        url: "/icons/apple-touch-icon.png",
-        sizes: "180x180",
-        type: "image/png",
-      },
-    ],
-  },
 };
 
 export const viewport: Viewport = {
@@ -59,6 +41,20 @@ export default function RootLayout({
 
   return (
     <html lang="en">
+      <head>
+        {/* Chrome reads this from the first HTML chunk. Metadata streamed after
+            Convex Auth makes the layout dynamic arrives too late. */}
+        <link rel="manifest" href="/manifest.webmanifest" />
+        <link
+          rel="apple-touch-icon"
+          href="/icons/apple-touch-icon.png"
+          sizes="180x180"
+        />
+        <meta name="mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-title" content={pwaName} />
+        <meta name="apple-mobile-web-app-status-bar-style" content="black" />
+      </head>
       <body className={`${outfit.variable} antialiased`}>
         <Script id="pwa-install-prompt" strategy="beforeInteractive">
           {`window.__deferredInstallPrompt=null;window.addEventListener("beforeinstallprompt",function(event){event.preventDefault();window.__deferredInstallPrompt=event;window.dispatchEvent(new Event("pwa-installable"));});window.addEventListener("appinstalled",function(){window.__deferredInstallPrompt=null;window.dispatchEvent(new Event("pwa-installed"));});`}
