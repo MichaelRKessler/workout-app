@@ -6,8 +6,11 @@ import { authedMutation, authedQuery } from "./lib/customFunctions";
 import { formatExerciseName, MAX_KNOWN_EXERCISE_NAMES } from "./lib/exerciseName";
 import { summarizeEfforts, trendFromSets } from "./lib/records";
 import { repointExerciseReferences } from "./lib/routineRecords";
+import { setExerciseRest } from "./lib/rest";
+import { setTypeValidator } from "./lib/setTypeValidator";
 import {
   EXERCISE_RECORD_SCAN,
+  getOrCreateExercise,
   loadRecentSetsForExercise,
   loadVoiceExerciseNames,
   presentSet,
@@ -33,6 +36,7 @@ const historySetValidator = v.object({
   durationSec: v.union(v.number(), v.null()),
   distanceM: v.union(v.number(), v.null()),
   rpe: v.union(v.number(), v.null()),
+  setType: setTypeValidator,
   loggedAt: v.number(),
   sessionId: v.id("sessions"),
   sessionStartedAt: v.number(),
@@ -57,6 +61,7 @@ async function ownedExercise(
 const exerciseValidator = v.object({
   _id: v.id("exercises"),
   name: v.string(),
+  restSeconds: v.union(v.number(), v.null()),
 });
 
 const EXERCISE_LIMIT = 200;
@@ -79,10 +84,51 @@ export const list = authedQuery({
     const exercises = rows.slice(0, EXERCISE_LIMIT).map((exercise) => ({
       _id: exercise._id,
       name: exercise.name,
+      restSeconds: exercise.restSeconds ?? null,
     }));
     exercises.sort((left, right) => left.name.localeCompare(right.name));
 
     return { exercises, truncated };
+  },
+});
+
+/** Account rest for one exercise. Null means the device rest default. */
+export const restForName = authedQuery({
+  args: { name: v.string() },
+  returns: v.union(v.number(), v.null()),
+  handler: async (ctx, args) => {
+    const formatted = formatExerciseName(args.name);
+    if (!formatted) {
+      return null;
+    }
+    const exercise = await ctx.db
+      .query("exercises")
+      .withIndex("by_user_and_normalized_name", (q) =>
+        q.eq("userId", ctx.userId).eq("normalizedName", formatted.normalizedName),
+      )
+      .unique();
+    if (!exercise || exercise.userId !== ctx.userId) {
+      return null;
+    }
+    return exercise.restSeconds ?? null;
+  },
+});
+
+/** Remembers rest for this exercise on the account. Null clears it. */
+export const setRest = authedMutation({
+  args: {
+    name: v.string(),
+    restSeconds: v.union(v.number(), v.null()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const exerciseId = await getOrCreateExercise(ctx, ctx.userId, args.name);
+    const exercise = await ctx.db.get("exercises", exerciseId);
+    if (!exercise || exercise.userId !== ctx.userId) {
+      throw new Error("Exercise not found");
+    }
+    await setExerciseRest(ctx, ctx.userId, exercise, args.restSeconds);
+    return null;
   },
 });
 
@@ -415,6 +461,9 @@ export const merge = authedMutation({
       }
     }
     await repointExerciseReferences(ctx, ctx.userId, from._id, into._id);
+    if (into.restSeconds === undefined && from.restSeconds !== undefined) {
+      await ctx.db.patch("exercises", into._id, { restSeconds: from.restSeconds });
+    }
     await ctx.db.delete("exercises", from._id);
     return { moved, name: into.name };
   },

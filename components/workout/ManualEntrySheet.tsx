@@ -2,7 +2,9 @@
 
 import { Button } from "@/components/Button";
 import { CloseIcon, MinusIcon, PlusIcon, SearchIcon } from "@/components/icons";
+import { SetTypePicker } from "@/components/SetTypePicker";
 import { Sheet } from "@/components/Sheet";
+import { useProgression } from "@/components/useProgression";
 import { useWeightUnit } from "@/components/WeightUnit";
 import { usePreviousExercise } from "@/components/workout/usePreviousExercise";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -22,10 +24,16 @@ import {
   weightLbFromDisplay,
   type WeightUnit,
 } from "@/convex/lib/units";
+import { resolvedSetType, type SetType } from "@/convex/lib/setType";
 import type { SetLine } from "@/lib/groupSets";
 import { parseReps } from "@/lib/numbers";
 import { prefillValues, type PrefillSource } from "@/lib/prefill";
-import { FormEvent, useEffect, useRef, useState } from "react";
+import {
+  formatSuggestion,
+  suggestionAlreadyShown,
+  suggestNext,
+} from "@/lib/suggestion";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
 const MAX_CHIPS = 12;
 
@@ -36,6 +44,7 @@ type LoggedSet = {
   durationSec?: number;
   distanceM?: number;
   rpe?: number;
+  setType: SetType;
 };
 
 type FormValues = {
@@ -45,6 +54,7 @@ type FormValues = {
   duration: string;
   distance: string;
   rpe: string;
+  setType: SetType;
   source: PrefillSource | "edit";
   weightLb: number | null;
 };
@@ -67,6 +77,7 @@ function showPrefill(
     duration: values.duration,
     distance: values.distance,
     rpe: values.rpe,
+    setType: values.setType,
     source: values.source,
     weightLb: Number.isFinite(pounds) ? pounds : null,
   };
@@ -82,6 +93,7 @@ export function ManualEntrySheet({
   excludeSessionId,
   pending,
   truncatedLibrary = false,
+  planTargets,
   onClose,
   onAdd,
 }: {
@@ -94,6 +106,7 @@ export function ManualEntrySheet({
     durationSec: number | null;
     distanceM: number | null;
     rpe: number | null;
+    setType?: SetType;
   };
   /** Exercise names to offer, most relevant first. */
   library: string[];
@@ -101,10 +114,16 @@ export function ManualEntrySheet({
   excludeSessionId?: Id<"sessions">;
   pending: boolean;
   truncatedLibrary?: boolean;
+  planTargets?: Array<{
+    name: string;
+    targetSets: number | null;
+    targetReps: number | null;
+  }>;
   onClose: () => void;
   onAdd: (set: LoggedSet) => Promise<string | null>;
 }) {
   const unit = useWeightUnit();
+  const progression = useProgression();
   const editing = mode === "edit";
   const [exerciseName, setExerciseName] = useState(initialExercise);
   const [pickedName, setPickedName] = useState(initialExercise);
@@ -118,6 +137,7 @@ export function ManualEntrySheet({
           duration: initialSet.durationSec ? formatClock(initialSet.durationSec) : "",
           distance: initialSet.distanceM ? String(initialSet.distanceM) : "",
           rpe: initialSet.rpe ? String(initialSet.rpe) : "",
+          setType: resolvedSetType(initialSet.setType),
           source: "edit",
           weightLb: initialSet.weightLb,
         }
@@ -153,6 +173,50 @@ export function ManualEntrySheet({
   }, [dirty, editing, exerciseName, history.loading, history.sets, pickedName, sessionSets, unit]);
 
   const formatted = formatExerciseName(exerciseName);
+  const planTarget = (planTargets ?? []).find(
+    (item) => formatExerciseName(item.name)?.normalizedName === formatted?.normalizedName,
+  );
+  const suggestion = useMemo(() => {
+    if (editing || !history.sets) {
+      return null;
+    }
+    return suggestNext(history.sets, {
+      enabled: progression.enabled,
+      incrementLb: progression.incrementLb,
+      routine: planTarget
+        ? { targetSets: planTarget.targetSets, targetReps: planTarget.targetReps }
+        : null,
+    });
+  }, [editing, history.sets, planTarget, progression.enabled, progression.incrementLb]);
+  const suggestionLabel =
+    suggestion &&
+    !suggestionAlreadyShown(suggestion, {
+      kind: values.kind,
+      reps: values.reps,
+      weightLb: values.weightLb,
+    })
+      ? formatSuggestion(suggestion, unit)
+      : null;
+
+  function acceptSuggestion() {
+    if (!suggestion) {
+      return;
+    }
+    setDirty(true);
+    setValues((current) => {
+      const setType =
+        current.setType === "warmup" || current.setType === "drop" ? "working" : current.setType;
+      if (suggestion.kind === "weight") {
+        return {
+          ...current,
+          setType,
+          weight: formatWeightAmount(suggestion.weightLb, unit),
+          weightLb: suggestion.weightLb,
+        };
+      }
+      return { ...current, setType, reps: String(suggestion.reps) };
+    });
+  }
   const query = formatted?.normalizedName ?? "";
   const known = library.some((name) => formatExerciseName(name)?.normalizedName === query);
   const chips = library
@@ -192,7 +256,12 @@ export function ManualEntrySheet({
       return;
     }
 
-    const logged: LoggedSet = { exerciseName: formatted.name, weightLb, ...(rpe ? { rpe } : {}) };
+    const logged: LoggedSet = {
+      exerciseName: formatted.name,
+      weightLb,
+      setType: values.setType,
+      ...(rpe ? { rpe } : {}),
+    };
     if (values.kind === "timed") {
       const durationSec = parseClock(values.duration);
       if (durationSec === null) {
@@ -330,6 +399,16 @@ export function ManualEntrySheet({
           ))}
         </div>
 
+        <div className="mt-3">
+          <SetTypePicker
+            value={values.setType}
+            onChange={(setType) => {
+              setDirty(true);
+              setValues({ ...values, setType });
+            }}
+          />
+        </div>
+
         <div className="mt-4 grid grid-cols-2 gap-3">
           {values.kind === "strength" ? (
             <Stepper
@@ -437,6 +516,16 @@ export function ManualEntrySheet({
             Use 0 for bodyweight. Weights are in {unit}.
           </p>
         )}
+
+        {suggestionLabel ? (
+          <button
+            type="button"
+            onClick={acceptSuggestion}
+            className="mt-3 min-h-11 self-start text-left text-base font-medium"
+          >
+            {suggestionLabel}
+          </button>
+        ) : null}
 
         <Button type="submit" size="lg" className="mt-5 w-full" disabled={pending}>
           {pending ? "Saving…" : editing ? "Save" : "Add set"}

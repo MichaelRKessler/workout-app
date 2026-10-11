@@ -1,6 +1,7 @@
 import { formatExerciseName } from "../convex/lib/exerciseName";
 import { formatClock, formatDistance, parseClock, parseDistanceInput, setKind, type SetKind } from "../convex/lib/measures";
 import type { RoutinePrefill } from "../convex/lib/routinePlan";
+import { countsTowardVolume, resolvedSetType, type SetType } from "../convex/lib/setType";
 import { parseReps } from "./numbers";
 
 export type PrefillSource = "session" | "previous" | "routine" | "default";
@@ -12,6 +13,7 @@ export type PrefillValues = {
   duration: string;
   distance: string;
   rpe: string;
+  setType: SetType;
   source: PrefillSource;
 };
 
@@ -21,6 +23,7 @@ type SetNumbers = {
   durationSec?: number | null;
   distanceM?: number | null;
   rpe?: number | null;
+  setType?: SetType | null;
 };
 
 /**
@@ -44,7 +47,8 @@ export function prefillValues(
     }
   }
 
-  const previous = previousSets?.[previousSets.length - 1];
+  const counted = (previousSets ?? []).filter((set) => countsTowardVolume(set));
+  const previous = counted[counted.length - 1];
   if (previous) {
     return valuesFromSet(previous, "previous");
   }
@@ -61,6 +65,7 @@ export function prefillValues(
     duration: "",
     distance: "",
     rpe: "",
+    setType: "working",
     source: "default",
   };
 }
@@ -89,6 +94,7 @@ export function setFromPrefill(values: PrefillValues): {
   weightLb: number;
   durationSec?: number;
   distanceM?: number;
+  setType: SetType;
 } | null {
   const weight = Number(values.weight);
   if (!Number.isFinite(weight) || weight < 0 || weight > 2000) {
@@ -100,7 +106,7 @@ export function setFromPrefill(values: PrefillValues): {
     if (durationSec === null) {
       return null;
     }
-    return { weightLb, durationSec };
+    return { weightLb, durationSec, setType: values.setType };
   }
   if (values.kind === "distance") {
     const distanceM = parseDistanceInput(values.distance);
@@ -114,6 +120,7 @@ export function setFromPrefill(values: PrefillValues): {
     return {
       weightLb,
       distanceM,
+      setType: values.setType,
       ...(durationSec ? { durationSec } : {}),
     };
   }
@@ -121,7 +128,7 @@ export function setFromPrefill(values: PrefillValues): {
   if (reps === null) {
     return null;
   }
-  return { weightLb, reps };
+  return { weightLb, reps, setType: values.setType };
 }
 
 function valuesFromSet(set: SetNumbers, source: PrefillSource): PrefillValues {
@@ -133,6 +140,7 @@ function valuesFromSet(set: SetNumbers, source: PrefillSource): PrefillValues {
     duration: set.durationSec ? formatClock(set.durationSec) : "",
     distance: set.distanceM ? formatDistance(set.distanceM) : "",
     rpe: set.rpe ? String(set.rpe) : "",
+    setType: resolvedSetType(set.setType),
     source,
   };
 }

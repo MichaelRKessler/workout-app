@@ -14,19 +14,40 @@ import {
 } from "@/lib/restTimer";
 import { useEffect, useRef, useState } from "react";
 
-/** Countdown beside the workout clock. Starts after a set is added this visit. */
-export function RestTimer({ setCount, loading }: { setCount: number; loading: boolean }) {
-  const [seconds, setSeconds] = useState(DEFAULT_REST_SECONDS);
+/**
+ * Countdown beside the workout clock. Before any set, the buttons change the
+ * device default. After a set, they change that exercise's rest.
+ */
+export function RestTimer({
+  setCount,
+  loading,
+  exerciseRestSeconds = null,
+  onExerciseRest,
+}: {
+  setCount: number;
+  loading: boolean;
+  exerciseRestSeconds?: number | null;
+  onExerciseRest?: (seconds: number) => void;
+}) {
+  const [globalSeconds, setGlobalSeconds] = useState(DEFAULT_REST_SECONDS);
+  const [displaySeconds, setDisplaySeconds] = useState(DEFAULT_REST_SECONDS);
   const [ready, setReady] = useState(false);
   const [endsAt, setEndsAt] = useState<number | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const previousCount = useRef<number | null>(null);
   const vibratedFor = useRef<number | null>(null);
-  const secondsRef = useRef(seconds);
-  secondsRef.current = seconds;
+  const adjusted = useRef(false);
+  const globalRef = useRef(globalSeconds);
+  const displayRef = useRef(displaySeconds);
+  const setCountRef = useRef(setCount);
+  globalRef.current = globalSeconds;
+  displayRef.current = displaySeconds;
+  setCountRef.current = setCount;
 
   useEffect(() => {
-    setSeconds(readRestSeconds(window.localStorage.getItem(REST_STORAGE_KEY)));
+    const stored = readRestSeconds(window.localStorage.getItem(REST_STORAGE_KEY));
+    setGlobalSeconds(stored);
+    setDisplaySeconds(stored);
     setReady(true);
   }, []);
 
@@ -34,8 +55,8 @@ export function RestTimer({ setCount, loading }: { setCount: number; loading: bo
     if (!ready) {
       return;
     }
-    window.localStorage.setItem(REST_STORAGE_KEY, String(seconds));
-  }, [ready, seconds]);
+    window.localStorage.setItem(REST_STORAGE_KEY, String(globalSeconds));
+  }, [ready, globalSeconds]);
 
   useEffect(() => {
     if (loading) {
@@ -46,13 +67,30 @@ export function RestTimer({ setCount, loading }: { setCount: number; loading: bo
       return;
     }
     if (setCount > previousCount.current) {
+      const duration = exerciseRestSeconds ?? globalRef.current;
       const start = Date.now();
-      setEndsAt(restEndFrom(start, secondsRef.current));
+      adjusted.current = false;
+      setDisplaySeconds(duration);
+      setEndsAt(restEndFrom(start, duration));
       setNow(start);
       vibratedFor.current = null;
     }
     previousCount.current = setCount;
-  }, [loading, setCount]);
+  }, [exerciseRestSeconds, loading, setCount]);
+
+  useEffect(() => {
+    if (adjusted.current || endsAt === null || setCountRef.current === 0) {
+      return;
+    }
+    const next = exerciseRestSeconds ?? globalRef.current;
+    if (next === displayRef.current) {
+      return;
+    }
+    const at = Date.now();
+    setEndsAt((current) => shiftActiveRest(current, at, displayRef.current, next));
+    setDisplaySeconds(next);
+    setNow(at);
+  }, [endsAt, exerciseRestSeconds]);
 
   useEffect(() => {
     if (endsAt === null) {
@@ -79,16 +117,30 @@ export function RestTimer({ setCount, loading }: { setCount: number; loading: bo
   }, [endsAt, remaining]);
 
   function adjust(direction: -1 | 1) {
-    const next = adjustRestSeconds(seconds, direction);
     const at = Date.now();
-    setEndsAt((current) => shiftActiveRest(current, at, seconds, next));
-    setSeconds(next);
+    const previous = displayRef.current;
+    const next = adjustRestSeconds(previous, direction);
+    const beforeAnySet = setCountRef.current === 0;
+    if (beforeAnySet) {
+      setGlobalSeconds(next);
+      setDisplaySeconds(next);
+      return;
+    }
+    adjusted.current = true;
+    setDisplaySeconds(next);
+    setEndsAt((current) => {
+      if (current !== null && current > at) {
+        return shiftActiveRest(current, at, previous, next);
+      }
+      return restEndFrom(at, next);
+    });
     setNow(at);
+    onExerciseRest?.(next);
   }
 
   const running = remaining !== null && remaining > 0;
   const done = remaining !== null && remaining <= 0;
-  const readout = done ? "Done" : formatElapsed(running ? remaining : seconds * 1000);
+  const readout = done ? "Done" : formatElapsed(running ? remaining : displaySeconds * 1000);
   const spoken = done
     ? "Rest done"
     : running

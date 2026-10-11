@@ -77,6 +77,7 @@ function toPendingExercise(item: VisiblePlanItem): PendingPlanExercise {
     targetWeightLb: item.targetWeightLb,
     targetDurationSec: item.targetDurationSec,
     targetDistanceM: item.targetDistanceM,
+    restSeconds: null,
     skipped: item.skipped,
   };
 }
@@ -184,6 +185,7 @@ export function LogWorkout() {
         durationSec: number | null;
         distanceM: number | null;
         rpe: number | null;
+        setType?: SetLine["setType"];
       }
     | null
   >(null);
@@ -533,6 +535,7 @@ export function LogWorkout() {
           durationSec: set.durationSec,
           distanceM: set.distanceM,
           rpe: set.rpe,
+          setType: set.setType,
         })),
       ),
     });
@@ -585,6 +588,7 @@ export function LogWorkout() {
         durationSec: set.durationSec,
         distanceM: set.distanceM,
         rpe: set.rpe,
+        setType: set.setType,
       });
   }
 
@@ -595,6 +599,7 @@ export function LogWorkout() {
     durationSec?: number;
     distanceM?: number;
     rpe?: number;
+    setType: SetLine["setType"];
   }) {
     setManualPending(true);
     try {
@@ -604,6 +609,7 @@ export function LogWorkout() {
         durationSec: set.durationSec ?? null,
         distanceM: set.distanceM ?? null,
         rpe: set.rpe ?? null,
+        setType: set.setType ?? "working",
       };
       if (manual?.mode === "edit") {
         const saved = await log.editSet({
@@ -664,6 +670,7 @@ export function LogWorkout() {
           durationSec: last.durationSec,
           distanceM: last.distanceM,
           rpe: last.rpe,
+          ...(last.setType !== undefined ? { setType: last.setType } : {}),
         },
       ],
     });
@@ -790,6 +797,7 @@ export function LogWorkout() {
           reps: set.reps,
           durationSec: set.durationSec,
           distanceM: set.distanceM,
+          setType: set.setType,
         },
       ],
     });
@@ -1064,6 +1072,7 @@ export function LogWorkout() {
                   durationSec: manual.durationSec,
                   distanceM: manual.distanceM,
                   rpe: manual.rpe,
+                  setType: manual.setType,
                 }
               : undefined
           }
@@ -1072,6 +1081,11 @@ export function LogWorkout() {
           sessionSets={sessionSets}
           excludeSessionId={knownSession ? (knownSession._id as Id<"sessions">) : undefined}
           pending={manualPending}
+          planTargets={activePlan.map((item) => ({
+            name: item.name,
+            targetSets: item.targetSets,
+            targetReps: item.targetReps,
+          }))}
           onClose={() => setManual(null)}
           onAdd={addManual}
         />

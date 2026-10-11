@@ -19,6 +19,9 @@ test("set labels are compact in lists and spelled out for screen readers", () =>
   assert.equal(formatSetShort({ reps: 8, weightLb: 52.5 }), "8×52.5");
   assert.equal(formatSetShort({ reps: 20, weightLb: 0 }), "20×BW");
   assert.equal(describeSet({ reps: 6, weightLb: 155 }), "6 reps at 155 lb");
+  assert.equal(describeSet({ reps: 10, weightLb: 95, setType: "warmup" }), "10 reps at 95 lb, warm-up");
+  assert.equal(describeSet({ reps: 8, weightLb: 100, setType: "drop" }), "8 reps at 100 lb, drop set");
+  assert.equal(describeSet({ reps: 6, weightLb: 155, setType: "failure" }), "6 reps at 155 lb, to failure");
   assert.equal(describeSet({ reps: 1, weightLb: 0 }), "1 rep, bodyweight");
   assert.equal(formatSetShort({ reps: null, weightLb: 0, durationSec: 60 }), "1:00");
   assert.equal(describeSet({ reps: null, weightLb: 0, durationSec: 60 }), "1 minute, bodyweight");
@@ -41,6 +44,14 @@ test("last time summarizes the previous workout", () => {
     ]),
     "Last time: 3×10 @ 135",
   );
+  assert.equal(
+    formatLastTime([
+      { reps: 10, weightLb: 45, setType: "warmup" },
+      { reps: 5, weightLb: 135, setType: "working" },
+    ]),
+    "Last time: 1×5 @ 135",
+  );
+  assert.equal(formatLastTime([{ reps: 10, weightLb: 45, setType: "warmup" }]), null);
   assert.equal(
     formatLastTime([
       { reps: 20, weightLb: 0 },

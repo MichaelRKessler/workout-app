@@ -7,6 +7,7 @@ import {
   setKind,
   type SetKind,
 } from "../../convex/lib/measures";
+import { resolvedSetType, type SetType } from "../../convex/lib/setType";
 import { formatWeightAmount, weightLbFromDisplay, type WeightUnit } from "../../convex/lib/units";
 import { parseReps } from "../numbers";
 import {
@@ -26,6 +27,7 @@ export type DraftSet = {
   rpe: string;
   /** Stored pounds behind the weight field, so an unedited kg display does not drift. */
   weightLb: number | null;
+  setType: SetType;
 };
 
 export type VoiceDraft = {
@@ -139,6 +141,7 @@ export function proposalToDraft(proposal: VoiceProposal, unit: WeightUnit = "lb"
         distance: set.distanceM === null ? "" : formatDistance(set.distanceM),
         rpe: set.rpe === null ? "" : String(set.rpe),
         weightLb: set.weightLb,
+        setType: resolvedSetType(set.setType),
       })),
     })),
   };
@@ -190,7 +193,7 @@ function draftSetToVoice(set: DraftSet, unit: WeightUnit): VoiceSet | null {
     if (durationSec === null) {
       return null;
     }
-    return { reps: null, weightLb, durationSec, distanceM: null, rpe };
+    return { reps: null, weightLb, durationSec, distanceM: null, rpe, setType: set.setType };
   }
   if (set.kind === "distance") {
     const distanceM = parseDistanceInput(set.distance);
@@ -201,13 +204,13 @@ function draftSetToVoice(set: DraftSet, unit: WeightUnit): VoiceSet | null {
     if (set.duration.trim().length > 0 && durationSec === null) {
       return null;
     }
-    return { reps: null, weightLb, durationSec, distanceM, rpe };
+    return { reps: null, weightLb, durationSec, distanceM, rpe, setType: set.setType };
   }
   const reps = parseReps(set.reps);
   if (reps === null) {
     return null;
   }
-  return { reps, weightLb, durationSec: null, distanceM: null, rpe };
+  return { reps, weightLb, durationSec: null, distanceM: null, rpe, setType: set.setType };
 }
 
 /**

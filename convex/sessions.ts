@@ -8,6 +8,7 @@ import { authedMutation, authedQuery } from "./lib/customFunctions";
 import { assertDayWindow } from "./lib/dayWindow";
 import { formatExerciseName } from "./lib/exerciseName";
 import { normalizeNote } from "./lib/measures";
+import { countsTowardVolume } from "./lib/setType";
 import {
   personalRecordForBatch,
   personalRecordValidator,
@@ -64,6 +65,12 @@ const setDetailValidator = v.object({
   durationSec: v.union(v.number(), v.null()),
   distanceM: v.union(v.number(), v.null()),
   rpe: v.union(v.number(), v.null()),
+  setType: v.union(
+    v.literal("warmup"),
+    v.literal("working"),
+    v.literal("drop"),
+    v.literal("failure"),
+  ),
   loggedAt: v.number(),
   clientId: v.union(v.string(), v.null()),
 });
@@ -208,7 +215,13 @@ export const getOpen = authedQuery({
       planName: session.planName ?? null,
       routineId: session.routineId ?? null,
       plan: presented.map((item) => ({
-        ...item,
+        exerciseId: item.exerciseId,
+        name: item.name,
+        targetSets: item.targetSets,
+        targetReps: item.targetReps,
+        targetWeightLb: item.targetWeightLb,
+        targetDurationSec: item.targetDurationSec,
+        targetDistanceM: item.targetDistanceM,
         skipped: skipped.get(item.exerciseId) ?? false,
       })),
     };
@@ -751,6 +764,7 @@ const weeklySummaryValidator = v.object({
  * Finished workouts whose start falls in the weeks the client computed.
  * The client passes those boundaries so this stays deterministic and follows
  * the viewer's time zone. Bodyweight sets count toward the set total only.
+ * Warm-up sets are left out of the set total and the volume.
  */
 export const weeklySummary = authedQuery({
   args: {
@@ -801,7 +815,7 @@ export const weeklySummary = authedQuery({
         .withIndex("by_session_and_exercise", (q) => q.eq("sessionId", session._id))
         .take(MAX_SETS_PER_SESSION);
       bucket.workouts += 1;
-      bucket.sets += sets.length;
+      bucket.sets += sets.filter((set) => countsTowardVolume(set)).length;
       bucket.volumeLb = Math.round((bucket.volumeLb + volumeLb(sets)) * 100) / 100;
     }
 

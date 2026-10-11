@@ -27,6 +27,8 @@ const exerciseInput = v.object({
   exerciseId: v.optional(v.id("exercises")),
   name: v.optional(v.string()),
   ...targetFields,
+  // Omitted leaves the account rest alone. Null clears it back to the device default.
+  restSeconds: v.optional(v.union(v.number(), v.null())),
 });
 
 const exerciseDetail = v.object({
@@ -37,6 +39,7 @@ const exerciseDetail = v.object({
   targetWeightLb: v.union(v.number(), v.null()),
   targetDurationSec: v.union(v.number(), v.null()),
   targetDistanceM: v.union(v.number(), v.null()),
+  restSeconds: v.union(v.number(), v.null()),
 });
 
 const routineSummary = v.object({

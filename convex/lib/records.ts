@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { setKind } from "./measures";
+import { countsTowardRecord, countsTowardVolume, resolvedSetType, type SetType } from "./setType";
 
 /** Epley estimate: weight × (1 + reps / 30). Bodyweight has no estimate. */
 export function epleyOneRepMax(weightLb: number, reps: number): number | null {
@@ -43,6 +44,7 @@ type SetPoint = {
   weightLb: number;
   durationSec?: number | null;
   distanceM?: number | null;
+  setType?: SetType | null;
 };
 
 /**
@@ -73,14 +75,18 @@ export function personalRecordForSet(
   set: SetPoint,
   previous: SetPoint[],
 ): PersonalRecord | null {
+  if (!countsTowardRecord(set)) {
+    return null;
+  }
+  const earlier = previous.filter((item) => countsTowardRecord(item));
   const kind = setKind(set);
   if (kind === "timed") {
-    return durationRecord(exerciseName, set, previous);
+    return durationRecord(exerciseName, set, earlier);
   }
   if (kind === "distance") {
-    return distanceRecord(exerciseName, set, previous);
+    return distanceRecord(exerciseName, set, earlier);
   }
-  return strengthRecord(exerciseName, set, previous);
+  return strengthRecord(exerciseName, set, earlier);
 }
 
 function durationRecord(
@@ -215,6 +221,7 @@ export function personalRecordForBatch(
     weightLb: set.weightLb,
     durationSec: set.durationSec,
     distanceM: set.distanceM,
+    setType: resolvedSetType(set.setType),
   }));
   let latest: PersonalRecord | null = null;
   for (const set of created) {
@@ -227,6 +234,7 @@ export function personalRecordForBatch(
       weightLb: set.weightLb,
       durationSec: set.durationSec,
       distanceM: set.distanceM,
+      setType: resolvedSetType(set.setType),
     });
   }
   return latest;
@@ -251,6 +259,7 @@ type EffortSet = {
   durationSec?: number | null;
   distanceM?: number | null;
   loggedAt: number;
+  setType?: SetType | null;
 };
 
 function toEffort(set: EffortSet, epleyLb: number | null): Effort {
@@ -284,6 +293,9 @@ export function summarizeEfforts(sets: EffortSet[]): {
   let bestDistance: Effort | null = null;
 
   for (const set of sets) {
+    if (!countsTowardRecord(set)) {
+      continue;
+    }
     const kind = setKind(set);
     if (kind === "timed") {
       const duration = set.durationSec ?? 0;
@@ -384,12 +396,13 @@ export function trendFromSets(
   sets: Array<EffortSet & { sessionStartedAt: number }>,
   maxPoints: number,
 ): { unit: TrendUnit; points: TrendPoint[] } {
-  const weighted = sets.some((set) => setKind(set) === "strength" && set.weightLb > 0);
-  const strength = sets.some((set) => setKind(set) === "strength" && (set.reps ?? 0) > 0);
-  const distance = sets.some((set) => setKind(set) === "distance");
+  const counted = sets.filter((set) => countsTowardRecord(set));
+  const weighted = counted.some((set) => setKind(set) === "strength" && set.weightLb > 0);
+  const strength = counted.some((set) => setKind(set) === "strength" && (set.reps ?? 0) > 0);
+  const distance = counted.some((set) => setKind(set) === "distance");
   const unit: TrendUnit = weighted ? "lb" : strength ? "reps" : distance ? "m" : "sec";
   const bySession = new Map<string, TrendPoint>();
-  for (const set of sets) {
+  for (const set of counted) {
     const value = trendValue(set, unit);
     if (value === null) {
       continue;
@@ -433,14 +446,18 @@ function trendValue(set: EffortSet, unit: TrendUnit): number | null {
 }
 
 /**
- * Reps × weight, in pounds. Bodyweight, timed, and distance-only sets add
- * nothing. A timed or distance set that also has reps still counts those reps.
+ * Reps × weight, in pounds. Bodyweight, timed, distance-only, and warm-up
+ * sets add nothing. A timed or distance set that also has reps still counts
+ * those reps. Drop sets and failure sets count.
  */
 export function volumeLb(
-  sets: Array<{ reps?: number | null; weightLb: number }>,
+  sets: Array<{ reps?: number | null; weightLb: number; setType?: SetType | null }>,
 ): number {
   let total = 0;
   for (const set of sets) {
+    if (!countsTowardVolume(set)) {
+      continue;
+    }
     const reps = set.reps ?? 0;
     if (reps > 0 && set.weightLb > 0) {
       total += reps * set.weightLb;

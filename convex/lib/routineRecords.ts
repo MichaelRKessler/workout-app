@@ -13,6 +13,7 @@ import {
   type RoutineExercise,
   type RoutineTargets,
 } from "./routinePlan";
+import { setExerciseRest } from "./rest";
 import { getOrCreateExercise, getOwnedSession } from "./workouts";
 
 type Reader = QueryCtx | MutationCtx;
@@ -57,6 +58,7 @@ export async function resolveRoutineExercises(
     targetWeightLb?: number;
     targetDurationSec?: number;
     targetDistanceM?: number;
+    restSeconds?: number | null;
   }>,
 ): Promise<Array<RoutineTargets & { exerciseId: Id<"exercises"> }>> {
   if (exercises.length < 1) {
@@ -74,6 +76,13 @@ export async function resolveRoutineExercises(
       throw new Error("Each exercise can be in a routine once");
     }
     seen.add(exerciseId);
+    if (exercise.restSeconds !== undefined) {
+      const stored = await ctx.db.get("exercises", exerciseId);
+      if (!stored || stored.userId !== userId) {
+        throw new Error("Exercise not found");
+      }
+      await setExerciseRest(ctx, userId, stored, exercise.restSeconds);
+    }
     resolved.push({
       exerciseId,
       ...normalizeTargets(exercise),
@@ -137,17 +146,20 @@ export async function presentRoutineExercises(
   userId: Id<"users">,
   exercises: RoutineExercise[],
 ) {
-  const names = await exerciseNames(ctx, userId, exercises);
   const presented = [];
   for (const exercise of exercises) {
     const exerciseId = ctx.db.normalizeId("exercises", exercise.exerciseId);
-    const name = exerciseId ? names.get(exerciseId) : undefined;
-    if (!exerciseId || !name) {
+    if (!exerciseId) {
+      continue;
+    }
+    const stored = await ctx.db.get("exercises", exerciseId);
+    if (!stored || stored.userId !== userId) {
       continue;
     }
     presented.push({
       exerciseId,
-      name,
+      name: stored.name,
+      restSeconds: stored.restSeconds ?? null,
       ...presentTargets(exercise),
     });
   }

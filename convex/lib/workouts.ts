@@ -2,6 +2,7 @@ import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { formatExerciseName, MAX_KNOWN_EXERCISE_NAMES } from "./exerciseName";
 import { normalizeStoredSet, type NormalizedSet } from "./measures";
+import { persistedSetType, resolvedSetType, type SetType } from "./setType";
 
 export const MAX_SETS_PER_SESSION = 500;
 
@@ -69,6 +70,7 @@ export function presentSet(set: {
   durationSec?: number;
   distanceM?: number;
   rpe?: number;
+  setType?: SetType;
 }) {
   return {
     reps: set.reps ?? null,
@@ -76,6 +78,7 @@ export function presentSet(set: {
     durationSec: set.durationSec ?? null,
     distanceM: set.distanceM ?? null,
     rpe: set.rpe ?? null,
+    setType: resolvedSetType(set.setType),
   };
 }
 
@@ -84,12 +87,26 @@ export function recordPoint(set: {
   weightLb: number;
   durationSec?: number | null;
   distanceM?: number | null;
+  setType?: SetType | null;
 }) {
   return {
     reps: set.reps ?? null,
     weightLb: set.weightLb,
     durationSec: set.durationSec ?? null,
     distanceM: set.distanceM ?? null,
+    setType: resolvedSetType(set.setType),
+  };
+}
+
+/** Measure fields for an insert or replace. Working omits setType. */
+export function storedSetFields(set: NormalizedSet) {
+  return {
+    weightLb: set.weightLb,
+    ...(set.reps !== undefined ? { reps: set.reps } : {}),
+    ...(set.durationSec !== undefined ? { durationSec: set.durationSec } : {}),
+    ...(set.distanceM !== undefined ? { distanceM: set.distanceM } : {}),
+    ...(set.rpe !== undefined ? { rpe: set.rpe } : {}),
+    ...persistedSetType(set.setType),
   };
 }
 
@@ -99,6 +116,7 @@ export function normalizeSetInput(input: {
   durationSec?: number | null;
   distanceM?: number | null;
   rpe?: number | null;
+  setType?: SetType | null;
 }): NormalizedSet {
   return normalizeStoredSet(input);
 }
@@ -173,6 +191,7 @@ export type PreviousSet = {
   durationSec: number | null;
   distanceM: number | null;
   rpe: number | null;
+  setType: SetType;
 };
 
 export type PreviousExerciseSets = {
@@ -302,6 +321,7 @@ function previousSetsResult(
       durationSec: set.durationSec ?? null,
       distanceM: set.distanceM ?? null,
       rpe: set.rpe ?? null,
+      setType: resolvedSetType(set.setType),
     })),
   };
 }

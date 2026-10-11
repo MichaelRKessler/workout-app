@@ -6,6 +6,7 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { isClientId } from "@/convex/lib/clientIds";
 import type { PersonalRecord } from "@/convex/lib/records";
 import { readableError } from "@/lib/errors";
+import { loadPendingRests, queueRest, savePendingRests, type PendingRest } from "@/lib/exerciseRest";
 import { pluralize } from "@/lib/format";
 import { OFFLINE_BANNER } from "@/lib/offline/messages";
 import {
@@ -62,6 +63,7 @@ export type SaveSetInput = {
   durationSec?: number | null;
   distanceM?: number | null;
   rpe?: number | null;
+  setType?: SetBody["setType"];
   loggedAt?: number;
 };
 
@@ -82,6 +84,7 @@ export type EditSetInput = {
   durationSec?: number | null;
   distanceM?: number | null;
   rpe?: number | null;
+  setType?: SetBody["setType"];
 };
 
 export type WorkoutActionInput = {
@@ -118,6 +121,8 @@ type OfflineLog = {
   readPending: () => number;
   /** Sends the queue now. Returns how many changes are still waiting. */
   syncPending: () => Promise<number>;
+  /** Remembers an exercise rest offline and sends it outside the set batch. */
+  queueExerciseRest: (name: string, restSeconds: number | null) => void;
 };
 
 const OfflineContext = createContext<OfflineLog | null>(null);
@@ -142,6 +147,7 @@ export function OfflineSyncProvider({
 }) {
   const { offline } = useConnectivity();
   const accept = useMutation(api.offline.accept);
+  const setExerciseRest = useMutation(api.exercises.setRest);
   const completeSession = useMutation(api.sessions.complete);
   const keepGoingSession = useMutation(api.sessions.keepGoing);
   const discardSession = useMutation(api.sessions.discard);
@@ -150,6 +156,7 @@ export function OfflineSyncProvider({
   const [snapshot, setSnapshot] = useState<WorkoutSnapshot | null>(null);
   const [flushError, setFlushError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
+  const [restPending, setRestPending] = useState(0);
 
   const outboxRef = useRef(outbox);
   const serialRef = useRef("");
@@ -167,6 +174,7 @@ export function OfflineSyncProvider({
   const completeRef = useRef(completeSession);
   const keepGoingRef = useRef(keepGoingSession);
   const discardRef = useRef(discardSession);
+  const setExerciseRestRef = useRef(setExerciseRest);
   const snapshotSerial = useRef("");
 
   emailRef.current = email;
@@ -175,6 +183,7 @@ export function OfflineSyncProvider({
   completeRef.current = completeSession;
   keepGoingRef.current = keepGoingSession;
   discardRef.current = discardSession;
+  setExerciseRestRef.current = setExerciseRest;
 
   const persist = useCallback((next: Outbox) => {
     const serial = JSON.stringify(next);
@@ -202,6 +211,7 @@ export function OfflineSyncProvider({
     setSnapshot(snap);
     loadedRef.current = true;
     hydratedEmail.current = emailRef.current;
+    setRestPending(loadPendingRests(browserStore()).length);
     setReady(true);
   }, []);
 
@@ -288,30 +298,83 @@ export function OfflineSyncProvider({
     return run;
   }, [sendBatch]);
 
+  const refreshRests = useCallback(() => {
+    const count = loadPendingRests(browserStore()).length;
+    setRestPending(count);
+    return count;
+  }, []);
+
+  const flushRests = useCallback(async () => {
+    if (offlineRef.current || offlineWritesSuspended()) {
+      return loadPendingRests(browserStore()).length;
+    }
+    const pending = loadPendingRests(browserStore());
+    const left: PendingRest[] = [];
+    for (const item of pending) {
+      try {
+        await setExerciseRestRef.current({ name: item.name, restSeconds: item.restSeconds });
+      } catch {
+        left.push(item);
+      }
+    }
+    savePendingRests(browserStore(), left);
+    setRestPending(left.length);
+    return left.length;
+  }, []);
+
+  const queueExerciseRest = useCallback(
+    (name: string, restSeconds: number | null) => {
+      if (offlineWritesSuspended()) {
+        return;
+      }
+      queueRest(browserStore(), name, restSeconds);
+      refreshRests();
+    },
+    [refreshRests],
+  );
+
   const readPending = useCallback(() => {
     ensureLoaded();
-    return pendingChangeCount(outboxRef.current);
+    return pendingChangeCount(outboxRef.current) + loadPendingRests(browserStore()).length;
   }, [ensureLoaded]);
 
   const syncPending = useCallback(async () => {
     ensureLoaded();
-    if (pendingChangeCount(outboxRef.current) === 0 || offlineRef.current) {
-      return pendingChangeCount(outboxRef.current);
+    const restsWaiting = loadPendingRests(browserStore()).length;
+    if (pendingChangeCount(outboxRef.current) === 0 && restsWaiting === 0) {
+      return 0;
     }
-    await flush();
-    return pendingChangeCount(outboxRef.current);
-  }, [ensureLoaded, flush]);
+    if (offlineRef.current) {
+      return pendingChangeCount(outboxRef.current) + restsWaiting;
+    }
+    if (pendingChangeCount(outboxRef.current) > 0) {
+      await flush();
+    }
+    const restsLeft = await flushRests();
+    return pendingChangeCount(outboxRef.current) + restsLeft;
+  }, [ensureLoaded, flush, flushRests]);
 
   useEffect(() => {
-    if (!autoSync || offline || !ready || pendingChangeCount(outbox) === 0) {
+    if (!autoSync || offline || !ready) {
       return;
     }
-    void flush();
-    const timer = window.setInterval(() => {
+    if (pendingChangeCount(outbox) === 0 && restPending === 0) {
+      return;
+    }
+    if (pendingChangeCount(outbox) > 0) {
       void flush();
+    }
+    if (restPending > 0) {
+      void flushRests();
+    }
+    const timer = window.setInterval(() => {
+      if (pendingChangeCount(outboxRef.current) > 0) {
+        void flush();
+      }
+      void flushRests();
     }, RETRY_MS);
     return () => window.clearInterval(timer);
-  }, [autoSync, flush, offline, outbox, ready]);
+  }, [autoSync, flush, flushRests, offline, outbox, ready, restPending]);
 
   const wait = useCallback(async () => {
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -352,6 +415,7 @@ export function OfflineSyncProvider({
           durationSec: set.durationSec ?? null,
           distanceM: set.distanceM ?? null,
           rpe: set.rpe ?? null,
+          ...(set.setType !== undefined ? { setType: set.setType } : {}),
           ...(set.loggedAt !== undefined ? { loggedAt: set.loggedAt } : {}),
         })),
       });
@@ -398,6 +462,7 @@ export function OfflineSyncProvider({
         durationSec: input.durationSec ?? null,
         distanceM: input.distanceM ?? null,
         rpe: input.rpe ?? null,
+        ...(input.setType !== undefined ? { setType: input.setType } : {}),
         syncError: null,
         echoed: false,
       };
@@ -543,7 +608,7 @@ export function OfflineSyncProvider({
       offline,
       outbox,
       snapshot,
-      pendingCount: pendingChangeCount(outbox),
+      pendingCount: pendingChangeCount(outbox) + restPending,
       syncError: firstSyncError(outbox) ?? flushError,
       pendingNames: pendingExerciseNames(outbox),
       saveSets,
@@ -556,6 +621,7 @@ export function OfflineSyncProvider({
       reconcile,
       readPending,
       syncPending,
+      queueExerciseRest,
     }),
     [
       editSet,
@@ -568,6 +634,8 @@ export function OfflineSyncProvider({
       reconcile,
       runAction,
       saveSets,
+      queueExerciseRest,
+      restPending,
       snapshot,
       syncPending,
     ],
@@ -650,6 +718,7 @@ function measurePatch(input: EditSetInput): Partial<Omit<SetBody, "loggedAt">> {
     ...(input.durationSec !== undefined ? { durationSec: input.durationSec } : {}),
     ...(input.distanceM !== undefined ? { distanceM: input.distanceM } : {}),
     ...(input.rpe !== undefined ? { rpe: input.rpe } : {}),
+    ...(input.setType !== undefined ? { setType: input.setType } : {}),
   };
 }
 
@@ -716,6 +785,7 @@ function batchPayload(batch: SyncBatch) {
       ...(set.set.durationSec !== null ? { durationSec: set.set.durationSec } : {}),
       ...(set.set.distanceM !== null ? { distanceM: set.set.distanceM } : {}),
       ...(set.set.rpe !== null ? { rpe: set.set.rpe } : {}),
+      ...(set.set.setType !== undefined ? { setType: set.set.setType } : {}),
       ...(set.note ? { note: set.note } : {}),
     })),
     edits: batch.edits.map((edit) => ({
@@ -726,6 +796,7 @@ function batchPayload(batch: SyncBatch) {
       ...(edit.durationSec !== null ? { durationSec: edit.durationSec } : {}),
       ...(edit.distanceM !== null ? { distanceM: edit.distanceM } : {}),
       ...(edit.rpe !== null ? { rpe: edit.rpe } : {}),
+      ...(edit.setType !== undefined ? { setType: edit.setType } : {}),
     })),
     deletes: batch.deletes.map((deletion) => ({
       deleteId: deletion.deleteId,

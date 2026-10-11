@@ -9,6 +9,7 @@ import { usePreviousExercise } from "@/components/workout/usePreviousExercise";
 import type { Id } from "@/convex/_generated/dataModel";
 import type { SetKind } from "@/convex/lib/measures";
 import { pluralize } from "@/lib/format";
+import { SetTypePicker } from "@/components/SetTypePicker";
 import type { DraftSet, VoiceDraft } from "@/lib/voice/confirm";
 import { MAX_VOICE_SETS } from "@/lib/voice/proposal";
 
@@ -244,6 +245,11 @@ function ExerciseConfirmBlock({
               disabled={saving}
               onChange={(kind) => updateSet(setIndex, { kind })}
             />
+            <SetTypePicker
+              value={set.setType}
+              disabled={saving}
+              onChange={(setType) => updateSet(setIndex, { setType })}
+            />
             <div className="grid grid-cols-2 gap-2">
               {set.kind === "strength" ? (
                 <Field
@@ -378,5 +384,6 @@ function blankSet(): DraftSet {
     distance: "",
     rpe: "",
     weightLb: 0,
+    setType: "working",
   };
 }

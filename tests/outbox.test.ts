@@ -392,6 +392,49 @@ test("completed placements stay off the open workout", () => {
   assert.equal(pendingChangeCount(queued), 1);
 });
 
+test("a queued set type round-trips and an older payload stays working", () => {
+  const queued = enqueueSets(emptyOutbox(), {
+    placement: "open",
+    sessionId: null,
+    sessionClientId: "session0001",
+    sessionStartedAt: NOW,
+    note: null,
+    now: NOW,
+    sets: [
+      {
+        clientId: "warmup0001",
+        exerciseName: "Bench press",
+        reps: 10,
+        weightLb: 95,
+        durationSec: null,
+        distanceM: null,
+        rpe: null,
+        setType: "warmup",
+      },
+    ],
+  }).outbox;
+  const store = memoryStore();
+  saveOutbox(store, "lifter@example.com", queued);
+  assert.equal(loadOutbox(store, "lifter@example.com").sets[0]?.set.setType, "warmup");
+  const older = parseOutbox({
+    sets: [
+      {
+        clientId: "old000001",
+        revision: 1,
+        placement: "open",
+        sessionClientId: "session0001",
+        set: {
+          exerciseName: "Bench press",
+          reps: 5,
+          weightLb: 135,
+          loggedAt: NOW,
+        },
+      },
+    ],
+  });
+  assert.equal(older.sets[0]?.set.setType, undefined);
+});
+
 test("corrupt storage becomes an empty queue and a good queue round-trips", () => {
   const store = memoryStore();
   store.set("workout-offline:outbox:lifter@example.com", "{");

@@ -41,6 +41,7 @@ function voiceSet(
     durationSec: extra.durationSec ?? null,
     distanceM: extra.distanceM ?? null,
     rpe: extra.rpe ?? null,
+    setType: "working",
   };
 }
 
@@ -53,6 +54,7 @@ function blankDraft(reps: string, weight: string) {
     distance: "",
     rpe: "",
     weightLb: null,
+    setType: "working",
   };
 }
 
@@ -285,6 +287,7 @@ describe("gemini request", () => {
     expect(WORKOUT_PARSE_PROMPT).toMatch(/three sets/i);
     expect(WORKOUT_PARSE_PROMPT).toMatch(/bodyweight/i);
     expect(WORKOUT_PARSE_PROMPT).toMatch(/kg/i);
+    expect(WORKOUT_PARSE_PROMPT).toMatch(/warm-up/i);
     expect(WORKOUT_PARSE_PROMPT).not.toMatch(/keep only the first/i);
   });
 
