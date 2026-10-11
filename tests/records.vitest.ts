@@ -153,6 +153,9 @@ describe("best efforts and volume", () => {
     expect(trend.points.map((point) => point.sessionId)).toEqual(["old", "new"]);
     expect(trend.points[0]?.value).toBe(epleyOneRepMax(140, 8));
     expect(trend.points[0]?.volumeLb).toBe(8 * 140 + 5 * 150);
+    expect(trend.points[0]?.topWeightLb).toBe(150);
+    expect(trend.points[0]?.bestWeightSet).toMatchObject({ reps: 5, weightLb: 150 });
+    expect(trend.points[0]?.bestEpleySet).toMatchObject({ reps: 8, weightLb: 140 });
   });
 
   test("warm-ups and drops stay off the record series, and drops stay in volume", () => {
@@ -191,6 +194,9 @@ describe("best efforts and volume", () => {
     expect(trend.points.map((point) => point.sessionId)).toEqual(["work"]);
     expect(trend.points[0]?.value).toBe(epleyOneRepMax(135, 5));
     expect(trend.points[0]?.volumeLb).toBe(8 * 100 + 5 * 135);
+    expect(trend.points[0]?.topWeightLb).toBe(135);
+    expect(trend.points[0]?.epleyLb).toBe(epleyOneRepMax(135, 5));
+    expect(trend.points[0]?.bestEpleySet).toMatchObject({ reps: 5, weightLb: 135 });
   });
 
   test("warm-ups skip records and volume, and drop sets skip records only", () => {
