@@ -10,7 +10,7 @@ Settings sit behind the avatar in the top right: dark mode, installing the app, 
 
 ## Run it locally
 
-You need Node.js 20+ and a Convex account. The Next.js app and the Convex backend run as two processes.
+You need Node.js 24 and a Convex account. The Next.js app and the Convex backend run as two processes.
 
 ```bash
 npm install
@@ -104,6 +104,8 @@ npm run build
 ```
 
 `npm run build` succeeds before the Convex URL and Google keys exist. Signing in and saving workouts needs those values and `npx convex dev` running (or a deployed Convex backend).
+
+Pull requests and pushes to `main` run these same commands in GitHub Actions. That workflow does not use a Convex URL, a Gemini key, or any other secret.
 
 ## Deployment
 
