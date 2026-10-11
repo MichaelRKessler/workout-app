@@ -11,6 +11,9 @@ import {
   dateTickBoxes,
   defaultChartRange,
   filterByRange,
+  formatChartDelta,
+  formatChartSet,
+  formatChartValue,
   formatYTick,
   gapThresholdMs,
   layoutDateTicks,
@@ -19,8 +22,12 @@ import {
   nearestPointIndex,
   niceYScale,
   plotSizeAtViewport,
+  pointerMoved,
+  pointerXInView,
   prepareYScale,
   recordPoints,
+  selectionAfter,
+  seriesLayout,
   splitSegments,
   timeToX,
   type ChartRange,
@@ -348,6 +355,98 @@ test("a layoff splits the line, and the curve and trend stay defined", () => {
   assert.ok(trend.y2 > trend.y1);
   assert.equal(linearTrend([{ x: 0, y: 1 }, { x: 1, y: 2 }]), null);
 });
+
+test("chart values round onto one line and keep a sign on the change", () => {
+  assert.equal(formatChartValue(800 / 3, "epley", "lb"), "267 lb");
+  assert.equal(formatChartValue(180, "weight", "lb"), "180 lb");
+  assert.equal(formatChartValue(180, "body", "kg"), "81.5 kg");
+  assert.equal(formatChartValue(220.46, "body", "kg"), "100 kg");
+  assert.equal(formatChartValue(0, "weight", "lb"), "bodyweight");
+  assert.equal(formatChartValue(9420.6, "volume", "lb"), "9,421 lb");
+  assert.equal(formatChartValue(8.6, "reps", "lb"), "9 reps");
+  assert.equal(formatChartValue(90, "time", "lb"), "1:30");
+  assert.equal(formatChartValue(5000, "distance", "lb"), "5.00 km");
+  assert.equal(formatChartValue(1.25 * 1609.344, "distance", "lb"), "1.25 mi");
+
+  assert.equal(formatChartDelta(85.83, "epley", "lb"), "+86 lb");
+  assert.equal(formatChartDelta(-7.2, "body", "lb"), "−7 lb");
+  assert.equal(formatChartDelta(0.2, "weight", "lb"), "0 lb");
+  assert.equal(formatChartDelta(1500.4, "volume", "lb"), "+1,500 lb");
+  assert.equal(formatChartDelta(-45, "time", "lb"), "−0:45");
+  assert.equal(formatChartDelta(0, "reps", "lb"), "0 reps");
+
+  const set = formatChartSet(
+    { reps: 5, weightLb: 180, durationSec: null, distanceM: null },
+    "epley",
+    "lb",
+  );
+  assert.equal(set, "5×180 lb");
+  assert.equal(formatChartSet(null, "body", "lb"), null);
+
+  for (const viewport of [360, 390, 412]) {
+    const inner = viewport - 45 - 36;
+    const column = (inner - 9 * 2) / 3;
+    const text = formatChartValue(800 / 3, "epley", "lb");
+    assert.ok(
+      estimateFits(text, column),
+      `${text} is wider than a ${viewport}px stat column (${column})`,
+    );
+  }
+});
+
+test("a tap selects, a second tap or a tap away clears, and a drag keeps the point", () => {
+  assert.equal(selectionAfter(null, { type: "tap", key: "2026-10-05" }), "2026-10-05");
+  assert.equal(selectionAfter("2026-10-05", { type: "tap", key: "2026-10-05" }), null);
+  assert.equal(selectionAfter("2026-10-05", { type: "tap", key: "2026-10-08" }), "2026-10-08");
+  assert.equal(selectionAfter("2026-10-05", { type: "scrub", key: "2026-10-08" }), "2026-10-08");
+  assert.equal(selectionAfter("2026-10-05", { type: "scrub", key: "2026-10-05" }), "2026-10-05");
+  assert.equal(selectionAfter("2026-10-05", { type: "outside" }), null);
+  assert.equal(selectionAfter("2026-10-05", { type: "scroll" }), null);
+  assert.equal(selectionAfter(null, { type: "scroll" }), null);
+  assert.equal(pointerMoved(0, 0, 4, 4), false);
+  assert.equal(pointerMoved(0, 0, 12, 0), true);
+});
+
+test("the guide, the dot, and a hit at that x are the same point", () => {
+  const now = Date.UTC(2026, 9, 11, 18);
+  const day = 24 * 60 * 60 * 1000;
+  const plotted = [
+    { startedAt: now - 36 * day, value: 180, dayKey: "2026-09-05" },
+    { startedAt: now - 20 * day, value: 210, dayKey: "2026-09-21" },
+    { startedAt: now - 6 * day, value: 800 / 3, dayKey: "2026-10-05" },
+  ];
+  for (const viewport of [360, 390, 412]) {
+    const width = Math.round(viewport - 45 - 36);
+    const layout = seriesLayout(plotted, "3m", now, width, "epley", "lb");
+    assert.ok(layout);
+    layout.coords.forEach((coord, index) => {
+      assert.equal(nearestPointIndex(layout.coords, coord.x), index);
+      assert.equal(coord.x, layout.coords[index]?.x);
+      assert.ok(coord.x >= layout.plotLeft - 0.01);
+    });
+    const oct5 = layout.coords[2];
+    assert.ok(oct5);
+    assert.equal(nearestPointIndex(layout.coords, pointerXInView(oct5.x, 0, width, width)), 2);
+    const scaledWidth = width * 0.92;
+    const finger = oct5.x * 0.92;
+    assert.equal(
+      nearestPointIndex(layout.coords, pointerXInView(finger, 0, scaledWidth, width)),
+      2,
+    );
+    const unscaled = nearestPointIndex(layout.coords, finger);
+    assert.notEqual(unscaled, 2);
+  }
+});
+
+function estimateFits(text: string, column: number): boolean {
+  let em = 0;
+  for (const char of text) {
+    if (char === " ") em += 0.34;
+    else if (char === "," || char === ".") em += 0.3;
+    else em += 0.62;
+  }
+  return em * 22 <= column;
+}
 
 function assertNoOverlap(ticks: DateTick[], plotLeft: number, plotRight: number, label: string) {
   const boxes = dateTickBoxes(ticks).sort((left, right) => left.left - right.left);
