@@ -4,30 +4,33 @@ import { Button } from "@/components/Button";
 import { BrandMark } from "@/components/icons";
 import { InstallOffer } from "@/components/InstallOffer";
 import { readableError } from "@/lib/errors";
+import { safeNextPath } from "@/lib/safeNext";
 import { useAuthActions } from "@convex-dev/auth/react";
 import { useConvexAuth } from "convex/react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
 
 export function SignInScreen() {
   const { signIn } = useAuthActions();
   const { isAuthenticated, isLoading } = useConvexAuth();
   const router = useRouter();
+  const params = useSearchParams();
+  const dest = safeNextPath(params.get("next"));
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (isAuthenticated) {
-      router.replace("/");
+      router.replace(dest);
     }
-  }, [isAuthenticated, router]);
+  }, [dest, isAuthenticated, router]);
 
   async function onGoogle(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setPending(true);
     setError(null);
     try {
-      await signIn("google", { redirectTo: "/" });
+      await signIn("google", { redirectTo: dest });
     } catch (caught) {
       setError(readableError(caught));
       setPending(false);

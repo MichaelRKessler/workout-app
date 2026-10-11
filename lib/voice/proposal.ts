@@ -1,4 +1,5 @@
 import { formatExerciseName } from "../../convex/lib/exerciseName";
+import { cleanSupersetId, normalizeSupersetItems } from "../../convex/lib/superset";
 import { MAX_NOTE_LENGTH } from "../../convex/lib/measures";
 import { isSetType, type SetType } from "../../convex/lib/setType";
 import { LB_PER_KG, type WeightUnit } from "../../convex/lib/units";
@@ -20,6 +21,7 @@ durationSec is seconds, or 0 when the set is not timed. "plank 60 seconds" is du
 distanceM is meters, or 0 when there is no distance. "row 2k" is 2000. "3 miles" is 4828.
 rpe is an effort from 1 to 10, or 0 when they did not say one.
 setType is "warmup" for a warm-up set, "drop" for a drop set, "failure" when they say to failure or a failure set, and "working" otherwise.
+superset is a short label such as "1" shared by exercises they grouped as a superset, giant set, or circuit. "superset curls and pushdowns, 3 rounds of 12 at 30 and 50" is two exercises with the same label, each expanded to 3 sets: the first exercise uses the first weight and the second exercise uses the second. Use an empty string when the exercise is not grouped.
 note is a short remark about the workout, or an empty string.`;
 
 export const WORKOUT_PARSE_PROMPT = `You log strength, timed, and distance exercises from a short spoken recording.
@@ -106,8 +108,13 @@ export const WORKOUT_RESPONSE_SCHEMA = {
               "One object per set. Expand phrases such as three sets into three objects.",
             items: SET_SCHEMA,
           },
+          superset: {
+            type: "string",
+            description:
+              'A short label such as "1" shared by exercises in one superset. Empty when the exercise is not grouped.',
+          },
         },
-        required: ["exerciseName", "sets"],
+        required: ["exerciseName", "sets", "superset"],
       },
     },
   },
@@ -128,6 +135,8 @@ export type VoiceProposal = {
   exercises: Array<{
     exerciseName: string;
     sets: VoiceSet[];
+    /** Set when this exercise shares a superset with a neighbor. */
+    supersetId?: string;
   }>;
 };
 
@@ -249,13 +258,22 @@ export function normalizeGeminiWorkout(
         "invalid",
       );
     }
+    const supersetId = cleanSupersetId(raw.superset);
     exercises.push({
       exerciseName: formatted.name,
       sets: raw.sets.map((set) => normalizeSet(set, subject, assumedUnit)),
+      ...(supersetId ? { supersetId } : {}),
     });
   }
 
-  return { note: normalizeNote(value.note), exercises };
+  return {
+    note: normalizeNote(value.note),
+    exercises: normalizeSupersetItems(exercises).map((exercise) =>
+      exercise.supersetId
+        ? exercise
+        : { exerciseName: exercise.exerciseName, sets: exercise.sets },
+    ),
+  };
 }
 
 function exerciseList(value: Record<string, unknown>): unknown[] {

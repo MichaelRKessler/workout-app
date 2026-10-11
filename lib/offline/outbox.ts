@@ -17,6 +17,8 @@ export type SetBody = {
   rpe: number | null;
   setType?: SetType;
   loggedAt: number;
+  /** Present when this set was confirmed as part of a superset. */
+  supersetId?: string;
 };
 
 export type PendingSet = {
@@ -216,6 +218,7 @@ export function enqueueSets(
         distanceM: set.distanceM,
         rpe: set.rpe,
         ...(set.setType !== undefined ? { setType: set.setType } : {}),
+        ...(set.supersetId ? { supersetId: set.supersetId } : {}),
         loggedAt,
       },
       syncError: null,
@@ -898,6 +901,9 @@ function parsePendingSet(value: unknown): PendingSet | null {
       distanceM: typeof body.distanceM === "number" ? body.distanceM : null,
       rpe: typeof body.rpe === "number" ? body.rpe : null,
       ...(isSetType(body.setType) ? { setType: body.setType } : {}),
+      ...(typeof body.supersetId === "string" && body.supersetId.length > 0
+        ? { supersetId: body.supersetId }
+        : {}),
       loggedAt: typeof body.loggedAt === "number" ? body.loggedAt : 0,
     },
     syncError: typeof value.syncError === "string" ? value.syncError : null,

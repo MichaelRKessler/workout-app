@@ -12,6 +12,7 @@ import type { SetLine } from "@/lib/groupSets";
 import { prefillValues, setFromPrefill } from "@/lib/prefill";
 import { formatSuggestion, suggestionAlreadyShown, suggestNext } from "@/lib/suggestion";
 import { planProgress, routinePrefillFromTarget } from "@/convex/lib/routinePlan";
+import { cleanSupersetId, supersetBlocks, supersetNextId } from "@/convex/lib/superset";
 
 export type PlanRow = {
   exerciseId: string;
@@ -23,6 +24,7 @@ export type PlanRow = {
   targetDistanceM: number | null;
   skipped: boolean;
   sets: SetLine[];
+  supersetId: string | null;
 };
 
 export function WorkoutPlanList({
@@ -38,6 +40,8 @@ export function WorkoutPlanList({
   repeatingId,
   onSkip,
   onMove,
+  onLink,
+  onUnlink,
   onEditSet,
   onRemoveSet,
   removingId,
@@ -54,36 +58,74 @@ export function WorkoutPlanList({
   repeatingId: string | null;
   onSkip: (exerciseId: string, skipped: boolean) => void;
   onMove: (index: number, direction: -1 | 1) => void;
+  onLink: (index: number) => void;
+  onUnlink: (index: number) => void;
   onEditSet: (set: SetLine) => void;
   onRemoveSet: (setId: string) => void;
   removingId: string | null;
 }) {
+  const nextId = supersetNextId(
+    rows.map((row) => ({
+      exerciseId: row.exerciseId,
+      skipped: row.skipped,
+      setCount: row.sets.length,
+      targetSets: row.targetSets,
+      supersetId: row.supersetId,
+    })),
+  );
+  const blocks = supersetBlocks(rows);
   return (
     <section aria-label={name ? `${name} plan` : "Workout plan"} className="mt-2">
       <h2 className="pt-4 text-xs font-medium tracking-[0.06em] text-subtle uppercase">
         {name ? `Plan · ${name}` : "Plan"}
       </h2>
       <ul className="flex flex-col">
-        {rows.map((row, index) => (
-          <PlanRowView
-            key={row.exerciseId}
-            row={row}
-            index={index}
-            count={rows.length}
-            logging={loggingId === row.exerciseId}
-            setsLoading={setsLoading}
-            offline={offline}
-            sessionSets={sessionSets}
-            excludeSessionId={excludeSessionId}
-            repeating={repeatingId === row.exerciseId}
-            removingId={removingId}
-            onLog={onLog}
-            onRepeat={() => onRepeat(row)}
-            onSkip={onSkip}
-            onMove={onMove}
-            onEditSet={onEditSet}
-            onRemoveSet={onRemoveSet}
-          />
+        {blocks.map((block) => (
+          <li
+            key={block.items.map((item) => item.exerciseId).join(":")}
+            className={block.supersetId ? "my-1 border-l-2 border-foreground pl-2" : undefined}
+          >
+            {block.supersetId ? (
+              <p className="pt-3 text-xs font-medium tracking-[0.06em] text-subtle uppercase">
+                Superset
+              </p>
+            ) : null}
+            <ul>
+              {block.items.map((row) => {
+                const index = rows.findIndex((item) => item.exerciseId === row.exerciseId);
+                const next = rows[index + 1];
+                const linkedWithNext =
+                  cleanSupersetId(row.supersetId) !== undefined &&
+                  cleanSupersetId(row.supersetId) === cleanSupersetId(next?.supersetId);
+                return (
+                  <PlanRowView
+                    key={row.exerciseId}
+                    row={row}
+                    index={index}
+                    count={rows.length}
+                    isNext={row.exerciseId === nextId}
+                    canLink={index >= 0 && index < rows.length - 1 && !linkedWithNext}
+                    canUnlink={Boolean(cleanSupersetId(row.supersetId))}
+                    logging={loggingId === row.exerciseId}
+                    setsLoading={setsLoading}
+                    offline={offline}
+                    sessionSets={sessionSets}
+                    excludeSessionId={excludeSessionId}
+                    repeating={repeatingId === row.exerciseId}
+                    removingId={removingId}
+                    onLog={onLog}
+                    onRepeat={() => onRepeat(row)}
+                    onSkip={onSkip}
+                    onMove={onMove}
+                    onLink={onLink}
+                    onUnlink={onUnlink}
+                    onEditSet={onEditSet}
+                    onRemoveSet={onRemoveSet}
+                  />
+                );
+              })}
+            </ul>
+          </li>
         ))}
       </ul>
     </section>
@@ -94,6 +136,9 @@ function PlanRowView({
   row,
   index,
   count,
+  isNext,
+  canLink,
+  canUnlink,
   logging,
   setsLoading,
   offline,
@@ -105,12 +150,17 @@ function PlanRowView({
   onRepeat,
   onSkip,
   onMove,
+  onLink,
+  onUnlink,
   onEditSet,
   onRemoveSet,
 }: {
   row: PlanRow;
   index: number;
   count: number;
+  isNext: boolean;
+  canLink: boolean;
+  canUnlink: boolean;
   logging: boolean;
   setsLoading: boolean;
   offline: boolean;
@@ -122,6 +172,8 @@ function PlanRowView({
   onRepeat: () => void;
   onSkip: (exerciseId: string, skipped: boolean) => void;
   onMove: (index: number, direction: -1 | 1) => void;
+  onLink: (index: number) => void;
+  onUnlink: (index: number) => void;
   onEditSet: (set: SetLine) => void;
   onRemoveSet: (setId: string) => void;
 }) {
@@ -136,7 +188,14 @@ function PlanRowView({
         <PlanMark done={progress.done} skipped={row.skipped} />
         <ExerciseTile name={row.name} />
         <span className="flex min-w-0 flex-1 flex-col">
-          <span className="truncate text-base font-semibold tracking-[-0.01em]">{row.name}</span>
+          <span className="flex min-w-0 items-center gap-2">
+            <span className="truncate text-base font-semibold tracking-[-0.01em]">{row.name}</span>
+            {isNext ? (
+              <span className="shrink-0 rounded-full bg-fill px-2 py-0.5 text-xs font-medium text-muted">
+                Next
+              </span>
+            ) : null}
+          </span>
           {detail ? <span className="text-sm text-muted">{detail}</span> : null}
           {row.sets.length > 0 ? (
             <span className="mt-0.5 flex flex-wrap gap-x-3 font-mono text-sm text-muted">
@@ -198,6 +257,16 @@ function PlanRowView({
         >
           {row.skipped ? "Undo skip" : "Skip"}
         </TextAction>
+        {canLink ? (
+          <TextAction label={`Superset ${row.name} with the next exercise`} onClick={() => onLink(index)}>
+            Superset
+          </TextAction>
+        ) : null}
+        {canUnlink ? (
+          <TextAction label={`Ungroup ${row.name}`} onClick={() => onUnlink(index)}>
+            Ungroup
+          </TextAction>
+        ) : null}
         {row.sets.length > 0 ? (
           <TextAction
             label={`Remove the last set of ${row.name}`}

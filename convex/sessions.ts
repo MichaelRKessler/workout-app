@@ -31,6 +31,7 @@ import {
   presentRoutineExercises,
 } from "./lib/routineRecords";
 import { MAX_ROUTINE_NAME_LENGTH } from "./lib/routinePlan";
+import { normalizeSupersetItems } from "./lib/superset";
 import {
   EXERCISE_RECORD_SCAN,
   MAX_SETS_PER_SESSION,
@@ -48,6 +49,7 @@ const exerciseSummaryValidator = v.object({
   exerciseId: v.id("exercises"),
   name: v.string(),
   setCount: v.number(),
+  supersetId: v.union(v.string(), v.null()),
 });
 
 const historyItemValidator = v.object({
@@ -86,6 +88,7 @@ const planItemValidator = v.object({
   targetDurationSec: v.union(v.number(), v.null()),
   targetDistanceM: v.union(v.number(), v.null()),
   skipped: v.boolean(),
+  supersetId: v.union(v.string(), v.null()),
 });
 
 const startedResult = v.union(
@@ -141,11 +144,25 @@ async function loadSessionSets(ctx: QueryCtx | MutationCtx, sessionId: Id<"sessi
 
 function summarizeExercises(
   sets: Array<{ exerciseId: Id<"exercises">; exerciseName: string }>,
+  plan?: Array<{ exerciseId: Id<"exercises">; supersetId?: string }>,
 ) {
+  const grouped = normalizeSupersetItems(
+    (plan ?? []).map((item) => ({
+      exerciseId: item.exerciseId,
+      supersetId: item.supersetId,
+    })),
+  );
+  const supersetByExercise = new Map<Id<"exercises">, string>();
+  for (const item of grouped) {
+    if (item.supersetId) {
+      supersetByExercise.set(item.exerciseId as Id<"exercises">, item.supersetId);
+    }
+  }
   const summaries: Array<{
     exerciseId: Id<"exercises">;
     name: string;
     setCount: number;
+    supersetId: string | null;
   }> = [];
   for (const set of sets) {
     const existing = summaries.find(
@@ -158,6 +175,7 @@ function summarizeExercises(
         exerciseId: set.exerciseId,
         name: set.exerciseName,
         setCount: 1,
+        supersetId: supersetByExercise.get(set.exerciseId) ?? null,
       });
     }
   }
@@ -225,8 +243,34 @@ export const getOpen = authedQuery({
         targetDurationSec: item.targetDurationSec,
         targetDistanceM: item.targetDistanceM,
         skipped: skipped.get(item.exerciseId) ?? false,
+        supersetId: item.supersetId,
       })),
     };
+  },
+});
+
+/** The newest finished workout, for the Repeat last shortcut. */
+export const latestCompleted = authedQuery({
+  args: {},
+  returns: v.union(
+    v.object({
+      _id: v.id("sessions"),
+      startedAt: v.number(),
+    }),
+    v.null(),
+  ),
+  handler: async (ctx) => {
+    const session = await ctx.db
+      .query("sessions")
+      .withIndex("by_user_status_and_started", (q) =>
+        q.eq("userId", ctx.userId).eq("status", "completed"),
+      )
+      .order("desc")
+      .first();
+    if (!session || session.userId !== ctx.userId) {
+      return null;
+    }
+    return { _id: session._id, startedAt: session.startedAt };
   },
 });
 
@@ -292,6 +336,7 @@ export const setPlan = authedMutation({
         targetDurationSec: v.optional(v.number()),
         targetDistanceM: v.optional(v.number()),
         skipped: v.optional(v.boolean()),
+        supersetId: v.optional(v.string()),
       }),
     ),
   },
@@ -421,7 +466,7 @@ export const listHistory = authedQuery({
           _id: session._id,
           startedAt: session.startedAt,
           completedAt: session.completedAt ?? session.startedAt,
-          exercises: summarizeExercises(sets),
+          exercises: summarizeExercises(sets, session.plan),
           volumeLb: volumeLb(sets),
         };
       }),
@@ -666,6 +711,7 @@ export const listDay = authedQuery({
         exerciseId: Id<"exercises">;
         name: string;
         setCount: number;
+        supersetId: string | null;
       }>;
       sets: Awaited<ReturnType<typeof loadSessionSets>>;
       volumeLb: number;
@@ -678,7 +724,7 @@ export const listDay = authedQuery({
         startedAt: session.startedAt,
         completedAt: session.completedAt ?? null,
         note: session.note ?? null,
-        exercises: summarizeExercises(sets),
+        exercises: summarizeExercises(sets, session.plan),
         sets,
         volumeLb: volumeLb(sets),
       });
@@ -936,7 +982,7 @@ export const get = authedQuery({
       startedAt: session.startedAt,
       completedAt: session.completedAt ?? null,
       note: session.note ?? null,
-      exercises: summarizeExercises(sets),
+      exercises: summarizeExercises(sets, session.plan),
       sets,
     };
   },

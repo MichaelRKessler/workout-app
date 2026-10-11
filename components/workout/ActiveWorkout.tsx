@@ -42,6 +42,9 @@ export function ActiveWorkout({
   exerciseCount,
   planList,
   composer,
+  restHold = false,
+  restExerciseName,
+  onLinkFree,
 }: {
   startedAt: number;
   groups: Group[];
@@ -62,6 +65,11 @@ export function ActiveWorkout({
   exerciseCount?: number;
   planList?: ReactNode;
   composer: ComponentProps<typeof Composer>;
+  /** True while a superset round is still missing a member. */
+  restHold?: boolean;
+  /** Whose rest to run. Undefined follows the exercise that was just logged. */
+  restExerciseName?: string | null;
+  onLinkFree?: (index: number) => void;
 }) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const empty = !loadingSets && setCount === 0;
@@ -76,7 +84,8 @@ export function ActiveWorkout({
       }
     }
   }
-  const exerciseRest = useExerciseRest(setCount > 0 ? newestName : null);
+  const restName = restExerciseName !== undefined ? restExerciseName : setCount > 0 ? newestName : null;
+  const exerciseRest = useExerciseRest(restName);
 
   return (
     <>
@@ -105,8 +114,10 @@ export function ActiveWorkout({
               <RestTimer
                 setCount={setCount}
                 loading={loadingSets}
+                hold={restHold}
+                restLabel={!restHold && setCount > 0 ? restName : null}
                 exerciseRestSeconds={setCount > 0 ? exerciseRest.restSeconds : null}
-                onExerciseRest={(seconds) => void exerciseRest.save(seconds)}
+                onExerciseRest={restName ? (seconds) => void exerciseRest.save(seconds) : undefined}
               />
               {empty ? (
                 <Button variant="secondary" onClick={onDiscard} disabled={ending}>
@@ -130,7 +141,7 @@ export function ActiveWorkout({
           </p>
         ) : (
           <ul aria-label="Sets in this workout" className="flex flex-col">
-            {groups.map((group) => (
+            {groups.map((group, index) => (
               <ExerciseRow
                 key={group.exerciseId}
                 name={group.name}
@@ -145,6 +156,17 @@ export function ActiveWorkout({
                 onEditSet={onEditSet}
                 onRemoveSet={onRemoveSet}
                 removingId={removingId}
+                footer={
+                  onLinkFree && index < groups.length - 1 ? (
+                    <button
+                      type="button"
+                      onClick={() => onLinkFree(index)}
+                      className="mb-2 ml-14 min-h-11 text-sm font-medium text-muted"
+                    >
+                      Superset with next
+                    </button>
+                  ) : null
+                }
               />
             ))}
           </ul>

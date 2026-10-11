@@ -4,6 +4,7 @@ import {
   nextjsMiddlewareRedirect,
 } from "@convex-dev/auth/nextjs/server";
 import { NextFetchEvent, NextRequest, NextResponse } from "next/server";
+import { safeNextPath } from "./lib/safeNext";
 
 const isSignInPage = createRouteMatcher(["/signin"]);
 const isProtectedRoute = createRouteMatcher([
@@ -11,16 +12,26 @@ const isProtectedRoute = createRouteMatcher([
   "/history(.*)",
   "/exercises(.*)",
   "/body(.*)",
+  "/routines(.*)",
+  "/start(.*)",
   "/settings",
 ]);
 
 const authMiddleware = convexAuthNextjsMiddleware(
   async (request, { convexAuth }) => {
     if (isSignInPage(request) && (await convexAuth.isAuthenticated())) {
-      return nextjsMiddlewareRedirect(request, "/");
+      const next = safeNextPath(request.nextUrl.searchParams.get("next"));
+      return nextjsMiddlewareRedirect(request, next);
     }
     if (isProtectedRoute(request) && !(await convexAuth.isAuthenticated())) {
-      return nextjsMiddlewareRedirect(request, "/signin");
+      const next = `${request.nextUrl.pathname}${request.nextUrl.search}`;
+      if (next === "/") {
+        return nextjsMiddlewareRedirect(request, "/signin");
+      }
+      return nextjsMiddlewareRedirect(
+        request,
+        `/signin?next=${encodeURIComponent(next)}`,
+      );
     }
     return undefined;
   },

@@ -8,6 +8,7 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { readableError } from "@/lib/errors";
 import { pluralize } from "@/lib/format";
+import { formatSupersetNames } from "@/convex/lib/superset";
 import { moveItem } from "@/convex/lib/routinePlan";
 import {
   loadRoutineCache,
@@ -89,8 +90,8 @@ export function RoutineManager() {
                 <span className="min-w-0">
                   <span className="block truncate text-base font-semibold">{routine.name}</span>
                   <span className="mt-0.5 block truncate text-sm text-muted">
-                    {routine.exerciseNames.length > 0
-                      ? routine.exerciseNames.join(", ")
+                    {routine.exercises.length > 0
+                      ? formatSupersetNames(routine.exercises)
                       : pluralize(routine.exerciseCount, "exercise")}
                   </span>
                 </span>

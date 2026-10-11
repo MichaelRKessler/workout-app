@@ -1,6 +1,7 @@
 "use client";
 
 import { AccessSettings } from "@/components/AccessSettings";
+import { ExportData } from "@/components/ExportData";
 import { InstallOffer } from "@/components/InstallOffer";
 import { PageHeader, SectionLabel } from "@/components/PageHeader";
 import { useOfflineLog } from "@/components/OfflineSync";
@@ -213,6 +214,13 @@ export function SettingsScreen() {
             Numbers stay as they are until you tap it.
             {offline ? " Changing this needs a connection." : ""}
           </p>
+        </div>
+      </section>
+
+      <section aria-labelledby="settings-export" className="mt-7">
+        <SectionLabel id="settings-export">Your data</SectionLabel>
+        <div className="overflow-hidden rounded-[1.25rem] border border-line bg-surface">
+          <ExportData />
         </div>
       </section>
 

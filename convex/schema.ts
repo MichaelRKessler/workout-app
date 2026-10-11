@@ -57,6 +57,9 @@ export default defineSchema({
           targetDurationSec: v.optional(v.number()),
           targetDistanceM: v.optional(v.number()),
           skipped: v.optional(v.boolean()),
+          // Optional so workouts saved before supersets still validate.
+          // Shared by adjacent exercises. Absent means this exercise stands alone.
+          supersetId: v.optional(v.string()),
         }),
       ),
     ),
@@ -97,7 +100,9 @@ export default defineSchema({
     // loggedAt is already on every set. This replaces a user+exercise index
     // that sorted by creation time: a workout logged today for last month
     // must sort by when the set was performed.
-    .index("by_user_exercise_and_logged", ["userId", "exerciseId", "loggedAt"]),
+    .index("by_user_exercise_and_logged", ["userId", "exerciseId", "loggedAt"])
+    // Every set for one person, oldest first. Export pages through this.
+    .index("by_user_and_logged", ["userId", "loggedAt"]),
   routines: defineTable({
     userId: v.id("users"),
     name: v.string(),
@@ -109,6 +114,8 @@ export default defineSchema({
         targetWeightLb: v.optional(v.number()),
         targetDurationSec: v.optional(v.number()),
         targetDistanceM: v.optional(v.number()),
+        // Optional so routines saved before supersets still validate.
+        supersetId: v.optional(v.string()),
       }),
     ),
     sortIndex: v.number(),

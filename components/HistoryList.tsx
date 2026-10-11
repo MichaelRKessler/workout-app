@@ -8,7 +8,8 @@ import { useBrowserTimeZone } from "@/components/useBrowserTimeZone";
 import { useWeightUnit } from "@/components/WeightUnit";
 import { api } from "@/convex/_generated/api";
 import { formatLongDate, formatMonthHeading, monthKey } from "@/lib/format";
-import { formatHistoryDayMeta, visibleHistoryDays, type HistoryDay } from "@/lib/historyDays";
+import { formatHistoryDayMeta, visibleHistoryDays, type HistoryDay, type HistoryExercise } from "@/lib/historyDays";
+import { supersetBlocks } from "@/convex/lib/superset";
 import { usePaginatedQuery } from "convex/react";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
@@ -54,6 +55,7 @@ export function HistoryList() {
           exerciseId: exercise.exerciseId,
           name: exercise.name,
           setCount: exercise.setCount,
+          supersetId: exercise.supersetId,
         })),
       })),
       hasMore,
@@ -160,19 +162,7 @@ export function HistoryList() {
                     </Link>
                     <span className="flex min-w-0 flex-1 flex-col gap-0.5">
                       <span className="line-clamp-2 text-base font-medium">
-                        {day.exercises.length === 0
-                          ? "No sets"
-                          : day.exercises.map((exercise, index) => (
-                              <span key={exercise.exerciseId}>
-                                {index > 0 ? ", " : null}
-                                <Link
-                                  href={`/exercises/${exercise.exerciseId}`}
-                                  className="hover:underline"
-                                >
-                                  {exercise.name}
-                                </Link>
-                              </span>
-                            ))}
+                        {day.exercises.length === 0 ? "No sets" : <HistoryNames exercises={day.exercises} />}
                       </span>
                       <Link href={href} className="text-sm text-pretty text-muted hover:underline">
                         {formatHistoryDayMeta(day, unit)}
@@ -203,4 +193,21 @@ export function HistoryList() {
       ) : null}
     </div>
   );
+}
+
+function HistoryNames({ exercises }: { exercises: HistoryExercise[] }) {
+  const blocks = supersetBlocks(exercises);
+  return blocks.map((block, blockIndex) => (
+    <span key={block.items[0]?.exerciseId ?? blockIndex}>
+      {blockIndex > 0 ? ", " : null}
+      {block.items.map((exercise, index) => (
+        <span key={exercise.exerciseId}>
+          {index > 0 ? (block.supersetId ? " + " : ", ") : null}
+          <Link href={`/exercises/${exercise.exerciseId}`} className="hover:underline">
+            {exercise.name}
+          </Link>
+        </span>
+      ))}
+    </span>
+  ));
 }

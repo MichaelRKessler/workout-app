@@ -16,6 +16,8 @@ export type RoutineTargets = {
 
 export type RoutineExercise = RoutineTargets & {
   exerciseId: string;
+  /** Shared by adjacent exercises. Absent when the exercise stands alone. */
+  supersetId?: string;
 };
 
 export type PlanExercise = RoutineExercise & {

@@ -140,6 +140,50 @@ describe("spoken workout phrases", () => {
   });
 });
 
+describe("supersets", () => {
+  test("a shared label groups two exercises and a lone label is dropped", () => {
+    expect(
+      normalizeGeminiWorkout({
+        exercises: [
+          {
+            exerciseName: "curls",
+            superset: "1",
+            sets: [{ reps: 12, weight: 30, unit: "lb" }],
+          },
+          {
+            exerciseName: "pushdowns",
+            superset: "1",
+            sets: [{ reps: 12, weight: 50, unit: "lb" }],
+          },
+          {
+            exerciseName: "shrug",
+            superset: "only",
+            sets: [{ reps: 10, weight: 40, unit: "lb" }],
+          },
+        ],
+      }),
+    ).toEqual({
+      note: null,
+      exercises: [
+        {
+          exerciseName: "curls",
+          supersetId: "1",
+          sets: [voiceSet(12, 30)],
+        },
+        {
+          exerciseName: "pushdowns",
+          supersetId: "1",
+          sets: [voiceSet(12, 50)],
+        },
+        {
+          exerciseName: "shrug",
+          sets: [voiceSet(10, 40)],
+        },
+      ],
+    });
+  });
+});
+
 describe("more than one exercise, time, and distance", () => {
   test("keeps every exercise and a workout note", () => {
     expect(

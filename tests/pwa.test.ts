@@ -25,6 +25,15 @@ test("manifest meets Chrome installability criteria", () => {
   assert.equal(webAppManifest.theme_color, "#f7f7f5");
   assert.equal(webAppManifest.background_color, "#f7f7f5");
   assert.notEqual(webAppManifest.prefer_related_applications, true);
+  assert.deepEqual(
+    (webAppManifest.shortcuts ?? []).map((shortcut) => [shortcut.name, shortcut.url]),
+    [
+      ["New workout", "/start?action=new"],
+      ["Repeat last workout", "/start?action=repeat"],
+      ["Routines", "/routines"],
+      ["Log body weight", "/body"],
+    ],
+  );
 
   const icons = webAppManifest.icons ?? [];
   for (const size of ["192x192", "512x512"]) {

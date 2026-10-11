@@ -13,6 +13,7 @@ export type CachedRoutineExercise = {
   targetDurationSec: number | null;
   targetDistanceM: number | null;
   restSeconds: number | null;
+  supersetId: string | null;
 };
 
 export type CachedRoutine = {
@@ -175,6 +176,9 @@ function parseExercise(value: unknown): CachedRoutineExercise | null {
     targetDurationSec: numberOrNull(exercise.targetDurationSec),
     targetDistanceM: numberOrNull(exercise.targetDistanceM),
     restSeconds: typeof exercise.restSeconds === "number" ? exercise.restSeconds : null,
+    supersetId: typeof exercise.supersetId === "string" && exercise.supersetId.length > 0
+      ? exercise.supersetId
+      : null,
   };
 }
 

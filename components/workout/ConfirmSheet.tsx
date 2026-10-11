@@ -12,6 +12,7 @@ import { pluralize } from "@/lib/format";
 import { SetTypePicker } from "@/components/SetTypePicker";
 import type { DraftSet, VoiceDraft } from "@/lib/voice/confirm";
 import { MAX_VOICE_SETS } from "@/lib/voice/proposal";
+import { cleanSupersetId, linkWithNext, supersetBlocks, unlinkSuperset } from "@/convex/lib/superset";
 
 const fieldClass =
   "h-12 w-full min-w-0 rounded-xl border border-line bg-background text-center font-mono text-lg font-medium text-foreground outline-none focus:border-foreground disabled:opacity-60";
@@ -69,6 +70,19 @@ export function ConfirmSheet({
     });
   }
 
+  function replaceExercises(exercises: VoiceDraft["exercises"]) {
+    if (!draft) {
+      return;
+    }
+    onChange({
+      ...draft,
+      exercises: exercises.map((exercise) => ({
+        ...exercise,
+        supersetId: cleanSupersetId(exercise.supersetId) ?? null,
+      })),
+    });
+  }
+
   return (
     <Sheet open={open} onClose={onDiscard} labelledBy="confirm-title" dismissible={!saving}>
       <div className="flex items-center justify-between">
@@ -99,19 +113,62 @@ export function ConfirmSheet({
       </div>
 
       <div className="mt-3 flex flex-col gap-4">
-        {draft.exercises.map((exercise, index) => (
-          <ExerciseConfirmBlock
-            key={index}
-            exercise={exercise}
-            index={index}
-            unit={unit}
-            saving={saving}
-            canRemoveExercise={draft.exercises.length > 1}
-            totalSets={count}
-            excludeSessionId={excludeSessionId}
-            onChange={(next) => updateExercise(index, next)}
-            onRemove={() => removeExercise(index)}
-          />
+        {confirmBlocks(draft.exercises).map((block) => (
+          <div
+            key={block.start}
+            className={block.supersetId ? "rounded-2xl border-l-2 border-foreground pl-3" : undefined}
+          >
+            {block.supersetId ? (
+              <div className="mb-2 flex items-center justify-between">
+                <p className="text-xs font-medium tracking-[0.06em] text-subtle uppercase">Superset</p>
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={() => replaceExercises(unlinkSuperset(draft.exercises, block.start))}
+                  className="min-h-11 text-sm font-medium text-muted disabled:opacity-50"
+                >
+                  Ungroup
+                </button>
+              </div>
+            ) : null}
+            <div className="flex flex-col gap-4">
+              {block.indexes.map((at) => {
+                const exercise = draft.exercises[at];
+                const next = draft.exercises[at + 1];
+                if (!exercise) {
+                  return null;
+                }
+                const linked =
+                  cleanSupersetId(exercise.supersetId) !== undefined &&
+                  cleanSupersetId(exercise.supersetId) === cleanSupersetId(next?.supersetId);
+                return (
+                  <div key={`${exercise.exerciseName}-${at}`}>
+                    <ExerciseConfirmBlock
+                      exercise={exercise}
+                      index={at}
+                      unit={unit}
+                      saving={saving}
+                      canRemoveExercise={draft.exercises.length > 1}
+                      totalSets={count}
+                      excludeSessionId={excludeSessionId}
+                      onChange={(nextExercise) => updateExercise(at, nextExercise)}
+                      onRemove={() => removeExercise(at)}
+                    />
+                    {at < draft.exercises.length - 1 && !linked ? (
+                      <button
+                        type="button"
+                        disabled={saving}
+                        onClick={() => replaceExercises(linkWithNext(draft.exercises, at))}
+                        className="mt-2 min-h-11 text-sm font-medium text-muted disabled:opacity-50"
+                      >
+                        Superset with next
+                      </button>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         ))}
       </div>
 
@@ -373,6 +430,17 @@ function Field({
       />
     </label>
   );
+}
+
+function confirmBlocks(exercises: VoiceDraft["exercises"]) {
+  const blocks: Array<{ start: number; supersetId: string | null; indexes: number[] }> = [];
+  let cursor = 0;
+  for (const block of supersetBlocks(exercises)) {
+    const indexes = block.items.map((_, offset) => cursor + offset);
+    blocks.push({ start: cursor, supersetId: block.supersetId, indexes });
+    cursor += block.items.length;
+  }
+  return blocks;
 }
 
 function blankSet(): DraftSet {

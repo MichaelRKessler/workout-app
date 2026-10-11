@@ -12,6 +12,7 @@ import {
   streakLabel,
 } from "@/lib/format";
 import { formatHistoryDayMeta, type HistoryDay } from "@/lib/historyDays";
+import { formatSupersetNames } from "@/convex/lib/superset";
 import { OFFLINE_VOICE_MESSAGE } from "@/lib/offline/messages";
 import Link from "next/link";
 
@@ -162,7 +163,7 @@ function LastWorkoutCard({ workout }: { workout: HistoryDay }) {
           Last workout · {formatShortDate(workout.startedAt)}
         </span>
         <span className="line-clamp-2 text-base font-medium">
-          {workout.exercises.map((exercise) => exercise.name).join(", ") || "No sets"}
+          {workout.exercises.length > 0 ? formatSupersetNames(workout.exercises) : "No sets"}
         </span>
         <span className="text-sm text-pretty text-muted">{formatHistoryDayMeta(workout, unit)}</span>
       </span>

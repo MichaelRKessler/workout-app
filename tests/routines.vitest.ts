@@ -296,4 +296,52 @@ describe("saved routines", () => {
     expect(open?.planName).toBeNull();
     expect(open?.routineId).toBeNull();
   });
+
+  test("a superset survives begin and repeat, and a lone label is dropped", async () => {
+    const t = testBackend();
+    const { asUser } = await signIn(t, "Michael");
+    const routineId = await asUser.mutation(api.routines.create, {
+      name: "Arms",
+      exercises: [
+        { name: "Curl", targetSets: 3, targetReps: 12, supersetId: "arms" },
+        { name: "Pushdown", targetSets: 3, targetReps: 12, supersetId: "arms" },
+        { name: "Shrug", supersetId: "alone" },
+      ],
+    });
+    const saved = await asUser.query(api.routines.get, { routineId });
+    expect(saved?.exercises.map((exercise) => exercise.supersetId)).toEqual(["arms", "arms", null]);
+
+    const started = await asUser.mutation(api.routines.begin, { routineId });
+    expect(started.status).toBe("started");
+    const open = await asUser.query(api.sessions.getOpen, {});
+    expect(open?.plan.map((item) => [item.name, item.supersetId])).toEqual([
+      ["Curl", "arms"],
+      ["Pushdown", "arms"],
+      ["Shrug", null],
+    ]);
+    if (!open) {
+      throw new Error("Expected an open workout");
+    }
+    await asUser.mutation(api.sets.log, {
+      sessionId: open._id,
+      exerciseName: "Curl",
+      reps: 12,
+      weightLb: 30,
+    });
+    await asUser.mutation(api.sets.log, {
+      sessionId: open._id,
+      exerciseName: "Pushdown",
+      reps: 12,
+      weightLb: 50,
+    });
+    await asUser.mutation(api.sessions.complete, { sessionId: open._id });
+
+    const again = await asUser.mutation(api.sessions.repeat, { sessionIds: [open._id] });
+    expect(again.status).toBe("started");
+    const repeated = await asUser.query(api.sessions.getOpen, {});
+    const grouped = (repeated?.plan ?? []).filter((item) => item.name !== "Shrug");
+    expect(grouped.map((item) => item.name)).toEqual(["Curl", "Pushdown"]);
+    expect(grouped[0]?.supersetId).toBeTruthy();
+    expect(grouped[0]?.supersetId).toBe(grouped[1]?.supersetId);
+  });
 });

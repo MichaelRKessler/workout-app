@@ -9,6 +9,8 @@ export type HistoryExercise = {
   exerciseId: string;
   name: string;
   setCount: number;
+  /** Shared with the neighboring exercises logged as one superset. */
+  supersetId?: string | null;
 };
 
 /**
