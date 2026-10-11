@@ -186,7 +186,7 @@ export function RoutineEditor({ routineId }: { routineId?: string }) {
                     type="button"
                     aria-pressed={exercise.kind === kind}
                     onClick={() => patch(exercise.key, { kind: kind satisfies DraftKind })}
-                    className={`min-h-11 flex-1 rounded-full px-1 text-sm font-medium ${
+                    className={`min-h-11 flex-1 whitespace-nowrap rounded-full px-0.5 text-xs font-medium ${
                       exercise.kind === kind ? "bg-inverse text-inverse-ink" : "text-muted"
                     }`}
                   >
