@@ -3,29 +3,18 @@
 import { Button } from "@/components/Button";
 import { CloseIcon, MinusIcon, PlusIcon, SearchIcon } from "@/components/icons";
 import { Sheet } from "@/components/Sheet";
+import { usePreviousExercise } from "@/components/workout/usePreviousExercise";
+import type { Id } from "@/convex/_generated/dataModel";
 import { formatExerciseName } from "@/convex/lib/exerciseName";
 import type { SetLine } from "@/lib/groupSets";
 import { parseReps, parseWeightLb } from "@/lib/numbers";
-import { FormEvent, useState } from "react";
+import { prefillValues, type PrefillSource } from "@/lib/prefill";
+import { FormEvent, useEffect, useState } from "react";
 
 const MAX_CHIPS = 12;
 const WEIGHT_STEP = 5;
 
-type Prefill = { reps: string; weight: string; fromSet: boolean };
-
-function prefillFor(name: string, sessionSets: SetLine[]): Prefill {
-  const normalized = formatExerciseName(name)?.normalizedName;
-  const forExercise = normalized
-    ? sessionSets.filter(
-        (set) => formatExerciseName(set.exerciseName)?.normalizedName === normalized,
-      )
-    : [];
-  const source = forExercise[forExercise.length - 1] ?? sessionSets[sessionSets.length - 1];
-  if (!source) {
-    return { reps: "10", weight: "0", fromSet: false };
-  }
-  return { reps: String(source.reps), weight: String(source.weightLb), fromSet: true };
-}
+type FormValues = { reps: string; weight: string; source: PrefillSource | "edit" };
 
 function step(value: string, delta: number, min: number, max: number, parse: (value: string) => number | null) {
   const current = parse(value) ?? min;
@@ -35,25 +24,53 @@ function step(value: string, delta: number, min: number, max: number, parse: (va
 
 export function ManualEntrySheet({
   open,
+  mode,
   initialExercise,
+  initialReps,
+  initialWeight,
   library,
   sessionSets,
+  excludeSessionId,
   pending,
   onClose,
   onAdd,
 }: {
   open: boolean;
+  mode: "add" | "edit";
   initialExercise: string;
+  initialReps?: number;
+  initialWeight?: number;
   /** Exercise names to offer, most relevant first. */
   library: string[];
   sessionSets: SetLine[];
+  excludeSessionId?: Id<"sessions">;
   pending: boolean;
   onClose: () => void;
   onAdd: (set: { exerciseName: string; reps: number; weightLb: number }) => Promise<string | null>;
 }) {
+  const editing = mode === "edit";
   const [exerciseName, setExerciseName] = useState(initialExercise);
-  const [values, setValues] = useState<Prefill>(() => prefillFor(initialExercise, sessionSets));
+  const [pickedName, setPickedName] = useState(initialExercise);
+  const [dirty, setDirty] = useState(editing);
+  const [values, setValues] = useState<FormValues>(() =>
+    editing
+      ? { reps: String(initialReps ?? 10), weight: String(initialWeight ?? 0), source: "edit" }
+      : prefillValues(initialExercise, sessionSets, null),
+  );
   const [error, setError] = useState<string | null>(null);
+  const history = usePreviousExercise(editing ? initialExercise : exerciseName, excludeSessionId);
+
+  useEffect(() => {
+    if (editing || dirty || history.loading) {
+      return;
+    }
+    const typed = formatExerciseName(exerciseName);
+    const picked = formatExerciseName(pickedName);
+    if (!typed || !picked || typed.normalizedName !== picked.normalizedName) {
+      return;
+    }
+    setValues(prefillValues(exerciseName, sessionSets, history.sets));
+  }, [dirty, editing, exerciseName, history.loading, history.sets, pickedName, sessionSets]);
 
   const formatted = formatExerciseName(exerciseName);
   const query = formatted?.normalizedName ?? "";
@@ -70,7 +87,9 @@ export function ManualEntrySheet({
 
   function choose(name: string) {
     setExerciseName(name);
-    setValues(prefillFor(name, sessionSets));
+    setPickedName(name);
+    setDirty(false);
+    setValues(prefillValues(name, sessionSets, null));
     setError(null);
   }
 
@@ -102,7 +121,7 @@ export function ManualEntrySheet({
       <form onSubmit={(event) => void onSubmit(event)} className="flex flex-col">
         <div className="flex items-center justify-between">
           <h2 id="manual-title" className="text-xl font-semibold tracking-[-0.02em]">
-            Add a set
+            {editing ? "Edit set" : "Add a set"}
           </h2>
           <button
             type="button"
@@ -129,14 +148,15 @@ export function ManualEntrySheet({
               setExerciseName(event.target.value);
               setError(null);
             }}
+            readOnly={editing}
             placeholder="Type or pick an exercise"
             autoComplete="off"
             maxLength={80}
-            className="h-11 min-w-0 flex-1 bg-transparent text-base text-foreground outline-none placeholder:text-subtle"
+            className="h-11 min-w-0 flex-1 bg-transparent text-base text-foreground outline-none placeholder:text-subtle read-only:text-foreground"
           />
         </div>
 
-        {chips.length > 0 ? (
+        {!editing && chips.length > 0 ? (
           <div
             role="group"
             aria-label="Exercises"
@@ -171,8 +191,14 @@ export function ManualEntrySheet({
             inputMode="numeric"
             decreaseLabel="Fewer reps"
             increaseLabel="More reps"
-            onChange={(reps) => setValues({ ...values, reps })}
-            onStep={(delta) => setValues({ ...values, reps: step(values.reps, delta, 1, 999, parseReps) })}
+            onChange={(reps) => {
+              setDirty(true);
+              setValues({ ...values, reps, source: editing ? "edit" : values.source });
+            }}
+            onStep={(delta) => {
+              setDirty(true);
+              setValues({ ...values, reps: step(values.reps, delta, 1, 999, parseReps) });
+            }}
           />
           <Stepper
             id="manual-weight"
@@ -182,10 +208,17 @@ export function ManualEntrySheet({
             decreaseLabel={`${WEIGHT_STEP} lb less`}
             increaseLabel={`${WEIGHT_STEP} lb more`}
             stepSize={WEIGHT_STEP}
-            onChange={(weight) => setValues({ ...values, weight })}
-            onStep={(delta) =>
-              setValues({ ...values, weight: step(values.weight, delta, 0, 2000, parseWeightLb) })
-            }
+            onChange={(weight) => {
+              setDirty(true);
+              setValues({ ...values, weight });
+            }}
+            onStep={(delta) => {
+              setDirty(true);
+              setValues({
+                ...values,
+                weight: step(values.weight, delta, 0, 2000, parseWeightLb),
+              });
+            }}
           />
         </div>
 
@@ -195,12 +228,15 @@ export function ManualEntrySheet({
           </p>
         ) : (
           <p className="mt-3 text-[13px] text-subtle">
-            {values.fromSet ? "Filled in from your last set. " : ""}Use 0 for bodyweight.
+            {history.label ? <span className="text-muted">{history.label}. </span> : null}
+            {values.source === "session" ? "Filled in from your last set. " : null}
+            {editing ? "This set stays where it is. " : null}
+            Use 0 for bodyweight.
           </p>
         )}
 
         <Button type="submit" size="lg" className="mt-5 w-full" disabled={pending}>
-          {pending ? "Saving…" : "Add set"}
+          {pending ? "Saving…" : editing ? "Save" : "Add set"}
         </Button>
       </form>
     </Sheet>

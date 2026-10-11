@@ -9,6 +9,7 @@ import {
   assertWeightLb,
   getOrCreateExercise,
   getOwnedSession,
+  loadPreviousExerciseSets,
   requireOpenSession,
 } from "./lib/workouts";
 
@@ -24,6 +25,33 @@ const setValidator = v.object({
 const setInput = v.object({
   reps: v.number(),
   weightLb: v.number(),
+});
+
+const previousExerciseValidator = v.object({
+  exerciseName: v.string(),
+  normalizedName: v.string(),
+  sets: v.array(
+    v.object({
+      reps: v.number(),
+      weightLb: v.number(),
+    }),
+  ),
+});
+
+export const recentForExercise = authedQuery({
+  args: {
+    exerciseName: v.string(),
+    excludeSessionId: v.optional(v.id("sessions")),
+  },
+  returns: v.union(previousExerciseValidator, v.null()),
+  handler: async (ctx, args) => {
+    return await loadPreviousExerciseSets(
+      ctx,
+      ctx.userId,
+      args.exerciseName,
+      args.excludeSessionId,
+    );
+  },
 });
 
 export const listForSession = authedQuery({
@@ -139,6 +167,26 @@ export const logMany = authedMutation({
       args.exerciseName,
       args.sets,
     );
+  },
+});
+
+export const update = authedMutation({
+  args: {
+    setId: v.id("sets"),
+    reps: v.number(),
+    weightLb: v.number(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const set = await ctx.db.get("sets", args.setId);
+    if (!set || set.userId !== ctx.userId) {
+      throw new Error("Set not found");
+    }
+    await requireOpenSession(ctx, ctx.userId, set.sessionId);
+    const reps = assertReps(args.reps);
+    const weightLb = assertWeightLb(args.weightLb);
+    await ctx.db.patch("sets", args.setId, { reps, weightLb });
+    return null;
   },
 });
 

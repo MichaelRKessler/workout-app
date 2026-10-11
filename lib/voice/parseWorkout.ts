@@ -1,3 +1,4 @@
+import { knownExercisePrompt } from "./knownExercises";
 import { GEMINI_FLASH_MODEL, GEMINI_GENERATE_CONTENT_URL } from "./model";
 import {
   geminiAudioMimeType,
@@ -17,6 +18,7 @@ export async function parseWorkoutAudio(options: {
   audioBase64: string;
   mimeType: string;
   model?: string;
+  knownExerciseNames?: readonly string[];
   fetchImpl?: typeof fetch;
 }): Promise<VoiceProposal> {
   const apiKey = requireApiKey(options.apiKey);
@@ -40,10 +42,9 @@ export async function parseWorkoutAudio(options: {
     apiKey,
     model: options.model,
     fetchImpl: options.fetchImpl,
-    parts: [
-      { text: WORKOUT_PARSE_PROMPT },
+    parts: promptParts(WORKOUT_PARSE_PROMPT, options.knownExerciseNames, [
       { inlineData: { mimeType, data: audioBase64 } },
-    ],
+    ]),
     subject: "recording",
     logContext: { mimeType },
   });
@@ -54,6 +55,7 @@ export async function parseWorkoutText(options: {
   apiKey: string | undefined;
   text: string;
   model?: string;
+  knownExerciseNames?: readonly string[];
   fetchImpl?: typeof fetch;
 }): Promise<VoiceProposal> {
   const apiKey = requireApiKey(options.apiKey);
@@ -76,10 +78,24 @@ export async function parseWorkoutText(options: {
     apiKey,
     model: options.model,
     fetchImpl: options.fetchImpl,
-    parts: [{ text: WORKOUT_TEXT_PROMPT }, { text }],
+    parts: promptParts(WORKOUT_TEXT_PROMPT, options.knownExerciseNames, [{ text }]),
     subject: "note",
     logContext: {},
   });
+}
+
+function promptParts(
+  instructions: string,
+  knownExerciseNames: readonly string[] | undefined,
+  rest: Array<Record<string, unknown>>,
+): Array<Record<string, unknown>> {
+  const parts: Array<Record<string, unknown>> = [{ text: instructions }];
+  const known = knownExercisePrompt(knownExerciseNames ?? []);
+  if (known) {
+    parts.push({ text: known });
+  }
+  parts.push(...rest);
+  return parts;
 }
 
 type Subject = "recording" | "note";

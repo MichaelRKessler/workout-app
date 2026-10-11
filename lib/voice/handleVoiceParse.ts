@@ -21,6 +21,7 @@ export async function handleVoiceParse(input: {
   audioBase64: string;
   mimeType: string;
   text?: string;
+  knownExerciseNames?: readonly string[];
   fetchImpl?: typeof fetch;
 }): Promise<VoiceParseResult> {
   if (!input.token || !input.signedIn) {
@@ -53,6 +54,7 @@ export async function handleVoiceParse(input: {
           apiKey: input.apiKey,
           model: input.model,
           text: input.text ?? "",
+          knownExerciseNames: input.knownExerciseNames,
           fetchImpl: input.fetchImpl,
         })
       : await parseWorkoutAudio({
@@ -60,6 +62,7 @@ export async function handleVoiceParse(input: {
           model: input.model,
           audioBase64: input.audioBase64,
           mimeType: input.mimeType,
+          knownExerciseNames: input.knownExerciseNames,
           fetchImpl: input.fetchImpl,
         });
     return { status: 200, body: { proposal, persisted: false } };

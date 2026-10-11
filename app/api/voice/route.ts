@@ -6,6 +6,7 @@ import { api } from "@/convex/_generated/api";
 import { readVoiceAccess } from "@/lib/voice/access";
 import { readGeminiApiKey, readGeminiModel } from "@/lib/voice/env";
 import { handleVoiceParse } from "@/lib/voice/handleVoiceParse";
+import { loadKnownExerciseNames } from "@/lib/voice/knownExercises";
 
 export const runtime = "nodejs";
 
@@ -43,6 +44,15 @@ export async function POST(request: Request) {
   const text =
     isRecord(payload) && typeof payload.text === "string" ? payload.text : undefined;
 
+  const knownExerciseNames = await loadKnownExerciseNames(voiceAccess, async () => {
+    if (!token || !process.env.NEXT_PUBLIC_CONVEX_URL) {
+      return [];
+    }
+    // namesForVoice is allow-listed and scoped to this token's user. The request
+    // body is not a source of names.
+    return await fetchQuery(api.exercises.namesForVoice, {}, { token });
+  });
+
   const result = await handleVoiceParse({
     token,
     signedIn: voiceAccess.signedIn,
@@ -52,6 +62,7 @@ export async function POST(request: Request) {
     audioBase64,
     mimeType,
     text,
+    knownExerciseNames,
   });
 
   return NextResponse.json(result.body, { status: result.status });

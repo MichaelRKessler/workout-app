@@ -14,6 +14,30 @@ export function formatSetShort(set: { reps: number; weightLb: number }): string 
   return `${set.reps}×${Math.round(set.weightLb * 100) / 100}`;
 }
 
+/**
+ * Previous-workout summary. Uniform work reads "Last time: 3×10 @ 135".
+ * Mixed sets fall back to the compact list labels.
+ */
+export function formatLastTime(
+  sets: Array<{ reps: number; weightLb: number }>,
+): string | null {
+  const first = sets[0];
+  if (!first) {
+    return null;
+  }
+  const uniform = sets.every(
+    (set) => set.reps === first.reps && set.weightLb === first.weightLb,
+  );
+  if (uniform) {
+    if (first.weightLb === 0) {
+      return `Last time: ${sets.length}×${first.reps} bodyweight`;
+    }
+    const load = Math.round(first.weightLb * 100) / 100;
+    return `Last time: ${sets.length}×${first.reps} @ ${load}`;
+  }
+  return `Last time: ${sets.map((set) => formatSetShort(set)).join(", ")}`;
+}
+
 /** Spoken-style set label for screen readers and buttons. */
 export function describeSet(set: { reps: number; weightLb: number }): string {
   const reps = `${set.reps} ${set.reps === 1 ? "rep" : "reps"}`;

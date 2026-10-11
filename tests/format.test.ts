@@ -4,6 +4,7 @@ import {
   describeSet,
   formatDuration,
   formatElapsed,
+  formatLastTime,
   formatSetShort,
   pluralize,
 } from "../lib/format.ts";
@@ -14,6 +15,32 @@ test("set labels are compact in lists and spelled out for screen readers", () =>
   assert.equal(formatSetShort({ reps: 20, weightLb: 0 }), "20×BW");
   assert.equal(describeSet({ reps: 6, weightLb: 155 }), "6 reps at 155 lb");
   assert.equal(describeSet({ reps: 1, weightLb: 0 }), "1 rep, bodyweight");
+});
+
+test("last time summarizes the previous workout", () => {
+  assert.equal(formatLastTime([]), null);
+  assert.equal(
+    formatLastTime([
+      { reps: 10, weightLb: 135 },
+      { reps: 10, weightLb: 135 },
+      { reps: 10, weightLb: 135 },
+    ]),
+    "Last time: 3×10 @ 135",
+  );
+  assert.equal(
+    formatLastTime([
+      { reps: 20, weightLb: 0 },
+      { reps: 20, weightLb: 0 },
+    ]),
+    "Last time: 2×20 bodyweight",
+  );
+  assert.equal(
+    formatLastTime([
+      { reps: 10, weightLb: 135 },
+      { reps: 8, weightLb: 145.5 },
+    ]),
+    "Last time: 10×135, 8×145.5",
+  );
 });
 
 test("the workout clock reads like a stopwatch", () => {

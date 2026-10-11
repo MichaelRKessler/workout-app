@@ -4,6 +4,8 @@ import { Button } from "@/components/Button";
 import { TopActions } from "@/components/TopActions";
 import { Composer } from "@/components/workout/Composer";
 import { ExerciseRow } from "@/components/workout/ExerciseRow";
+import { RestTimer } from "@/components/workout/RestTimer";
+import { useWakeLock } from "@/components/workout/useWakeLock";
 import { formatElapsed, formatShortDate, pluralize } from "@/lib/format";
 import type { SetLine } from "@/lib/groupSets";
 import { ComponentProps, useEffect, useState } from "react";
@@ -29,6 +31,7 @@ export function ActiveWorkout({
   removingId,
   ending,
   onRepeat,
+  onEditSet,
   onRemoveSet,
   onFinish,
   onDiscard,
@@ -44,6 +47,7 @@ export function ActiveWorkout({
   removingId: string | null;
   ending: boolean;
   onRepeat: (group: Group) => void;
+  onEditSet: (set: SetLine) => void;
   onRemoveSet: (setId: string) => void;
   onFinish: () => void;
   onDiscard: () => void;
@@ -52,6 +56,7 @@ export function ActiveWorkout({
 }) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const empty = !loadingSets && setCount === 0;
+  useWakeLock();
 
   return (
     <>
@@ -63,7 +68,7 @@ export function ActiveWorkout({
             </p>
             <TopActions />
           </div>
-          <div className="flex items-end justify-between gap-3">
+          <div className="flex flex-wrap items-end justify-between gap-x-3 gap-y-2">
             <div className="flex flex-col gap-0.5">
               <p className="font-mono text-[40px] leading-[1.15] font-medium tracking-[-0.04em]">
                 <span className="sr-only">Elapsed </span>
@@ -74,15 +79,18 @@ export function ActiveWorkout({
                 {idleNote ? <span className="text-subtle"> · {idleNote}</span> : null}
               </p>
             </div>
-            {empty ? (
-              <Button variant="secondary" onClick={onDiscard} disabled={ending}>
-                {ending ? "Discarding…" : "Discard"}
-              </Button>
-            ) : (
-              <Button variant="outline" onClick={onFinish} disabled={ending || loadingSets}>
-                Finish
-              </Button>
-            )}
+            <div className="flex items-center gap-2">
+              <RestTimer setCount={setCount} loading={loadingSets} />
+              {empty ? (
+                <Button variant="secondary" onClick={onDiscard} disabled={ending}>
+                  {ending ? "Discarding…" : "Discard"}
+                </Button>
+              ) : (
+                <Button variant="outline" onClick={onFinish} disabled={ending || loadingSets}>
+                  Finish
+                </Button>
+              )}
+            </div>
           </div>
         </header>
 
@@ -106,6 +114,7 @@ export function ActiveWorkout({
                 }
                 onRepeat={() => onRepeat(group)}
                 repeating={repeatingId === group.exerciseId}
+                onEditSet={onEditSet}
                 onRemoveSet={onRemoveSet}
                 removingId={removingId}
               />

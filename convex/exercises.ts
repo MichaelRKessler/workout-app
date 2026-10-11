@@ -1,5 +1,7 @@
 import { v } from "convex/values";
 import { authedQuery } from "./lib/customFunctions";
+import { MAX_KNOWN_EXERCISE_NAMES } from "./lib/exerciseName";
+import { loadVoiceExerciseNames } from "./lib/workouts";
 
 const exerciseValidator = v.object({
   _id: v.id("exercises"),
@@ -30,5 +32,15 @@ export const list = authedQuery({
     exercises.sort((left, right) => left.name.localeCompare(right.name));
 
     return { exercises, truncated };
+  },
+});
+
+/** Names for the voice prompt: this user only, most recent first, capped. */
+export const namesForVoice = authedQuery({
+  args: {},
+  returns: v.array(v.string()),
+  handler: async (ctx) => {
+    const names = await loadVoiceExerciseNames(ctx, ctx.userId);
+    return names.slice(0, MAX_KNOWN_EXERCISE_NAMES);
   },
 });
