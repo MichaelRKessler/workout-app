@@ -10,7 +10,7 @@ import {
   muscleGroupValidator,
   presentMuscle,
 } from "./lib/muscleGroup";
-import { summarizeEfforts, trendFromSets } from "./lib/records";
+import { summarizeEfforts, trendFromSets, type TrendPoint } from "./lib/records";
 import { repointExerciseReferences } from "./lib/routineRecords";
 import { setExerciseRest } from "./lib/rest";
 import { setTypeValidator } from "./lib/setTypeValidator";
@@ -34,6 +34,30 @@ const effortValidator = v.object({
   durationSec: v.union(v.number(), v.null()),
   distanceM: v.union(v.number(), v.null()),
   loggedAt: v.number(),
+});
+
+const trendSnapValidator = v.object({
+  reps: v.union(v.number(), v.null()),
+  weightLb: v.number(),
+  durationSec: v.union(v.number(), v.null()),
+  distanceM: v.union(v.number(), v.null()),
+});
+
+const trendPointValidator = v.object({
+  sessionId: v.id("sessions"),
+  startedAt: v.number(),
+  value: v.union(v.number(), v.null()),
+  volumeLb: v.number(),
+  topWeightLb: v.union(v.number(), v.null()),
+  epleyLb: v.union(v.number(), v.null()),
+  reps: v.union(v.number(), v.null()),
+  durationSec: v.union(v.number(), v.null()),
+  distanceM: v.union(v.number(), v.null()),
+  bestEpleySet: v.union(trendSnapValidator, v.null()),
+  bestWeightSet: v.union(trendSnapValidator, v.null()),
+  bestRepsSet: v.union(trendSnapValidator, v.null()),
+  bestDurationSet: v.union(trendSnapValidator, v.null()),
+  bestDistanceSet: v.union(trendSnapValidator, v.null()),
 });
 
 const historySetValidator = v.object({
@@ -170,6 +194,25 @@ export const setRest = authedMutation({
   },
 });
 
+function presentTrendPoint(point: TrendPoint) {
+  return {
+    sessionId: point.sessionId as Id<"sessions">,
+    startedAt: point.startedAt,
+    value: point.value,
+    volumeLb: point.volumeLb,
+    topWeightLb: point.topWeightLb,
+    epleyLb: point.epleyLb,
+    reps: point.reps,
+    durationSec: point.durationSec,
+    distanceM: point.distanceM,
+    bestEpleySet: point.bestEpleySet,
+    bestWeightSet: point.bestWeightSet,
+    bestRepsSet: point.bestRepsSet,
+    bestDurationSet: point.bestDurationSet,
+    bestDistanceSet: point.bestDistanceSet,
+  };
+}
+
 /** Best efforts and a short trend. The list of sets is paginated separately. */
 export const detail = authedQuery({
   args: { exerciseId: v.string() },
@@ -191,14 +234,7 @@ export const detail = authedQuery({
         v.literal("m"),
         v.literal("sec"),
       ),
-      trend: v.array(
-        v.object({
-          sessionId: v.id("sessions"),
-          startedAt: v.number(),
-          value: v.union(v.number(), v.null()),
-          volumeLb: v.number(),
-        }),
-      ),
+      trend: v.array(trendPointValidator),
       truncated: v.boolean(),
     }),
   ),
@@ -281,12 +317,7 @@ export const detail = authedQuery({
       bestDistance: effort(efforts.bestDistance),
       ...presentMuscle(exercise),
       trendUnit: trend.unit,
-      trend: trend.points.map((point) => ({
-        sessionId: point.sessionId as Id<"sessions">,
-        startedAt: point.startedAt,
-        value: point.value,
-        volumeLb: point.volumeLb,
-      })),
+      trend: trend.points.map((point) => presentTrendPoint(point)),
       truncated,
     };
   },

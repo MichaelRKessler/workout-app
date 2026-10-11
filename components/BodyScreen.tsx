@@ -377,6 +377,7 @@ export function BodyScreen() {
           linkDays={false}
           noun="weigh-in"
           valueCaption="Weight"
+          series="body"
         />
       ) : null}
       {summary?.trendTruncated ? (

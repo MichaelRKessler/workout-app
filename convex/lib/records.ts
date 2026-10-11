@@ -379,6 +379,13 @@ export function summarizeEfforts(sets: EffortSet[]): {
   return { bestWeight, bestEpley, bestBodyweight, bestDuration, bestDistance };
 }
 
+export type TrendSetSnap = {
+  reps: number | null;
+  weightLb: number;
+  durationSec: number | null;
+  distanceM: number | null;
+};
+
 export type TrendPoint = {
   sessionId: string;
   startedAt: number;
@@ -386,6 +393,17 @@ export type TrendPoint = {
   value: number | null;
   /** Reps × weight for the workout, in pounds. Warm-ups add nothing. Drop sets count. */
   volumeLb: number;
+  /** Heaviest counted load. Warm-ups and drop sets are excluded. */
+  topWeightLb: number | null;
+  epleyLb: number | null;
+  reps: number | null;
+  durationSec: number | null;
+  distanceM: number | null;
+  bestEpleySet: TrendSetSnap | null;
+  bestWeightSet: TrendSetSnap | null;
+  bestRepsSet: TrendSetSnap | null;
+  bestDurationSet: TrendSetSnap | null;
+  bestDistanceSet: TrendSetSnap | null;
 };
 
 /**
@@ -409,12 +427,7 @@ export function trendFromSets(
   const unit: TrendUnit = weighted ? "lb" : strength ? "reps" : distance ? "m" : "sec";
   const bySession = new Map<string, TrendPoint>();
   for (const set of sets) {
-    const existing = bySession.get(set.sessionId) ?? {
-      sessionId: set.sessionId,
-      startedAt: set.sessionStartedAt,
-      value: null,
-      volumeLb: 0,
-    };
+    const existing = bySession.get(set.sessionId) ?? blankTrendPoint(set.sessionId, set.sessionStartedAt);
     if (countsTowardVolume(set)) {
       const reps = set.reps ?? 0;
       if (reps > 0 && set.weightLb > 0) {
@@ -422,6 +435,7 @@ export function trendFromSets(
       }
     }
     if (countsTowardRecord(set)) {
+      considerRecord(existing, set);
       const value = trendValue(set, unit);
       if (value !== null && (existing.value === null || value > existing.value)) {
         existing.value = value;
@@ -511,6 +525,87 @@ export function achievedRecord(
     };
   }
   return latest;
+}
+
+function blankTrendPoint(sessionId: string, startedAt: number): TrendPoint {
+  return {
+    sessionId,
+    startedAt,
+    value: null,
+    volumeLb: 0,
+    topWeightLb: null,
+    epleyLb: null,
+    reps: null,
+    durationSec: null,
+    distanceM: null,
+    bestEpleySet: null,
+    bestWeightSet: null,
+    bestRepsSet: null,
+    bestDurationSet: null,
+    bestDistanceSet: null,
+  };
+}
+
+function snapOf(set: EffortSet): TrendSetSnap {
+  return {
+    reps: set.reps ?? null,
+    weightLb: set.weightLb,
+    durationSec: set.durationSec ?? null,
+    distanceM: set.distanceM ?? null,
+  };
+}
+
+/** Record metrics ignore warm-ups and drop sets. The caller already filtered those. */
+function considerRecord(existing: TrendPoint, set: EffortSet) {
+  const kind = setKind(set);
+  if (kind === "timed") {
+    const duration = set.durationSec ?? 0;
+    if (duration <= 0) return;
+    const current = existing.durationSec;
+    const heavierTie =
+      current === duration && set.weightLb > (existing.bestDurationSet?.weightLb ?? -1);
+    if (current === null || duration > current || heavierTie) {
+      existing.durationSec = duration;
+      existing.bestDurationSet = snapOf(set);
+    }
+    return;
+  }
+  if (kind === "distance") {
+    const distance = set.distanceM ?? 0;
+    if (distance <= 0) return;
+    const current = existing.distanceM;
+    const fasterTie =
+      current === distance &&
+      set.durationSec != null &&
+      (existing.bestDistanceSet?.durationSec == null ||
+        set.durationSec < existing.bestDistanceSet.durationSec);
+    if (current === null || distance > current || fasterTie) {
+      existing.distanceM = distance;
+      existing.bestDistanceSet = snapOf(set);
+    }
+    return;
+  }
+
+  const reps = set.reps ?? 0;
+  if (reps < 1) return;
+  if (existing.reps === null || reps > existing.reps) {
+    existing.reps = reps;
+    existing.bestRepsSet = snapOf(set);
+  }
+  if (set.weightLb <= 0) return;
+
+  const currentWeight = existing.topWeightLb;
+  const moreRepsAtSameWeight =
+    currentWeight === set.weightLb && reps > (existing.bestWeightSet?.reps ?? 0);
+  if (currentWeight === null || set.weightLb > currentWeight || moreRepsAtSameWeight) {
+    existing.topWeightLb = set.weightLb;
+    existing.bestWeightSet = snapOf(set);
+  }
+  const epley = epleyOneRepMax(set.weightLb, reps);
+  if (epley !== null && (existing.epleyLb === null || epley > existing.epleyLb)) {
+    existing.epleyLb = epley;
+    existing.bestEpleySet = snapOf(set);
+  }
 }
 
 function trendValue(set: EffortSet, unit: TrendUnit): number | null {
