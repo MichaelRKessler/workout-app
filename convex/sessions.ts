@@ -847,10 +847,13 @@ export const get = authedQuery({
 const STALE_SCAN_PAGE = 20;
 
 /**
- * Closes workouts nobody finished. Internal only: a cron has no user identity,
- * and clients cannot call it. It writes each open session in place and returns
- * counts, not workout contents. Public session and set functions still require
- * the allow list.
+ * Closes workouts nobody has touched. Idle time is the newest set (or the
+ * start time when there are no sets), not how long ago the workout began.
+ * Internal only: a cron has no user identity, and clients cannot call it.
+ * It writes each open session in place and returns counts, not workout
+ * contents. Completed workouts, including ones logged for a past day, are
+ * not in this index. Public session and set functions still require the
+ * allow list.
  */
 export const closeStale = internalMutation({
   args: { cursor: v.optional(v.string()) },
@@ -892,14 +895,7 @@ async function closeAbandonedSession(
   session: { _id: Id<"sessions">; startedAt: number; resumedAt?: number },
   now: number,
 ): Promise<"finished" | "discarded" | "kept"> {
-  const sets = await ctx.db
-    .query("sets")
-    .withIndex("by_session_and_exercise", (q) => q.eq("sessionId", session._id))
-    .take(500);
-  const lastSetAt = sets.reduce<number | null>(
-    (newest, set) => (newest === null || set.loggedAt > newest ? set.loggedAt : newest),
-    null,
-  );
+  const lastSetAt = await newestLoggedAt(ctx, session._id);
   const resumedAt = session.resumedAt ?? null;
   if (!shouldCloseAbandoned(now, session.startedAt, lastSetAt, resumedAt)) {
     return "kept";

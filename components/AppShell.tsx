@@ -97,7 +97,9 @@ export function AppShell({ children }: { children: ReactNode }) {
   if (!effective.allowed) {
     return (
       <main className="mx-auto min-h-dvh w-full max-w-lg">
-        <NoAccess status={effective} />
+        <OfflineSyncProvider email={effective.email} autoSync={false}>
+          <NoAccess status={effective} />
+        </OfflineSyncProvider>
       </main>
     );
   }
