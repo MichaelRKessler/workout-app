@@ -1,13 +1,17 @@
 /**
  * Pure timing rules shared by the client and Convex mutations.
  * Do not import Convex server code from this file.
+ *
+ * Idle time starts at the newest logged set. A "Keep going" answer counts too,
+ * so the prompt does not immediately return. The workout's start time is the
+ * clock only when it still has no sets.
  */
 
-/** Ask "Still working out?" once the last set (or a Keep going) is this old. */
-export const STALE_PROMPT_MS = 4 * 60 * 60 * 1000;
+/** Ask "Still working out?" after this much inactivity. */
+export const STALE_PROMPT_MS = 2 * 60 * 60 * 1000;
 
-/** Finish or discard an open workout once nothing new has happened for this long. */
-export const STALE_CLOSE_MS = 6 * 60 * 60 * 1000;
+/** Finish or discard an open workout after this much inactivity. */
+export const STALE_CLOSE_MS = 4 * 60 * 60 * 1000;
 
 /**
  * Abandoned workouts end this long after the last set, so History includes
@@ -21,6 +25,7 @@ export function idleMs(
   lastSetAt: number | null,
   resumedAt: number | null,
 ): number {
+  // A set logged an hour ago keeps the workout open even if it started yesterday.
   const activityAt = Math.max(lastSetAt ?? startedAt, resumedAt ?? 0);
   return now - activityAt;
 }

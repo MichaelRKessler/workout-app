@@ -4,24 +4,20 @@ import { Button } from "@/components/Button";
 import { BrandMark } from "@/components/icons";
 import { InstallOffer } from "@/components/InstallOffer";
 import { api } from "@/convex/_generated/api";
+import { useGuardedSignOut } from "@/components/useGuardedSignOut";
 import { readableError } from "@/lib/errors";
-import { browserStore, clearOfflineStorage } from "@/lib/offline/storage";
-import { useAuthActions } from "@convex-dev/auth/react";
 import { useMutation } from "convex/react";
 import { FunctionReturnType } from "convex/server";
-import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
 
 type AccessStatus = FunctionReturnType<typeof api.access.myStatus>;
 
 export function NoAccess({ status }: { status: AccessStatus }) {
   const requestAccess = useMutation(api.access.requestAccess);
-  const { signOut } = useAuthActions();
-  const router = useRouter();
+  const signOut = useGuardedSignOut();
   const [note, setNote] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
-  const [signingOut, setSigningOut] = useState(false);
   const requestSent = status.request?.status === "pending";
   const denied = status.request?.status === "denied";
 
@@ -36,17 +32,6 @@ export function NoAccess({ status }: { status: AccessStatus }) {
       setError(readableError(caught));
     } finally {
       setSending(false);
-    }
-  }
-
-  async function onSignOut() {
-    setSigningOut(true);
-    clearOfflineStorage(browserStore());
-    try {
-      await signOut();
-      router.replace("/signin");
-    } finally {
-      setSigningOut(false);
     }
   }
 
@@ -105,11 +90,17 @@ export function NoAccess({ status }: { status: AccessStatus }) {
           variant="outline"
           size="lg"
           className="mt-3 w-full"
-          onClick={() => void onSignOut()}
-          disabled={signingOut}
+          onClick={signOut.onSignOut}
+          disabled={signOut.busy}
         >
-          {signingOut ? "Signing out…" : "Sign out"}
+          {signOut.buttonLabel}
         </Button>
+        {signOut.error ? (
+          <p role="alert" className="mt-4 text-sm text-danger">
+            {signOut.error}
+          </p>
+        ) : null}
+        {signOut.dialog}
       </div>
       <InstallOffer className="text-center" />
     </div>

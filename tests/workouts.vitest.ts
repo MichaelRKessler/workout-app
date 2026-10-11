@@ -596,6 +596,83 @@ describe("workouts left unfinished", () => {
     expect(stored?.status).toBe("completed");
     expect(stored?.completedAt).toBe(loggedAt + STALE_END_MARGIN_MS);
   });
+
+  test("a set logged an hour ago is never closed, however long ago the workout started", async () => {
+    const t = testBackend();
+    const asUser = await signIn(t, "Michael");
+    const recentId = await asUser.mutation(api.sessions.start, {});
+    await asUser.mutation(api.sets.log, {
+      sessionId: recentId,
+      exerciseName: "squat",
+      reps: 5,
+      weightLb: 185,
+    });
+    const now = Date.now();
+    const recentLoggedAt = now - HOUR;
+    const recentStartedAt = now - 12 * HOUR;
+    await ageWorkout(t, recentId, recentStartedAt, recentLoggedAt);
+
+    const idleLoggedAt = now - 5 * HOUR;
+    const idleStartedAt = idleLoggedAt - 10 * 60 * 1000;
+    const emptyStartedAt = now - 5 * HOUR;
+    const { idleId, emptyId } = await t.run(async (ctx) => {
+      const recent = await ctx.db.get("sessions", recentId);
+      if (!recent) {
+        throw new Error("Expected the open workout");
+      }
+      const idleId = await ctx.db.insert("sessions", {
+        userId: recent.userId,
+        status: "open",
+        startedAt: idleStartedAt,
+      });
+      const exerciseId = await ctx.db.insert("exercises", {
+        userId: recent.userId,
+        name: "Bench press",
+        normalizedName: "bench press",
+        createdAt: now,
+      });
+      await ctx.db.insert("sets", {
+        userId: recent.userId,
+        sessionId: idleId,
+        exerciseId,
+        reps: 8,
+        weightLb: 135,
+        loggedAt: idleLoggedAt,
+      });
+      const emptyId = await ctx.db.insert("sessions", {
+        userId: recent.userId,
+        status: "open",
+        startedAt: emptyStartedAt,
+      });
+      return { idleId, emptyId };
+    });
+
+    const pastStartedAt = now - 30 * HOUR;
+    const past = await asUser.mutation(api.sessions.logPast, {
+      startedAt: pastStartedAt,
+      exercises: [{ name: "row", sets: [{ reps: 8, weightLb: 95 }] }],
+    });
+
+    const result = await t.mutation(internal.sessions.closeStale, {});
+    expect(result.finished).toBe(1);
+    expect(result.discarded).toBe(1);
+
+    const recent = await asUser.query(api.sessions.get, { sessionId: recentId });
+    expect(recent?.status).toBe("open");
+    expect(recent?.startedAt).toBe(recentStartedAt);
+    expect(recent?.completedAt).toBeNull();
+
+    const idle = await asUser.query(api.sessions.get, { sessionId: idleId });
+    expect(idle?.status).toBe("completed");
+    expect(idle?.completedAt).toBe(idleLoggedAt + STALE_END_MARGIN_MS);
+
+    expect(await asUser.query(api.sessions.get, { sessionId: emptyId })).toBeNull();
+
+    const saved = await asUser.query(api.sessions.get, { sessionId: past.sessionId });
+    expect(saved?.status).toBe("completed");
+    expect(saved?.completedAt).toBe(pastStartedAt);
+    expect(saved?.sets).toHaveLength(1);
+  });
 });
 
 describe("previous workout and editing a set", () => {

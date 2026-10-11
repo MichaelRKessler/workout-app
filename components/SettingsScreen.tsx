@@ -3,27 +3,23 @@
 import { AccessSettings } from "@/components/AccessSettings";
 import { InstallOffer } from "@/components/InstallOffer";
 import { PageHeader, SectionLabel } from "@/components/PageHeader";
-import { useTheme } from "@/components/useTheme";
 import { useOfflineLog } from "@/components/OfflineSync";
+import { useGuardedSignOut } from "@/components/useGuardedSignOut";
+import { useTheme } from "@/components/useTheme";
 import { useWeightUnit } from "@/components/WeightUnit";
 import { api } from "@/convex/_generated/api";
 import type { WeightUnit } from "@/convex/lib/units";
-import { browserStore, clearOfflineStorage } from "@/lib/offline/storage";
-import { useAuthActions } from "@convex-dev/auth/react";
 import { useMutation, useQuery } from "convex/react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 export function SettingsScreen() {
   const viewer = useQuery(api.users.viewer);
-  const { signOut } = useAuthActions();
-  const router = useRouter();
   const { theme, setTheme } = useTheme();
   const unit = useWeightUnit();
   const { offline } = useOfflineLog();
+  const signOut = useGuardedSignOut();
   const setWeightUnit = useMutation(api.users.setWeightUnit);
-  const [signingOut, setSigningOut] = useState(false);
   const [savingUnit, setSavingUnit] = useState(false);
 
   const name = viewer?.name || viewer?.email || "Signed in";
@@ -39,17 +35,6 @@ export function SettingsScreen() {
       await setWeightUnit({ weightUnit: next });
     } finally {
       setSavingUnit(false);
-    }
-  }
-
-  async function onSignOut() {
-    setSigningOut(true);
-    clearOfflineStorage(browserStore());
-    try {
-      await signOut();
-      router.replace("/signin");
-    } finally {
-      setSigningOut(false);
     }
   }
 
@@ -150,14 +135,20 @@ export function SettingsScreen() {
           </div>
           <button
             type="button"
-            onClick={() => void onSignOut()}
-            disabled={signingOut}
+            onClick={signOut.onSignOut}
+            disabled={signOut.busy}
             className="flex min-h-14 w-full items-center px-4 text-left text-base font-medium text-danger hover:bg-fill-2 disabled:opacity-60"
           >
-            {signingOut ? "Signing out…" : "Sign out"}
+            {signOut.buttonLabel}
           </button>
+          {signOut.error ? (
+            <p role="alert" className="border-t border-line px-4 py-3 text-sm text-danger">
+              {signOut.error}
+            </p>
+          ) : null}
         </div>
       </section>
+      {signOut.dialog}
     </div>
   );
 }

@@ -114,6 +114,10 @@ type OfflineLog = {
   discardWorkout: (input: WorkoutActionInput) => Promise<SyncOutcome>;
   rememberWorkout: (snapshot: WorkoutSnapshot) => void;
   reconcile: (serverSets: Parameters<typeof reconcileOutbox>[1]) => void;
+  /** Loads the on-device queue and returns how many changes are still waiting. */
+  readPending: () => number;
+  /** Sends the queue now. Returns how many changes are still waiting. */
+  syncPending: () => Promise<number>;
 };
 
 const OfflineContext = createContext<OfflineLog | null>(null);
@@ -128,9 +132,12 @@ export function useOfflineLog(): OfflineLog {
 
 export function OfflineSyncProvider({
   email,
+  autoSync = true,
   children,
 }: {
   email: string | null;
+  /** When false, the queue stays on the phone until something calls syncPending. */
+  autoSync?: boolean;
   children: ReactNode;
 }) {
   const { offline } = useConnectivity();
@@ -281,8 +288,22 @@ export function OfflineSyncProvider({
     return run;
   }, [sendBatch]);
 
+  const readPending = useCallback(() => {
+    ensureLoaded();
+    return pendingChangeCount(outboxRef.current);
+  }, [ensureLoaded]);
+
+  const syncPending = useCallback(async () => {
+    ensureLoaded();
+    if (pendingChangeCount(outboxRef.current) === 0 || offlineRef.current) {
+      return pendingChangeCount(outboxRef.current);
+    }
+    await flush();
+    return pendingChangeCount(outboxRef.current);
+  }, [ensureLoaded, flush]);
+
   useEffect(() => {
-    if (offline || !ready || pendingChangeCount(outbox) === 0) {
+    if (!autoSync || offline || !ready || pendingChangeCount(outbox) === 0) {
       return;
     }
     void flush();
@@ -290,7 +311,7 @@ export function OfflineSyncProvider({
       void flush();
     }, RETRY_MS);
     return () => window.clearInterval(timer);
-  }, [flush, offline, outbox, ready]);
+  }, [autoSync, flush, offline, outbox, ready]);
 
   const wait = useCallback(async () => {
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -533,18 +554,22 @@ export function OfflineSyncProvider({
       discardWorkout: (input) => runAction("discard", input),
       rememberWorkout,
       reconcile,
+      readPending,
+      syncPending,
     }),
     [
       editSet,
       flushError,
       offline,
       outbox,
+      readPending,
       rememberWorkout,
       removeMany,
       reconcile,
       runAction,
       saveSets,
       snapshot,
+      syncPending,
     ],
   );
 
