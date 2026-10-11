@@ -1,5 +1,6 @@
 import type { SetLine } from "../groupSets.ts";
 import { emptyOutbox, parseOutbox, type Outbox } from "./outbox.ts";
+import type { PendingPlan } from "./routineCache.ts";
 
 const PREFIX = "workout-offline:";
 
@@ -45,6 +46,8 @@ export type WorkoutSnapshot = {
     note: string | null;
   } | null;
   sets: SetLine[];
+  /** Checklist for a routine or a repeat. Older snapshots omit it. */
+  plan: PendingPlan | null;
 };
 
 export function accountKey(email: string | null): string {
@@ -163,7 +166,7 @@ function parseSnapshot(value: unknown): WorkoutSnapshot | null {
   if (typeof value !== "object" || value === null || !("session" in value) || !("sets" in value)) {
     return null;
   }
-  const record = value as { session: unknown; sets: unknown };
+  const record = value as { session: unknown; sets: unknown; plan?: unknown };
   if (!Array.isArray(record.sets)) {
     return null;
   }
@@ -177,6 +180,47 @@ function parseSnapshot(value: unknown): WorkoutSnapshot | null {
   return {
     session: parseSession(record.session),
     sets,
+    plan: parseSnapshotPlan(record.plan ?? null),
+  };
+}
+
+function parseSnapshotPlan(value: unknown): PendingPlan | null {
+  if (typeof value !== "object" || value === null || !("exercises" in value)) {
+    return null;
+  }
+  const plan = value as Record<string, unknown>;
+  if (typeof plan.startedAt !== "number" || !Array.isArray(plan.exercises)) {
+    return null;
+  }
+  const exercises: PendingPlan["exercises"] = [];
+  for (const item of plan.exercises) {
+    if (typeof item !== "object" || item === null) {
+      continue;
+    }
+    const exercise = item as Record<string, unknown>;
+    if (typeof exercise.exerciseId !== "string" || typeof exercise.name !== "string") {
+      continue;
+    }
+    exercises.push({
+      exerciseId: exercise.exerciseId,
+      name: exercise.name,
+      targetSets: typeof exercise.targetSets === "number" ? exercise.targetSets : null,
+      targetReps: typeof exercise.targetReps === "number" ? exercise.targetReps : null,
+      targetWeightLb: typeof exercise.targetWeightLb === "number" ? exercise.targetWeightLb : null,
+      targetDurationSec:
+        typeof exercise.targetDurationSec === "number" ? exercise.targetDurationSec : null,
+      targetDistanceM: typeof exercise.targetDistanceM === "number" ? exercise.targetDistanceM : null,
+      skipped: exercise.skipped === true,
+    });
+  }
+  if (exercises.length === 0) {
+    return null;
+  }
+  return {
+    startedAt: plan.startedAt,
+    name: typeof plan.name === "string" ? plan.name : null,
+    routineId: typeof plan.routineId === "string" ? plan.routineId : null,
+    exercises,
   };
 }
 

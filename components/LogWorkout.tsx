@@ -2,10 +2,14 @@
 
 import { useOfflineLog, type SyncOutcome } from "@/components/OfflineSync";
 import { Toast, type ToastMessage } from "@/components/Toast";
+import { OpenWorkoutSheet } from "@/components/routines/OpenWorkoutSheet";
+import { useBeginWorkout } from "@/components/routines/useBeginWorkout";
 import { ActiveWorkout } from "@/components/workout/ActiveWorkout";
 import { ConfirmSheet } from "@/components/workout/ConfirmSheet";
 import { FinishSheet } from "@/components/workout/FinishSheet";
+import { ExerciseRow } from "@/components/workout/ExerciseRow";
 import { HomeView } from "@/components/workout/HomeView";
+import { WorkoutPlanList } from "@/components/workout/WorkoutPlanList";
 import { ListeningOverlay } from "@/components/workout/ListeningOverlay";
 import { ManualEntrySheet } from "@/components/workout/ManualEntrySheet";
 import { StaleWorkoutSheet } from "@/components/workout/StaleWorkoutSheet";
@@ -40,9 +44,22 @@ import {
   reduceVoiceLog,
   type VoiceDraft,
 } from "@/lib/voice/confirm";
+import { moveItem } from "@/convex/lib/routinePlan";
 import { useBrowserTimeZone } from "@/components/useBrowserTimeZone";
+import {
+  PENDING_PLAN_EVENT,
+  loadPendingPlan,
+  loadRoutineCache,
+  publishPendingPlan,
+  saveRoutineCache,
+  type PendingPlan,
+  type PendingPlanExercise,
+} from "@/lib/offline/routineCache";
+import { browserStore, loadCachedAccess } from "@/lib/offline/storage";
+import { setFromPrefill } from "@/lib/prefill";
 import { calendarDayBounds, calendarDayKey, groupHistoryDays } from "@/lib/historyDays";
-import { useQuery } from "convex/react";
+import { splitWorkoutPlan, type VisiblePlanItem } from "@/lib/workoutPlan";
+import { useMutation, useQuery } from "convex/react";
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 
 type Toasted = ToastMessage & { id: number };
@@ -51,6 +68,19 @@ type Toasted = ToastMessage & { id: number };
  * The Log tab. With no open workout it shows the start screen; the first set
  * confirmed by voice, by typing, or by hand opens one.
  */
+function toPendingExercise(item: VisiblePlanItem): PendingPlanExercise {
+  return {
+    exerciseId: item.exerciseId,
+    name: item.name,
+    targetSets: item.targetSets,
+    targetReps: item.targetReps,
+    targetWeightLb: item.targetWeightLb,
+    targetDurationSec: item.targetDurationSec,
+    targetDistanceM: item.targetDistanceM,
+    skipped: item.skipped,
+  };
+}
+
 function combinedNote(existing: string | null | undefined, extra: string | null): string | null {
   if (!extra) {
     return existing ?? null;
@@ -66,6 +96,9 @@ function combinedNote(existing: string | null | undefined, extra: string | null)
 
 export function LogWorkout() {
   const openSession = useQuery(api.sessions.getOpen);
+  const routineList = useQuery(api.routines.list);
+  const setSessionPlan = useMutation(api.sessions.setPlan);
+  const beginWorkout = useBeginWorkout();
   const exercises = useQuery(api.exercises.list);
   const sets = useQuery(
     api.sets.listForSession,
@@ -173,6 +206,13 @@ export function LogWorkout() {
   );
   const [toast, setToast] = useState<Toasted | null>(null);
   const [repeatingId, setRepeatingId] = useState<string | null>(null);
+  const [loggingPlanId, setLoggingPlanId] = useState<string | null>(null);
+  const [expandedExtra, setExpandedExtra] = useState<string | null>(null);
+  const [localPlan, setLocalPlan] = useState<PendingPlan | null>(null);
+  const [cachedRoutines, setCachedRoutines] = useState<
+    Array<{ _id: string; name: string }> | null
+  >(null);
+  const attachedPlan = useRef<string | null>(null);
   const [removingId, setRemovingId] = useState<string | null>(null);
   const parseAbortRef = useRef<AbortController | null>(null);
 
@@ -180,6 +220,31 @@ export function LogWorkout() {
     onAudio: (blob) => void parseAudio(blob),
     onError: (message) => dispatch({ type: "failed", message }),
   });
+
+  const [viewerEmail, setViewerEmail] = useState<string | null>(null);
+
+  useEffect(() => {
+    setViewerEmail(loadCachedAccess(browserStore())?.email ?? null);
+  }, []);
+
+  useEffect(() => {
+    function loadPlan() {
+      const email = loadCachedAccess(browserStore())?.email ?? viewerEmail;
+      setLocalPlan(loadPendingPlan(browserStore(), email));
+      setCachedRoutines(loadRoutineCache(browserStore(), email));
+    }
+    loadPlan();
+    window.addEventListener(PENDING_PLAN_EVENT, loadPlan);
+    return () => window.removeEventListener(PENDING_PLAN_EVENT, loadPlan);
+  }, [viewerEmail]);
+
+  useEffect(() => {
+    if (!routineList) {
+      return;
+    }
+    saveRoutineCache(browserStore(), viewerEmail, routineList);
+    setCachedRoutines(routineList);
+  }, [routineList, viewerEmail]);
 
   useEffect(() => {
     setNow(Date.now());
@@ -203,11 +268,63 @@ export function LogWorkout() {
     if (openSession && sets === undefined) {
       return;
     }
+    const plan =
+      openSession && openSession.plan.length > 0
+        ? {
+            startedAt: openSession.startedAt,
+            name: openSession.planName,
+            routineId: openSession.routineId,
+            exercises: openSession.plan.map(toPendingExercise),
+          }
+        : localPlan;
     log.rememberWorkout({
       session: openSession,
       sets: sets ?? [],
+      plan,
     });
-  }, [log, openSession, sets]);
+  }, [localPlan, log, openSession, sets]);
+
+  useEffect(() => {
+    if (!openSession || offline || !localPlan) {
+      return;
+    }
+    if (openSession.plan.length > 0) {
+      publishPendingPlan(browserStore(), viewerEmail, null);
+      setLocalPlan(null);
+      return;
+    }
+    if (attachedPlan.current === openSession._id) {
+      return;
+    }
+    attachedPlan.current = openSession._id;
+    const exercises = localPlan.exercises.map((item) => ({
+      exerciseId: item.exerciseId as Id<"exercises">,
+      ...(item.targetSets != null ? { targetSets: item.targetSets } : {}),
+      ...(item.targetReps != null ? { targetReps: item.targetReps } : {}),
+      ...(item.targetWeightLb != null ? { targetWeightLb: item.targetWeightLb } : {}),
+      ...(item.targetDurationSec != null ? { targetDurationSec: item.targetDurationSec } : {}),
+      ...(item.targetDistanceM != null ? { targetDistanceM: item.targetDistanceM } : {}),
+      ...(item.skipped ? { skipped: true as const } : {}),
+    }));
+    void setSessionPlan({
+      sessionId: openSession._id,
+      ...(localPlan.name ? { planName: localPlan.name } : {}),
+      ...(localPlan.routineId ? { routineId: localPlan.routineId as Id<"routines"> } : {}),
+      plan: exercises,
+    }).catch(() => {
+      attachedPlan.current = null;
+    });
+  }, [localPlan, offline, openSession, setSessionPlan, viewerEmail]);
+
+  const beginError = beginWorkout.error;
+  const clearBeginError = beginWorkout.clearError;
+  useEffect(() => {
+    if (!beginError) {
+      return;
+    }
+    setToast({ id: Date.now(), tone: "error", message: beginError });
+    clearBeginError();
+  }, [beginError, clearBeginError]);
 
   const knownSession = openSession !== undefined ? openSession : (snapshot?.session ?? null);
   const sessionSets = useMemo(() => {
@@ -219,6 +336,27 @@ export function LogWorkout() {
     });
   }, [knownSession?._id, openSession, outbox, sets, snapshot?.sets]);
   const groups = useMemo(() => groupSets(sessionSets), [sessionSets]);
+  const activePlan = useMemo((): VisiblePlanItem[] => {
+    if (openSession && openSession.plan.length > 0) {
+      return openSession.plan;
+    }
+    if (localPlan) {
+      return localPlan.exercises;
+    }
+    if (openSession === undefined && snapshot?.plan) {
+      return snapshot.plan.exercises;
+    }
+    return [];
+  }, [localPlan, openSession, snapshot?.plan]);
+  const planView = useMemo(
+    () => (activePlan.length > 0 ? splitWorkoutPlan(activePlan, groups) : null),
+    [activePlan, groups],
+  );
+  const planName =
+    (openSession && openSession.plan.length > 0 ? openSession.planName : null) ??
+    localPlan?.name ??
+    (openSession === undefined ? snapshot?.plan?.name : null) ??
+    null;
   const newestSetId = useMemo(() => {
     let newest: (typeof sessionSets)[number] | undefined;
     for (const set of sessionSets) {
@@ -583,14 +721,90 @@ export function LogWorkout() {
       return;
     }
     setFinishOpen(false);
+    publishPendingPlan(browserStore(), viewerEmail, null);
+    setLocalPlan(null);
     showToast({
       tone: "info",
       message: saved.status === "queued" ? QUEUED_FINISH_MESSAGE : "Workout saved to History.",
     });
   }
 
+  function storedPlanItem(item: PendingPlanExercise) {
+    return {
+      exerciseId: item.exerciseId as Id<"exercises">,
+      ...(item.targetSets != null ? { targetSets: item.targetSets } : {}),
+      ...(item.targetReps != null ? { targetReps: item.targetReps } : {}),
+      ...(item.targetWeightLb != null ? { targetWeightLb: item.targetWeightLb } : {}),
+      ...(item.targetDurationSec != null ? { targetDurationSec: item.targetDurationSec } : {}),
+      ...(item.targetDistanceM != null ? { targetDistanceM: item.targetDistanceM } : {}),
+      ...(item.skipped ? { skipped: true as const } : {}),
+    };
+  }
+
+  async function savePlan(next: VisiblePlanItem[]) {
+    const exercises = next.map(toPendingExercise);
+    if (!knownSession) {
+      const plan: PendingPlan = {
+        startedAt: localPlan?.startedAt ?? snapshot?.plan?.startedAt ?? Date.now(),
+        name: planName,
+        routineId: localPlan?.routineId ?? snapshot?.plan?.routineId ?? null,
+        exercises,
+      };
+      publishPendingPlan(browserStore(), viewerEmail, plan);
+      setLocalPlan(plan);
+      return;
+    }
+    if (offline) {
+      showToast({ tone: "info", message: "Reconnect to change this plan." });
+      return;
+    }
+    try {
+      await setSessionPlan({
+        sessionId: knownSession._id as Id<"sessions">,
+        plan: exercises.map(storedPlanItem),
+      });
+    } catch (error) {
+      showToast({ tone: "error", message: readableError(error) });
+    }
+  }
+
+  async function logPlanSet(
+    exerciseId: string,
+    exerciseName: string,
+    set: ReturnType<typeof setFromPrefill>,
+  ) {
+    if (!set) {
+      return;
+    }
+    setLoggingPlanId(exerciseId);
+    const target = openTarget();
+    const saved = await log.saveSets({
+      placement: "open",
+      sessionId: target.sessionId,
+      sessionStartedAt: target.sessionStartedAt,
+      note: null,
+      sets: [
+        {
+          exerciseName,
+          weightLb: set.weightLb,
+          reps: set.reps,
+          durationSec: set.durationSec,
+          distanceM: set.distanceM,
+        },
+      ],
+    });
+    setLoggingPlanId(null);
+    if (saved.status === "rejected") {
+      showToast({ tone: "error", message: saved.error ?? "That set could not be saved" });
+      return;
+    }
+    showSaved(saved, exerciseName);
+  }
+
   async function discardWorkout() {
     if (!knownSession && sessionSets.length === 0) {
+      publishPendingPlan(browserStore(), viewerEmail, null);
+      setLocalPlan(null);
       return;
     }
     setEnding(true);
@@ -601,7 +815,10 @@ export function LogWorkout() {
     setEnding(false);
     if (saved.status === "rejected" && saved.error) {
       showToast({ tone: "error", message: saved.error });
+      return;
     }
+    publishPendingPlan(browserStore(), viewerEmail, null);
+    setLocalPlan(null);
   }
 
   if (!offline && (openSession === undefined || exercises === undefined)) {
@@ -623,9 +840,12 @@ export function LogWorkout() {
     }
     return action.sessionClientId === outbox.openSessionClientId;
   });
-  const showWorkout = !discarding && (knownSession !== null || sessionSets.length > 0);
+  const showWorkout =
+    !discarding && (knownSession !== null || sessionSets.length > 0 || activePlan.length > 0);
   const startedAt =
     knownSession?.startedAt ??
+    localPlan?.startedAt ??
+    snapshot?.plan?.startedAt ??
     outbox.sets.find((set) => set.placement === "open" && !set.removed)?.sessionStartedAt ??
     (clockNow ?? Date.now());
   const loggedLast = sessionSets.reduce((max, set) => Math.max(max, set.loggedAt), 0);
@@ -700,6 +920,70 @@ export function LogWorkout() {
             }
           }}
           onDiscard={() => void discardWorkout()}
+          exerciseCount={
+            planView ? planView.rows.length + planView.extras.length : undefined
+          }
+          planList={
+            planView ? (
+              <>
+                <WorkoutPlanList
+                  name={planName}
+                  rows={planView.rows}
+                  loggingId={loggingPlanId}
+                  setsLoading={sets === undefined && !offline && knownSession !== null}
+                  offline={offline}
+                  sessionSets={sessionSets}
+                  excludeSessionId={knownSession ? (knownSession._id as Id<"sessions">) : undefined}
+                  onLog={(exerciseId, exerciseName, set) =>
+                    void logPlanSet(exerciseId, exerciseName, set)
+                  }
+                  onRepeat={(row) =>
+                    void repeatSet({ exerciseId: row.exerciseId, name: row.name, sets: row.sets })
+                  }
+                  repeatingId={repeatingId}
+                  onSkip={(exerciseId, skipped) =>
+                    void savePlan(
+                      activePlan.map((item) =>
+                        item.exerciseId === exerciseId ? { ...item, skipped } : item,
+                      ),
+                    )
+                  }
+                  onMove={(index, direction) => void savePlan(moveItem(planView.rows, index, direction))}
+                  onEditSet={openEdit}
+                  onRemoveSet={(setId) => void deleteSet(setId)}
+                  removingId={removingId}
+                />
+                {planView.extras.length > 0 ? (
+                  <div className="mt-2">
+                    <h2 className="pt-2 text-xs font-medium tracking-[0.06em] text-subtle uppercase">
+                      Added
+                    </h2>
+                    <ul aria-label="Exercises added to this workout">
+                      {planView.extras.map((group) => (
+                        <ExerciseRow
+                          key={group.exerciseId}
+                          name={group.name}
+                          sets={group.sets}
+                          newestSetId={newestSetId}
+                          expanded={expandedExtra === group.exerciseId}
+                          onToggle={() =>
+                            setExpandedExtra((current) =>
+                              current === group.exerciseId ? null : group.exerciseId,
+                            )
+                          }
+                          onRepeat={() => void repeatSet(group)}
+                          repeating={repeatingId === group.exerciseId}
+                          onEditSet={openEdit}
+                          onRemoveSet={(setId) => void deleteSet(setId)}
+                          removingId={removingId}
+                        />
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+              </>
+            ) : undefined
+          }
           composer={{
             text,
             onTextChange: setText,
@@ -715,12 +999,20 @@ export function LogWorkout() {
         <HomeView
           lastWorkout={lastWorkout}
           weekSummary={weekSummary}
+          routines={routineList ?? cachedRoutines ?? undefined}
           voiceBusy={voiceBusy}
           offline={offline}
           onVoice={() => void startVoice()}
           onManual={openManual}
+          onStartRoutine={(routineId) => void beginWorkout.startRoutine(routineId)}
         />
       )}
+
+      <OpenWorkoutSheet
+        open={beginWorkout.promptOpen}
+        onClose={beginWorkout.closePrompt}
+        onContinue={beginWorkout.continueOpen}
+      />
 
       <Toast
         key={activeToast ? `${activeToast.id}-${activeToast.message}` : "none"}

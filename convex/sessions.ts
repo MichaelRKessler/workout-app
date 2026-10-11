@@ -21,6 +21,14 @@ import {
 } from "./lib/sessionTiming";
 import { assertWeekRange, weekIndexFor, workoutStreak } from "./lib/week";
 import {
+  assertOwnedPlan,
+  findOpenSession,
+  normalizePlanInput,
+  planFromOwnedSessions,
+  presentRoutineExercises,
+} from "./lib/routineRecords";
+import { MAX_ROUTINE_NAME_LENGTH } from "./lib/routinePlan";
+import {
   EXERCISE_RECORD_SCAN,
   MAX_SETS_PER_SESSION,
   getOrCreateExercise,
@@ -59,6 +67,28 @@ const setDetailValidator = v.object({
   loggedAt: v.number(),
   clientId: v.union(v.string(), v.null()),
 });
+
+const planItemValidator = v.object({
+  exerciseId: v.id("exercises"),
+  name: v.string(),
+  targetSets: v.union(v.number(), v.null()),
+  targetReps: v.union(v.number(), v.null()),
+  targetWeightLb: v.union(v.number(), v.null()),
+  targetDurationSec: v.union(v.number(), v.null()),
+  targetDistanceM: v.union(v.number(), v.null()),
+  skipped: v.boolean(),
+});
+
+const startedResult = v.union(
+  v.object({
+    status: v.literal("started"),
+    sessionId: v.id("sessions"),
+  }),
+  v.object({
+    status: v.literal("alreadyOpen"),
+    sessionId: v.id("sessions"),
+  }),
+);
 
 const sessionDetailValidator = v.object({
   _id: v.id("sessions"),
@@ -151,21 +181,23 @@ export const getOpen = authedQuery({
       resumedAt: v.union(v.number(), v.null()),
       lastSetAt: v.union(v.number(), v.null()),
       note: v.union(v.string(), v.null()),
+      planName: v.union(v.string(), v.null()),
+      routineId: v.union(v.id("routines"), v.null()),
+      plan: v.array(planItemValidator),
     }),
     v.null(),
   ),
   handler: async (ctx) => {
-    const session = await ctx.db
-      .query("sessions")
-      .withIndex("by_user_status_and_started", (q) =>
-        q.eq("userId", ctx.userId).eq("status", "open"),
-      )
-      .order("desc")
-      .first();
+    const session = await findOpenSession(ctx, ctx.userId);
 
     if (!session) {
       return null;
     }
+
+    const presented = await presentRoutineExercises(ctx, ctx.userId, session.plan ?? []);
+    const skipped = new Map(
+      (session.plan ?? []).map((item) => [item.exerciseId, item.skipped === true]),
+    );
 
     return {
       _id: session._id,
@@ -173,6 +205,12 @@ export const getOpen = authedQuery({
       resumedAt: session.resumedAt ?? null,
       lastSetAt: await newestLoggedAt(ctx, session._id),
       note: session.note ?? null,
+      planName: session.planName ?? null,
+      routineId: session.routineId ?? null,
+      plan: presented.map((item) => ({
+        ...item,
+        skipped: skipped.get(item.exerciseId) ?? false,
+      })),
     };
   },
 });
@@ -198,6 +236,73 @@ export const start = authedMutation({
       status: "open",
       startedAt: Date.now(),
     });
+  },
+});
+
+/**
+ * Starts a workout with the exercises from finished workouts, in the order
+ * they were performed. Does not save a routine. An open workout is unchanged.
+ */
+export const repeat = authedMutation({
+  args: { sessionIds: v.array(v.id("sessions")) },
+  returns: startedResult,
+  handler: async (ctx, args) => {
+    const open = await findOpenSession(ctx, ctx.userId);
+    if (open) {
+      return { status: "alreadyOpen" as const, sessionId: open._id };
+    }
+    const { plan } = await planFromOwnedSessions(ctx, ctx.userId, args.sessionIds);
+    const sessionId = await ctx.db.insert("sessions", {
+      userId: ctx.userId,
+      status: "open",
+      startedAt: Date.now(),
+      plan,
+    });
+    return { status: "started" as const, sessionId };
+  },
+});
+
+/** Replaces the checklist on an open workout. Used for skip and reorder. */
+export const setPlan = authedMutation({
+  args: {
+    sessionId: v.id("sessions"),
+    planName: v.optional(v.string()),
+    routineId: v.optional(v.id("routines")),
+    plan: v.array(
+      v.object({
+        exerciseId: v.id("exercises"),
+        targetSets: v.optional(v.number()),
+        targetReps: v.optional(v.number()),
+        targetWeightLb: v.optional(v.number()),
+        targetDurationSec: v.optional(v.number()),
+        targetDistanceM: v.optional(v.number()),
+        skipped: v.optional(v.boolean()),
+      }),
+    ),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const session = await requireOpenSession(ctx, ctx.userId, args.sessionId);
+    const normalized = normalizePlanInput(args.plan);
+    const owned = await assertOwnedPlan(ctx, ctx.userId, normalized);
+    let routineId = session.routineId;
+    if (args.routineId) {
+      const routine = await ctx.db.get("routines", args.routineId);
+      if (!routine || routine.userId !== ctx.userId) {
+        throw new Error("Routine not found");
+      }
+      routineId = routine._id;
+    }
+    const planName =
+      args.planName === undefined
+        ? session.planName
+        : args.planName.trim().slice(0, MAX_ROUTINE_NAME_LENGTH) || undefined;
+    await ctx.db.patch("sessions", session._id, {
+      plan: owned,
+      ...(planName ? { planName } : {}),
+      ...(routineId ? { routineId } : {}),
+    });
+    return null;
   },
 });
 

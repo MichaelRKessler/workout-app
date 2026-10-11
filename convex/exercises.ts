@@ -5,6 +5,7 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { authedMutation, authedQuery } from "./lib/customFunctions";
 import { formatExerciseName, MAX_KNOWN_EXERCISE_NAMES } from "./lib/exerciseName";
 import { summarizeEfforts, trendFromSets } from "./lib/records";
+import { repointExerciseReferences } from "./lib/routineRecords";
 import {
   EXERCISE_RECORD_SCAN,
   loadRecentSetsForExercise,
@@ -413,6 +414,7 @@ export const merge = authedMutation({
         moved += 1;
       }
     }
+    await repointExerciseReferences(ctx, ctx.userId, from._id, into._id);
     await ctx.db.delete("exercises", from._id);
     return { moved, name: into.name };
   },

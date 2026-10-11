@@ -23,6 +23,23 @@ export default defineSchema({
     // Set when a phone logs a workout before the server has seen it.
     // Older sessions omit it, which is valid.
     clientId: v.optional(v.string()),
+    // Present when this workout was started from a routine or a repeat.
+    // Older sessions omit these, which is valid.
+    planName: v.optional(v.string()),
+    routineId: v.optional(v.id("routines")),
+    plan: v.optional(
+      v.array(
+        v.object({
+          exerciseId: v.id("exercises"),
+          targetSets: v.optional(v.number()),
+          targetReps: v.optional(v.number()),
+          targetWeightLb: v.optional(v.number()),
+          targetDurationSec: v.optional(v.number()),
+          targetDistanceM: v.optional(v.number()),
+          skipped: v.optional(v.boolean()),
+        }),
+      ),
+    ),
   })
     .index("by_user_status_and_started", ["userId", "status", "startedAt"])
     .index("by_status", ["status"])
@@ -52,6 +69,23 @@ export default defineSchema({
     // that sorted by creation time: a workout logged today for last month
     // must sort by when the set was performed.
     .index("by_user_exercise_and_logged", ["userId", "exerciseId", "loggedAt"]),
+  routines: defineTable({
+    userId: v.id("users"),
+    name: v.string(),
+    exercises: v.array(
+      v.object({
+        exerciseId: v.id("exercises"),
+        targetSets: v.optional(v.number()),
+        targetReps: v.optional(v.number()),
+        targetWeightLb: v.optional(v.number()),
+        targetDurationSec: v.optional(v.number()),
+        targetDistanceM: v.optional(v.number()),
+      }),
+    ),
+    sortIndex: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_user_and_sort", ["userId", "sortIndex"]),
   preferences: defineTable({
     userId: v.id("users"),
     weightUnit: v.union(v.literal("lb"), v.literal("kg")),

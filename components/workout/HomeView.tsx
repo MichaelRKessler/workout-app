@@ -26,21 +26,31 @@ export type WeekSummary = {
   streakWeeks: number;
 };
 
+export type HomeRoutine = {
+  _id: string;
+  name: string;
+};
+
 /** No workout open: the mic starts one with the first confirmed set. */
 export function HomeView({
   lastWorkout,
   weekSummary,
+  routines,
   voiceBusy,
   offline = false,
   onVoice,
   onManual,
+  onStartRoutine,
 }: {
   lastWorkout: HistoryDay | null | undefined;
   weekSummary?: WeekSummary | null;
+  /** Undefined while the list is still loading. An empty list offers to create one. */
+  routines?: HomeRoutine[] | null;
   voiceBusy: boolean;
   offline?: boolean;
   onVoice: () => void;
   onManual: () => void;
+  onStartRoutine?: (routineId: string) => void;
 }) {
   return (
     <div className="flex min-h-[calc(100dvh-env(safe-area-inset-top))] flex-col px-5 pt-3 pb-[calc(20px+env(safe-area-inset-bottom))]">
@@ -94,6 +104,35 @@ export function HomeView({
         >
           Log a past workout
         </Link>
+        {routines && routines.length > 0 ? (
+          <div className="mt-5 w-full max-w-[22rem]">
+            <div className="mb-2 flex items-baseline justify-between gap-3 px-1">
+              <h2 className="text-xs font-medium tracking-[0.06em] text-subtle uppercase">Routines</h2>
+              <Link href="/routines" className="text-sm font-medium text-muted hover:underline">
+                Edit
+              </Link>
+            </div>
+            <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1 [scrollbar-width:none]">
+              {routines.map((routine) => (
+                <button
+                  key={routine._id}
+                  type="button"
+                  onClick={() => onStartRoutine?.(routine._id)}
+                  className="min-h-11 max-w-[14rem] shrink-0 truncate rounded-full border border-line bg-surface px-4 text-base font-medium hover:bg-fill-2"
+                >
+                  {routine.name}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : routines ? (
+          <Link
+            href="/routines/new"
+            className="mt-1 inline-flex min-h-11 items-center rounded-full px-4 text-base font-medium text-muted hover:bg-fill-2"
+          >
+            Create a routine
+          </Link>
+        ) : null}
       </main>
 
       {weekSummary ? <WeeklySummary summary={weekSummary} /> : null}

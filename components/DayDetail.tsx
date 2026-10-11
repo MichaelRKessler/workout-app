@@ -3,6 +3,9 @@
 import { Button } from "@/components/Button";
 import { useOfflineLog } from "@/components/OfflineSync";
 import { PageHeader } from "@/components/PageHeader";
+import { OpenWorkoutSheet } from "@/components/routines/OpenWorkoutSheet";
+import { SaveRoutineSheet } from "@/components/routines/SaveRoutineSheet";
+import { useBeginWorkout } from "@/components/routines/useBeginWorkout";
 import { Toast, type ToastMessage } from "@/components/Toast";
 import { useBrowserTimeZone } from "@/components/useBrowserTimeZone";
 import { useWeightUnit } from "@/components/WeightUnit";
@@ -22,6 +25,7 @@ import {
   formatTimeOfDay,
   formatVolumeLb,
   pluralize,
+  suggestRoutineName,
 } from "@/lib/format";
 import { type SetLine } from "@/lib/groupSets";
 import {
@@ -76,6 +80,8 @@ export function DayDetail({ dayKey }: { dayKey: string }) {
   const log = useOfflineLog();
   const deleteDay = useMutation(api.sessions.removeDay);
   const setNote = useMutation(api.sessions.setNote);
+  const createFromSessions = useMutation(api.routines.createFromSessions);
+  const begin = useBeginWorkout();
   const unit = useWeightUnit();
 
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -88,6 +94,9 @@ export function DayDetail({ dayKey }: { dayKey: string }) {
   const [noteDrafts, setNoteDrafts] = useState<Record<string, string>>({});
   const [savingNoteId, setSavingNoteId] = useState<string | null>(null);
   const [manual, setManual] = useState<ManualState | null>(null);
+  const [saveRoutineOpen, setSaveRoutineOpen] = useState(false);
+  const [saveRoutineError, setSaveRoutineError] = useState<string | null>(null);
+  const [saveRoutinePending, setSaveRoutinePending] = useState(false);
 
   const orderedSessions = useMemo(() => {
     const sessions = day?.sessions ?? [];
@@ -144,6 +153,21 @@ export function DayDetail({ dayKey }: { dayKey: string }) {
   }
 
   const latest = orderedSessions[orderedSessions.length - 1] ?? null;
+
+  async function saveAsRoutine(name: string) {
+    setSaveRoutinePending(true);
+    setSaveRoutineError(null);
+    try {
+      const routineId = await createFromSessions({
+        name,
+        sessionIds: orderedSessions.map((session) => session._id),
+      });
+      router.push(`/routines/${routineId}`);
+    } catch (caught) {
+      setSaveRoutineError(readableError(caught));
+      setSaveRoutinePending(false);
+    }
+  }
 
   async function addManual(set: {
     exerciseName: string;
@@ -392,6 +416,22 @@ export function DayDetail({ dayKey }: { dayKey: string }) {
         >
           Add a set
         </Button>
+        <Button
+          variant="secondary"
+          disabled={begin.pending}
+          onClick={() => void begin.repeatWorkouts(orderedSessions.map((session) => session._id))}
+        >
+          {orderedSessions.length > 1 ? "Repeat this day" : "Repeat this workout"}
+        </Button>
+        <Button
+          variant="secondary"
+          onClick={() => {
+            setSaveRoutineError(null);
+            setSaveRoutineOpen(true);
+          }}
+        >
+          Save as routine
+        </Button>
         {day.truncated ? (
           <p className="text-sm text-pretty text-muted">
             This day has more workouts than can be deleted from here.
@@ -408,6 +448,11 @@ export function DayDetail({ dayKey }: { dayKey: string }) {
           </Button>
         )}
       </div>
+      {begin.error ? (
+        <p role="alert" className="mt-3 text-sm text-danger">
+          {begin.error}
+        </p>
+      ) : null}
 
       {groups.length === 0 ? (
         <p className="mt-8 text-base text-muted">No sets were logged.</p>
@@ -471,6 +516,26 @@ export function DayDetail({ dayKey }: { dayKey: string }) {
           onAdd={addManual}
         />
       ) : null}
+
+      <SaveRoutineSheet
+        key={saveRoutineOpen ? orderedSessions.map((session) => session._id).join("-") : "closed"}
+        open={saveRoutineOpen}
+        defaultName={suggestRoutineName(anchor.startedAt)}
+        summary={
+          groups.length > 0
+            ? groups.map((group) => group.name).join(", ")
+            : pluralize(orderedSessions.length, "workout")
+        }
+        pending={saveRoutinePending}
+        error={saveRoutineError}
+        onCancel={() => setSaveRoutineOpen(false)}
+        onSave={(name) => void saveAsRoutine(name)}
+      />
+      <OpenWorkoutSheet
+        open={begin.promptOpen}
+        onClose={begin.closePrompt}
+        onContinue={begin.continueOpen}
+      />
 
       <DeleteWorkoutSheet
         open={deleteOpen}

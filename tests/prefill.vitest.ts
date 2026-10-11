@@ -58,6 +58,29 @@ describe("set form prefill", () => {
     });
   });
 
+  test("a routine target fills the gap before the default of 10 at 0", () => {
+    const routine = { reps: 8, weightLb: 95, durationSec: null, distanceM: null };
+    expect(prefillValues("curl", [], null, routine)).toEqual({
+      kind: "strength",
+      reps: "8",
+      weight: "95",
+      duration: "",
+      distance: "",
+      rpe: "",
+      source: "routine",
+    });
+    expect(prefillValues("bench press", session, previous, routine).source).toBe("session");
+    expect(prefillValues("deadlift", session, previous, routine).source).toBe("previous");
+    expect(
+      prefillValues("curl", [], null, {
+        reps: null,
+        weightLb: 45,
+        durationSec: null,
+        distanceM: null,
+      }).source,
+    ).toBe("default");
+  });
+
   test("a previous-workout result only applies to the same exercise", () => {
     const history = { normalizedName: "deadlift", sets: previous };
     expect(previousSetsForName("squat", history)).toBeNull();
