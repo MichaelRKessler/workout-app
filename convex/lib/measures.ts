@@ -1,4 +1,4 @@
-import { roundWeight } from "./units.ts";
+import { roundWeight } from "./units";
 
 export const MAX_DURATION_SEC = 24 * 60 * 60;
 export const MAX_DISTANCE_M = 200_000;
