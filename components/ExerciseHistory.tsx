@@ -1,6 +1,8 @@
 "use client";
 
 import { Button } from "@/components/Button";
+import { MuscleGroupField } from "@/components/MuscleGroupField";
+import { useOfflineLog } from "@/components/OfflineSync";
 import { PageHeader } from "@/components/PageHeader";
 import { useBrowserTimeZone } from "@/components/useBrowserTimeZone";
 import { useWeightUnit } from "@/components/WeightUnit";
@@ -17,6 +19,7 @@ import { useMemo } from "react";
 export function ExerciseHistory({ exerciseId }: { exerciseId: string }) {
   const unit = useWeightUnit();
   const timeZone = useBrowserTimeZone();
+  const { offline } = useOfflineLog();
   const detail = useQuery(api.exercises.detail, { exerciseId });
   const { results, status, loadMore } = usePaginatedQuery(
     api.exercises.history,
@@ -91,6 +94,13 @@ export function ExerciseHistory({ exerciseId }: { exerciseId: string }) {
   return (
     <div className="px-5 pt-3 pb-[calc(32px+env(safe-area-inset-bottom))]">
       <PageHeader backHref="/history" backLabel="Back to history" title={detail.name}>
+        <MuscleGroupField
+          exerciseId={detail._id}
+          exerciseName={detail.name}
+          muscleGroup={detail.muscleGroup}
+          muscleSource={detail.muscleSource}
+          offline={offline}
+        />
         <Records detail={detail} unit={unit} />
         <TrendChart
           points={detail.trend}

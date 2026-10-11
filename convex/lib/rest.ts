@@ -1,5 +1,6 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
+import { exerciseRecord } from "./exerciseFields";
 
 export const DEFAULT_REST_SECONDS = 90;
 export const MIN_REST_SECONDS = 15;
@@ -34,11 +35,9 @@ export async function setExerciseRest(
   if ((exercise.restSeconds ?? undefined) === stored) {
     return;
   }
-  await ctx.db.replace("exercises", exercise._id, {
-    userId: exercise.userId,
-    name: exercise.name,
-    normalizedName: exercise.normalizedName,
-    createdAt: exercise.createdAt,
-    ...(stored !== undefined ? { restSeconds: stored } : {}),
-  });
+  await ctx.db.replace(
+    "exercises",
+    exercise._id,
+    exerciseRecord(exercise, { restSeconds: restSeconds === null ? null : stored }),
+  );
 }

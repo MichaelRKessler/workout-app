@@ -22,12 +22,16 @@ export function ListeningOverlay({
   analyser,
   onStop,
   onCancel,
+  prompt = "Say the exercise, then the sets, reps and weight.",
+  example = "“Romanian deadlift, 3 sets of 8 at 185”",
 }: {
   status: "recording" | "parsing";
   elapsedMs: number;
   analyser: AnalyserNode | null;
   onStop: () => void;
   onCancel: () => void;
+  prompt?: string;
+  example?: string;
 }) {
   const barsRef = useRef<Array<HTMLSpanElement | null>>([]);
   const stopRef = useRef<HTMLButtonElement>(null);
@@ -166,13 +170,9 @@ export function ListeningOverlay({
             <span className="text-base text-subtle">/ {formatSeconds(MAX_RECORDING_MS)}</span>
           </p>
           <p className="mt-3.5 max-w-[21rem] text-base leading-normal text-pretty text-muted">
-            {parsing
-              ? "Turning that into sets. Nothing is saved until you confirm."
-              : "Say the exercise, then the sets, reps and weight."}
+            {parsing ? "Nothing is saved until you confirm." : prompt}
           </p>
-          {parsing ? null : (
-            <p className="mt-1.5 text-sm text-subtle">“Romanian deadlift, 3 sets of 8 at 185”</p>
-          )}
+          {parsing ? null : <p className="mt-1.5 text-sm text-subtle">{example}</p>}
         </div>
 
         <div className="flex flex-col items-center gap-2.5">

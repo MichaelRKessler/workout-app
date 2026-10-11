@@ -45,11 +45,20 @@ export function TrendChart({
   recordUnit,
   weightUnit,
   timeZone,
+  linkDays = true,
+  noun = "workout",
+  valueCaption,
 }: {
   points: Point[];
   recordUnit: TrendUnit;
   weightUnit: WeightUnit;
   timeZone: string | null;
+  /** Exercise charts open the workout day. A body-weight chart only selects a point. */
+  linkDays?: boolean;
+  /** Pluralized in the chart description and empty range, such as "weigh-in". */
+  noun?: string;
+  /** Replaces the record caption. Body weight uses "Weight". */
+  valueCaption?: string;
 }) {
   const router = useRouter();
   const [range, setRange] = useState<ChartRange>("3m");
@@ -92,14 +101,15 @@ export function TrendChart({
     first && last
       ? `M ${first.x} ${HEIGHT - PAD_Y} L ${coords.map((point) => `${point.x} ${point.y}`).join(" L ")} L ${last.x} ${HEIGHT - PAD_Y} Z`
       : "";
-  const dayHref = selected
-    ? `/history/day/${calendarDayKey(selected.startedAt, timeZone ?? undefined)}`
-    : null;
-  const seriesName = activeMode === "volume" ? "volume" : recordName;
+  const dayHref =
+    linkDays && selected
+      ? `/history/day/${calendarDayKey(selected.startedAt, timeZone ?? undefined)}`
+      : null;
+  const seriesName = activeMode === "volume" ? "volume" : (valueCaption ?? recordName);
   const chartLabel =
     plotted.length === 0
-      ? `No ${seriesName} in this range`
-      : `${seriesName} from ${formatShortDate(plotted[0]?.startedAt ?? now)} to ${formatShortDate(plotted[plotted.length - 1]?.startedAt ?? now)}, ${pluralize(plotted.length, "workout")}`;
+      ? `No ${seriesName.toLowerCase()} in this range`
+      : `${seriesName} from ${formatShortDate(plotted[0]?.startedAt ?? now)} to ${formatShortDate(plotted[plotted.length - 1]?.startedAt ?? now)}, ${pluralize(plotted.length, noun)}`;
 
   function formatPlot(value: number): string {
     if (activeMode === "volume") {
@@ -122,7 +132,7 @@ export function TrendChart({
     if (!point) {
       return;
     }
-    if (point.sessionId === (selected?.sessionId ?? null) && dayHref) {
+    if (linkDays && point.sessionId === (selected?.sessionId ?? null) && dayHref) {
       router.push(dayHref);
       return;
     }
@@ -186,13 +196,18 @@ export function TrendChart({
           <p className="font-mono text-lg font-medium tracking-[-0.03em]">{formatPlot(selected.plot)}</p>
           <p className="text-sm text-muted" suppressHydrationWarning>
             {formatShortDate(selected.startedAt)}
-            {activeMode === "record" && recordUnit === "lb" ? " · est. 1RM" : ""}
+            {activeMode === "record" && recordUnit === "lb" && !valueCaption ? " · est. 1RM" : ""}
             {activeMode === "volume" ? " · volume" : ""}
+            {valueCaption && activeMode === "record" ? ` · ${valueCaption.toLowerCase()}` : ""}
           </p>
         </div>
       ) : (
         <p className="mt-3 text-base text-muted">
-          {range === "3m" ? "No workouts in the last 3 months." : range === "1y" ? "No workouts in the last year." : "No workouts to chart."}
+          {range === "3m"
+            ? `No ${noun}s in the last 3 months.`
+            : range === "1y"
+              ? `No ${noun}s in the last year.`
+              : `No ${noun}s to chart.`}
         </p>
       )}
 
@@ -257,7 +272,7 @@ export function TrendChart({
       {plotted.length > 0 ? (
         <figcaption className="mt-1 flex justify-between gap-3 text-xs text-subtle">
           <span>{formatPlot(min)}</span>
-          <span>{activeMode === "volume" ? "Volume" : recordName}</span>
+          <span>{activeMode === "volume" ? "Volume" : (valueCaption ?? recordName)}</span>
           <span>{formatPlot(max)}</span>
         </figcaption>
       ) : null}

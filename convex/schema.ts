@@ -12,6 +12,23 @@ export default defineSchema({
     // Optional so exercises saved before per-exercise rest still validate.
     // Absent means the device rest default.
     restSeconds: v.optional(v.number()),
+    // Optional so exercises saved before muscle groups still validate.
+    // Absent means the name's suggestion, which the person can override.
+    muscleGroup: v.optional(
+      v.union(
+        v.literal("chest"),
+        v.literal("back"),
+        v.literal("shoulders"),
+        v.literal("biceps"),
+        v.literal("triceps"),
+        v.literal("quads"),
+        v.literal("hamstrings"),
+        v.literal("glutes"),
+        v.literal("core"),
+        v.literal("cardio"),
+        v.literal("other"),
+      ),
+    ),
   }).index("by_user_and_normalized_name", ["userId", "normalizedName"]),
   sessions: defineTable({
     userId: v.id("users"),
@@ -105,7 +122,28 @@ export default defineSchema({
     // Absent means suggestions are on, with the unit's default increment.
     suggestNextWeight: v.optional(v.boolean()),
     progressionIncrementLb: v.optional(v.number()),
+    // Optional so preference rows saved before length units still validate.
+    // Absent follows the weight unit: inches with pounds, centimeters with kilograms.
+    lengthUnit: v.optional(v.union(v.literal("in"), v.literal("cm"))),
   }).index("by_user", ["userId"]),
+  bodyEntries: defineTable({
+    userId: v.id("users"),
+    loggedAt: v.number(),
+    // Pounds, same as set weights. Absent when this entry is measurements only.
+    weightLb: v.optional(v.number()),
+    bodyFatPct: v.optional(v.number()),
+    // Centimeters. Absent fields were not measured that day.
+    waistCm: v.optional(v.number()),
+    chestCm: v.optional(v.number()),
+    armCm: v.optional(v.number()),
+    hipsCm: v.optional(v.number()),
+    thighCm: v.optional(v.number()),
+    note: v.optional(v.string()),
+    // Phone-generated id so a retry cannot insert the same entry twice.
+    clientId: v.optional(v.string()),
+  })
+    .index("by_user_and_logged", ["userId", "loggedAt"])
+    .index("by_user_and_client_id", ["userId", "clientId"]),
   allowedEmails: defineTable({
     email: v.string(),
     createdAt: v.number(),

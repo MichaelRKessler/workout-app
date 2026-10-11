@@ -85,6 +85,7 @@ describe("set types, suggestions, and per-exercise rest", () => {
     expect(summary.workouts).toBe(1);
     expect(summary.sets).toBe(2);
     expect(summary.volumeLb).toBe(5 * 185 + 8 * 95);
+    expect(summary.muscles).toEqual([{ group: "quads", sets: 2 }]);
   });
 
   test("suggestions default on, and rest stays on the owning account", async () => {

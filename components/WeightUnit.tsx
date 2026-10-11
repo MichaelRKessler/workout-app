@@ -1,8 +1,15 @@
 "use client";
 
 import { api } from "@/convex/_generated/api";
+import { defaultLengthUnit, type LengthUnit } from "@/convex/lib/bodyMeasures";
 import type { WeightUnit } from "@/convex/lib/units";
-import { browserStore, loadWeightUnit, saveWeightUnit } from "@/lib/offline/storage";
+import {
+  browserStore,
+  loadLengthUnit,
+  loadWeightUnit,
+  saveLengthUnit,
+  saveWeightUnit,
+} from "@/lib/offline/storage";
 import { useQuery } from "convex/react";
 import { createContext, ReactNode, useContext, useEffect, useState } from "react";
 
@@ -33,4 +40,25 @@ export function WeightUnitProvider({ children }: { children: ReactNode }) {
 
 export function useWeightUnit(): WeightUnit {
   return useContext(WeightUnitContext);
+}
+
+/** Last known inches or centimeters, then the weight-unit default while that loads. */
+export function useLengthUnit(): LengthUnit {
+  const preferences = useQuery(api.users.preferences);
+  const weightUnit = useWeightUnit();
+  const [cached, setCached] = useState<LengthUnit | null>(null);
+
+  useEffect(() => {
+    setCached(loadLengthUnit(browserStore()));
+  }, []);
+
+  useEffect(() => {
+    if (!preferences?.lengthUnit) {
+      return;
+    }
+    saveLengthUnit(browserStore(), preferences.lengthUnit);
+    setCached(preferences.lengthUnit);
+  }, [preferences?.lengthUnit]);
+
+  return preferences?.lengthUnit ?? cached ?? defaultLengthUnit(weightUnit);
 }

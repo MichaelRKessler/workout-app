@@ -6,6 +6,7 @@ import {
   applySyncResult,
   editPendingSet,
   emptyOutbox,
+  enqueueBody,
   enqueueSets,
   firstSyncError,
   mergeVisibleSets,
@@ -567,4 +568,54 @@ test("the service worker does not cache APIs, voice, or other origins", () => {
   assert.match(source, /url\.origin !== self\.location\.origin/);
   assert.doesNotMatch(source, /cache-first/);
   assert.equal(source.indexOf("await fetch(request)") < source.indexOf("cache.match(request)"), true);
+});
+
+test("a queued weigh-in counts as pending and an old outbox has no body entries", () => {
+  const entry = {
+    clientId: "bodyclient1",
+    loggedAt: NOW,
+    weightLb: 232,
+    bodyFatPct: null,
+    waistCm: null,
+    chestCm: null,
+    armCm: null,
+    hipsCm: null,
+    thighCm: null,
+    note: null,
+  };
+  const queued = enqueueBody(emptyOutbox(), entry);
+  assert.equal(pendingChangeCount(queued), 1);
+  assert.equal(queued.body.length, 1);
+  const replaced = enqueueBody(queued, { ...entry, weightLb: 230 });
+  assert.equal(replaced.body.length, 1);
+  assert.equal(replaced.body[0]?.weightLb, 230);
+
+  const applied = applySyncResult(replaced, {
+    sets: [],
+    edits: [],
+    deletes: [],
+    actions: [],
+    body: [{ clientId: "bodyclient1", status: "applied", entryId: "entry1", message: null }],
+  });
+  assert.equal(applied.outbox.body.length, 0);
+  assert.equal(pendingChangeCount(applied.outbox), 0);
+
+  const rejected = applySyncResult(replaced, {
+    sets: [],
+    edits: [],
+    deletes: [],
+    actions: [],
+    body: [{ clientId: "bodyclient1", status: "rejected", entryId: null, message: "That date is invalid" }],
+  });
+  assert.equal(rejected.outbox.body[0]?.syncError, "That date is invalid");
+  assert.equal(pendingChangeCount(rejected.outbox), 1);
+
+  const older = parseOutbox({
+    sets: [],
+    edits: [],
+    deletes: [],
+    actions: [],
+  });
+  assert.deepEqual(older.body, []);
+  assert.equal(pendingChangeCount(older), 0);
 });

@@ -1,10 +1,9 @@
 "use client";
 
-"use client";
-
 import { useWeightUnit } from "@/components/WeightUnit";
 import { BrandMark, ChevronRightIcon, KeyboardIcon, MicIcon } from "@/components/icons";
 import { TopActions } from "@/components/TopActions";
+import { formatMuscleSummary, type MuscleGroup } from "@/convex/lib/muscleGroup";
 import {
   formatLongDate,
   formatShortDate,
@@ -24,6 +23,7 @@ export type WeekSummary = {
   previousSets: number;
   previousVolumeLb: number;
   streakWeeks: number;
+  muscles: Array<{ group: MuscleGroup; sets: number }>;
 };
 
 export type HomeRoutine = {
@@ -98,12 +98,20 @@ export function HomeView({
           <KeyboardIcon className="size-5" />
           Type it instead
         </button>
-        <Link
-          href="/history/log"
-          className="mt-1 inline-flex min-h-11 items-center rounded-full px-4 text-base font-medium text-muted hover:bg-fill-2"
-        >
-          Log a past workout
-        </Link>
+        <div className="mt-1 flex flex-wrap items-center justify-center">
+          <Link
+            href="/history/log"
+            className="inline-flex min-h-11 items-center rounded-full px-4 text-base font-medium text-muted hover:bg-fill-2"
+          >
+            Log a past workout
+          </Link>
+          <Link
+            href="/body"
+            className="inline-flex min-h-11 items-center rounded-full px-4 text-base font-medium text-muted hover:bg-fill-2"
+          >
+            Body
+          </Link>
+        </div>
         {routines && routines.length > 0 ? (
           <div className="mt-5 w-full max-w-[22rem]">
             <div className="mb-2 flex items-baseline justify-between gap-3 px-1">
@@ -165,6 +173,7 @@ function LastWorkoutCard({ workout }: { workout: HistoryDay }) {
 
 function WeeklySummary({ summary }: { summary: WeekSummary }) {
   const unit = useWeightUnit();
+  const muscles = formatMuscleSummary(summary.muscles);
   return (
     <section aria-label="This week" className="mb-3 rounded-[1.25rem] border border-line bg-surface p-4">
       <div className="flex items-baseline justify-between gap-3">
@@ -175,6 +184,7 @@ function WeeklySummary({ summary }: { summary: WeekSummary }) {
         {pluralize(summary.workouts, "workout")} · {pluralize(summary.sets, "set")} ·{" "}
         {formatVolumeLb(summary.volumeLb, unit)}
       </p>
+      {muscles ? <p className="mt-1 text-sm text-pretty text-muted">{muscles}</p> : null}
       <p className="mt-0.5 text-sm text-pretty text-muted">
         Last week · {pluralize(summary.previousWorkouts, "workout")} ·{" "}
         {pluralize(summary.previousSets, "set")} · {formatVolumeLb(summary.previousVolumeLb, unit)}
