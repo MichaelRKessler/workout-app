@@ -28,6 +28,36 @@ export const webAppManifest: MetadataRoute.Manifest = {
   lang: "en",
   categories: ["health", "fitness"],
   prefer_related_applications: false,
+  shortcuts: [
+    {
+      name: "New workout",
+      short_name: "New",
+      description: "Start a workout, or continue the one already open",
+      url: "/start?action=new",
+      icons: [{ src: "/icons/icon-192.png", sizes: "192x192", type: "image/png" }],
+    },
+    {
+      name: "Repeat last workout",
+      short_name: "Repeat",
+      description: "Start from the exercises in your latest finished workout",
+      url: "/start?action=repeat",
+      icons: [{ src: "/icons/icon-192.png", sizes: "192x192", type: "image/png" }],
+    },
+    {
+      name: "Routines",
+      short_name: "Routines",
+      description: "Open your saved routines",
+      url: "/routines",
+      icons: [{ src: "/icons/icon-192.png", sizes: "192x192", type: "image/png" }],
+    },
+    {
+      name: "Log body weight",
+      short_name: "Body",
+      description: "Log body weight and measurements",
+      url: "/body",
+      icons: [{ src: "/icons/icon-192.png", sizes: "192x192", type: "image/png" }],
+    },
+  ],
   launch_handler: {
     client_mode: "navigate-existing",
   },

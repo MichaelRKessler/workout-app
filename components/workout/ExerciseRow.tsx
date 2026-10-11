@@ -7,7 +7,7 @@ import { exerciseIconKind } from "@/lib/exerciseIcon";
 import { describeSet, formatSetShort } from "@/lib/format";
 import type { SetLine } from "@/lib/groupSets";
 import Link from "next/link";
-import { useId } from "react";
+import { ReactNode, useId } from "react";
 
 export function ExerciseTile({ name }: { name: string }) {
   return (
@@ -54,6 +54,7 @@ export function ExerciseRow({
   onRemoveSet,
   removingId = null,
   exerciseHref,
+  footer,
 }: {
   name: string;
   sets: SetLine[];
@@ -66,6 +67,7 @@ export function ExerciseRow({
   onRemoveSet?: (setId: string) => void;
   removingId?: string | null;
   exerciseHref?: string;
+  footer?: ReactNode;
 }) {
   const detailId = useId();
   const unit = useWeightUnit();
@@ -169,6 +171,7 @@ export function ExerciseRow({
           ))}
         </ol>
       ) : null}
+      {footer}
     </li>
   );
 }

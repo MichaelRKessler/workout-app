@@ -261,6 +261,10 @@ function parseSnapshotPlan(value: unknown): PendingPlan | null {
         typeof exercise.targetDurationSec === "number" ? exercise.targetDurationSec : null,
       targetDistanceM: typeof exercise.targetDistanceM === "number" ? exercise.targetDistanceM : null,
       restSeconds: typeof exercise.restSeconds === "number" ? exercise.restSeconds : null,
+      supersetId:
+        typeof exercise.supersetId === "string" && exercise.supersetId.length > 0
+          ? exercise.supersetId
+          : null,
       skipped: exercise.skipped === true,
     });
   }

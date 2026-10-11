@@ -1,4 +1,5 @@
 import { formatExerciseName } from "../../convex/lib/exerciseName";
+import { cleanSupersetId, normalizeSupersetItems } from "../../convex/lib/superset";
 import {
   formatClock,
   formatDistance,
@@ -35,6 +36,7 @@ export type VoiceDraft = {
   exercises: Array<{
     exerciseName: string;
     sets: DraftSet[];
+    supersetId?: string | null;
   }>;
 };
 
@@ -133,6 +135,7 @@ export function proposalToDraft(proposal: VoiceProposal, unit: WeightUnit = "lb"
     note: proposal.note ?? "",
     exercises: proposal.exercises.map((exercise) => ({
       exerciseName: exercise.exerciseName,
+      ...(exercise.supersetId ? { supersetId: exercise.supersetId } : {}),
       sets: exercise.sets.map((set) => ({
         kind: setKind(set),
         reps: set.reps === null ? "" : String(set.reps),
@@ -174,9 +177,21 @@ export function draftToProposal(draft: VoiceDraft, unit: WeightUnit = "lb"): Voi
       }
       sets.push(parsed);
     }
-    exercises.push({ exerciseName: formatted.name, sets });
+    const supersetId = cleanSupersetId(exercise.supersetId);
+    exercises.push({
+      exerciseName: formatted.name,
+      sets,
+      ...(supersetId ? { supersetId } : {}),
+    });
   }
-  return { note: note.length > 0 ? note : null, exercises };
+  return {
+    note: note.length > 0 ? note : null,
+    exercises: normalizeSupersetItems(exercises).map((exercise) =>
+      exercise.supersetId
+        ? exercise
+        : { exerciseName: exercise.exerciseName, sets: exercise.sets },
+    ),
+  };
 }
 
 function draftSetToVoice(set: DraftSet, unit: WeightUnit): VoiceSet | null {

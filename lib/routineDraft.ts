@@ -1,4 +1,5 @@
 import { formatExerciseName } from "../convex/lib/exerciseName";
+import { withStoredSuperset } from "../convex/lib/superset";
 import { formatClock, formatDistance, parseClock, parseDistanceInput } from "../convex/lib/measures";
 import { clampRestSeconds } from "../convex/lib/rest";
 import { MAX_ROUTINE_EXERCISES, MAX_TARGET_SETS } from "../convex/lib/routinePlan";
@@ -23,6 +24,8 @@ export type RoutineDraftExercise = {
   distance: string;
   /** Empty uses the device rest default. A number of seconds is the account rest. */
   rest: string;
+  /** Shared with the next exercises when they are one superset. */
+  supersetId: string | null;
 };
 
 export type RoutineExercisePayload = {
@@ -33,6 +36,7 @@ export type RoutineExercisePayload = {
   targetDurationSec?: number;
   targetDistanceM?: number;
   restSeconds: number | null;
+  supersetId?: string;
 };
 
 type SavedExercise = {
@@ -43,6 +47,7 @@ type SavedExercise = {
   targetDurationSec: number | null;
   targetDistanceM: number | null;
   restSeconds?: number | null;
+  supersetId?: string | null;
 };
 
 export function blankRoutineExercise(key: string): RoutineDraftExercise {
@@ -56,6 +61,7 @@ export function blankRoutineExercise(key: string): RoutineDraftExercise {
     duration: "",
     distance: "",
     rest: "",
+    supersetId: null,
   };
 }
 
@@ -83,6 +89,7 @@ export function savedExerciseToDraft(
     duration: exercise.targetDurationSec ? formatClock(exercise.targetDurationSec) : "",
     distance: exercise.targetDistanceM ? formatDistance(exercise.targetDistanceM) : "",
     rest: exercise.restSeconds ? String(exercise.restSeconds) : "",
+    supersetId: exercise.supersetId ?? null,
   };
 }
 
@@ -99,7 +106,8 @@ export function routineDraftToPayload(
       error: `A routine can have up to ${MAX_ROUTINE_EXERCISES} exercises.`,
     };
   }
-  const payloads: RoutineExercisePayload[] = [];
+  const payloads: Array<Omit<RoutineExercisePayload, "supersetId"> & { supersetId?: string | null }> =
+    [];
   const seen = new Set<string>();
   for (const exercise of exercises) {
     const formatted = formatExerciseName(exercise.name);
@@ -116,9 +124,20 @@ export function routineDraftToPayload(
     }
     const restText = exercise.rest.trim();
     const restSeconds = restText.length === 0 ? null : clampRestSeconds(Number(restText));
-    payloads.push({ name: formatted.name, restSeconds, ...targets.targets });
+    payloads.push({
+      name: formatted.name,
+      restSeconds,
+      supersetId: exercise.supersetId,
+      ...targets.targets,
+    });
   }
-  return { ok: true, exercises: payloads };
+  return {
+    ok: true,
+    exercises: withStoredSuperset(payloads).map((exercise) => {
+      const { supersetId, ...rest } = exercise;
+      return supersetId ? { ...rest, supersetId } : rest;
+    }),
+  };
 }
 
 function targetsFromDraft(

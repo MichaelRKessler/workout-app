@@ -82,6 +82,7 @@ export const accept = authedMutation({
         exerciseName: v.string(),
         loggedAt: v.number(),
         note: v.optional(v.string()),
+        supersetId: v.optional(v.string()),
         ...measureFields,
       }),
     ),

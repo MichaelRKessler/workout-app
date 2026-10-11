@@ -7,6 +7,7 @@ import { combineNotes, normalizeNote, type NormalizedSet } from "./measures";
 import { personalRecordForBatch, type PersonalRecord } from "./records";
 import { plannedCompletedAt } from "./sessionTiming";
 import { resolvedSetType, type SetType } from "./setType";
+import { cleanSupersetId, mergeSupersetMembers, withStoredSuperset } from "./superset";
 import {
   EXERCISE_RECORD_SCAN,
   MAX_SETS_PER_BATCH,
@@ -39,6 +40,8 @@ export type OfflineSetInput = {
   setType?: SetType;
   loggedAt: number;
   note?: string;
+  /** Voice label for a superset. Omitted on sets logged by hand. */
+  supersetId?: string;
 };
 
 export type OfflineEditInput = {
@@ -268,6 +271,24 @@ export async function acceptOfflineBatch(
   const notes = new Map<Id<"sessions">, string[]>();
   const createdSessions = new Map<Id<"sessions">, number>();
   const resolvedSessions = new Map<string, Id<"sessions">>();
+  const supersetLabels = new Map<
+    Id<"sessions">,
+    Array<{ exerciseId: Id<"exercises">; supersetId: string }>
+  >();
+
+  function rememberSuperset(
+    sessionId: Id<"sessions">,
+    exerciseId: Id<"exercises">,
+    label: string | undefined,
+  ) {
+    const supersetId = cleanSupersetId(label);
+    if (!supersetId) {
+      return;
+    }
+    const list = supersetLabels.get(sessionId) ?? [];
+    list.push({ exerciseId, supersetId });
+    supersetLabels.set(sessionId, list);
+  }
 
   async function resolveSession(item: OfflineSetInput): Promise<Id<"sessions">> {
     const key = item.sessionId ?? `${item.placement}:${item.sessionClientId}`;
@@ -356,6 +377,7 @@ export async function acceptOfflineBatch(
       }
 
       if (existing && (existing.clientRevision ?? 0) >= item.revision) {
+        rememberSuperset(existing.sessionId, existing.exerciseId, item.supersetId);
         setResults.push({
           clientId: item.clientId,
           revision: item.revision,
@@ -406,6 +428,7 @@ export async function acceptOfflineBatch(
           list.push(item.note);
           notes.set(sessionId, list);
         }
+        rememberSuperset(sessionId, exerciseId, item.supersetId);
         setResults.push({
           clientId: item.clientId,
           revision: item.revision,
@@ -423,6 +446,7 @@ export async function acceptOfflineBatch(
         existing._id,
         setDocument(existing, exerciseId, normalized, item.clientId, item.revision),
       );
+      rememberSuperset(existing.sessionId, exerciseId, item.supersetId);
       const personalRecord = await personalRecordForSet(
         ctx,
         userId,
@@ -451,6 +475,18 @@ export async function acceptOfflineBatch(
         message: messageOf(error),
       });
     }
+  }
+
+  for (const [sessionId, labels] of supersetLabels) {
+    const session = await ctx.db.get("sessions", sessionId);
+    if (!session || session.userId !== userId) {
+      continue;
+    }
+    const merged = mergeSupersetMembers(session.plan ?? [], labels, (exerciseId) => ({
+      exerciseId,
+    }));
+    const stored = withStoredSuperset(merged);
+    await ctx.db.patch("sessions", sessionId, { plan: stored });
   }
 
   for (const [sessionId, startedAt] of createdSessions) {

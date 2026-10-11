@@ -68,6 +68,7 @@ export type SaveSetInput = {
   rpe?: number | null;
   setType?: SetBody["setType"];
   loggedAt?: number;
+  supersetId?: string;
 };
 
 export type SaveSetsInput = {
@@ -461,6 +462,7 @@ export function OfflineSyncProvider({
           distanceM: set.distanceM ?? null,
           rpe: set.rpe ?? null,
           ...(set.setType !== undefined ? { setType: set.setType } : {}),
+          ...(set.supersetId ? { supersetId: set.supersetId } : {}),
           ...(set.loggedAt !== undefined ? { loggedAt: set.loggedAt } : {}),
         })),
       });
@@ -839,6 +841,7 @@ function batchPayload(batch: SyncBatch) {
       ...(set.set.distanceM !== null ? { distanceM: set.set.distanceM } : {}),
       ...(set.set.rpe !== null ? { rpe: set.set.rpe } : {}),
       ...(set.set.setType !== undefined ? { setType: set.set.setType } : {}),
+      ...(set.set.supersetId ? { supersetId: set.set.supersetId } : {}),
       ...(set.note ? { note: set.note } : {}),
     })),
     edits: batch.edits.map((edit) => ({

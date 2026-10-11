@@ -10,6 +10,12 @@ import { readableError } from "@/lib/errors";
 import { adjustRestSeconds, DEFAULT_REST_SECONDS } from "@/lib/restTimer";
 import { moveItem } from "@/convex/lib/routinePlan";
 import {
+  cleanSupersetId,
+  linkWithNext,
+  normalizeSupersetItems,
+  unlinkSuperset,
+} from "@/convex/lib/superset";
+import {
   blankRoutineExercise,
   routineDraftToPayload,
   savedExerciseToDraft,
@@ -58,6 +64,13 @@ export function RoutineEditor({ routineId }: { routineId?: string }) {
     );
     setReady(true);
   }, [editing, ready, routine, unit]);
+
+  function settle(next: RoutineDraftExercise[]) {
+    return normalizeSupersetItems(next).map((exercise) => ({
+      ...exercise,
+      supersetId: exercise.supersetId ?? null,
+    }));
+  }
 
   function patch(key: string, next: Partial<RoutineDraftExercise>) {
     setExercises((current) =>
@@ -159,8 +172,26 @@ export function RoutineEditor({ routineId }: { routineId?: string }) {
         </label>
 
         <ol className="flex flex-col gap-3">
-          {exercises.map((exercise, index) => (
-            <li key={exercise.key} className="rounded-[1.25rem] border border-line bg-surface p-3">
+          {exercises.map((exercise, index) => {
+            const previous = exercises[index - 1];
+            const next = exercises[index + 1];
+            const groupStart =
+              exercise.supersetId !== null && previous?.supersetId !== exercise.supersetId;
+            const linkedWithNext =
+              cleanSupersetId(exercise.supersetId) !== undefined &&
+              cleanSupersetId(exercise.supersetId) === cleanSupersetId(next?.supersetId);
+            return (
+            <li
+              key={exercise.key}
+              className={`rounded-[1.25rem] border bg-surface p-3 ${
+                exercise.supersetId ? "border-foreground" : "border-line"
+              }`}
+            >
+              {groupStart ? (
+                <p className="mb-2 text-xs font-medium tracking-[0.06em] text-subtle uppercase">
+                  Superset
+                </p>
+              ) : null}
               <label className="block">
                 <span className="text-xs font-medium tracking-[0.06em] text-subtle uppercase">
                   Exercise {index + 1}
@@ -274,29 +305,48 @@ export function RoutineEditor({ routineId }: { routineId?: string }) {
                 <Button
                   variant="ghost"
                   disabled={index === 0}
-                  onClick={() => setExercises((current) => moveItem(current, index, -1))}
+                  onClick={() => setExercises((current) => settle(moveItem(current, index, -1)))}
                 >
                   Up
                 </Button>
                 <Button
                   variant="ghost"
                   disabled={index === exercises.length - 1}
-                  onClick={() => setExercises((current) => moveItem(current, index, 1))}
+                  onClick={() => setExercises((current) => settle(moveItem(current, index, 1)))}
                 >
                   Down
                 </Button>
+                {index < exercises.length - 1 && !linkedWithNext ? (
+                  <Button
+                    variant="ghost"
+                    onClick={() => setExercises((current) => settle(linkWithNext(current, index)))}
+                  >
+                    Superset with next
+                  </Button>
+                ) : null}
+                {exercise.supersetId ? (
+                  <Button
+                    variant="ghost"
+                    onClick={() => setExercises((current) => settle(unlinkSuperset(current, index)))}
+                  >
+                    Ungroup
+                  </Button>
+                ) : null}
                 <Button
                   variant="danger"
                   disabled={exercises.length === 1}
                   onClick={() =>
-                    setExercises((current) => current.filter((item) => item.key !== exercise.key))
+                    setExercises((current) =>
+                      settle(current.filter((item) => item.key !== exercise.key)),
+                    )
                   }
                 >
                   Remove
                 </Button>
               </div>
             </li>
-          ))}
+            );
+          })}
         </ol>
 
         {suggestions.length > 0 ? (

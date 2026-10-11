@@ -14,6 +14,7 @@ import {
   resolveRoutineExercises,
   routineNameOrThrow,
 } from "./lib/routineRecords";
+import { withStoredSuperset } from "./lib/superset";
 
 const targetFields = {
   targetSets: v.optional(v.number()),
@@ -29,6 +30,7 @@ const exerciseInput = v.object({
   ...targetFields,
   // Omitted leaves the account rest alone. Null clears it back to the device default.
   restSeconds: v.optional(v.union(v.number(), v.null())),
+  supersetId: v.optional(v.string()),
 });
 
 const exerciseDetail = v.object({
@@ -40,6 +42,7 @@ const exerciseDetail = v.object({
   targetDurationSec: v.union(v.number(), v.null()),
   targetDistanceM: v.union(v.number(), v.null()),
   restSeconds: v.union(v.number(), v.null()),
+  supersetId: v.union(v.string(), v.null()),
 });
 
 const routineSummary = v.object({
@@ -237,14 +240,15 @@ export const begin = authedMutation({
       return { status: "alreadyOpen" as const, sessionId: open._id };
     }
     const routine = await requireOwnedRoutine(ctx, ctx.userId, args.routineId);
-    const plan = [];
+    const owned = [];
     for (const exercise of routine.exercises) {
       const stored = await ctx.db.get("exercises", exercise.exerciseId);
       if (!stored || stored.userId !== ctx.userId) {
         continue;
       }
-      plan.push(exercise);
+      owned.push(exercise);
     }
+    const plan = withStoredSuperset(owned);
     if (plan.length === 0) {
       throw new Error("Add an exercise before starting this routine");
     }

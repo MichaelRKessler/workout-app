@@ -11,6 +11,7 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { formatLongDate, formatTimeOfDay, pluralize } from "@/lib/format";
 import { groupSets } from "@/lib/groupSets";
+import { packSupersetOrder, supersetBlocks } from "@/convex/lib/superset";
 import { calendarDayKey } from "@/lib/historyDays";
 import { mergeVisibleSets } from "@/lib/offline/outbox";
 import { takeToast } from "@/lib/pendingToast";
@@ -66,6 +67,7 @@ function OpenSessionDetail({
     _id: Id<"sessions">;
     startedAt: number;
     note: string | null;
+    exercises: Array<{ exerciseId: string; supersetId: string | null }>;
     sets: Array<{
       _id: string;
       exerciseId: string;
@@ -86,7 +88,18 @@ function OpenSessionDetail({
     () => mergeVisibleSets(session.sets, log.outbox, { kind: "session", sessionId: session._id }),
     [log.outbox, session._id, session.sets],
   );
-  const groups = useMemo(() => groupSets(visibleSets), [visibleSets]);
+  const groups = useMemo(() => {
+    const performed = groupSets(visibleSets);
+    const supersetByExercise = new Map(
+      session.exercises.map((exercise) => [exercise.exerciseId, exercise.supersetId]),
+    );
+    return packSupersetOrder(
+      performed.map((group) => ({
+        ...group,
+        supersetId: supersetByExercise.get(group.exerciseId) ?? null,
+      })),
+    );
+  }, [session.exercises, visibleSets]);
 
   useEffect(() => {
     log.reconcile(session.sets);
@@ -130,15 +143,31 @@ function OpenSessionDetail({
         <p className="mt-8 text-base text-muted">No sets were logged.</p>
       ) : (
         <ul aria-label="Exercises" className="mt-5 flex flex-col border-t border-line">
-          {groups.map((group) => (
-            <ExerciseRow
-              key={group.exerciseId}
-              name={group.name}
-              sets={group.sets}
-              exerciseHref={
-                group.exerciseId.startsWith("local:") ? undefined : `/exercises/${group.exerciseId}`
-              }
-            />
+          {supersetBlocks(groups).map((block) => (
+            <li
+              key={block.items.map((item) => item.exerciseId).join(":")}
+              className={block.supersetId ? "border-l-2 border-foreground pl-3" : undefined}
+            >
+              {block.supersetId ? (
+                <p className="pt-3 text-xs font-medium tracking-[0.06em] text-subtle uppercase">
+                  Superset
+                </p>
+              ) : null}
+              <ul>
+                {block.items.map((group) => (
+                  <ExerciseRow
+                    key={group.exerciseId}
+                    name={group.name}
+                    sets={group.sets}
+                    exerciseHref={
+                      group.exerciseId.startsWith("local:")
+                        ? undefined
+                        : `/exercises/${group.exerciseId}`
+                    }
+                  />
+                ))}
+              </ul>
+            </li>
           ))}
         </ul>
       )}

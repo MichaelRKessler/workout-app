@@ -16,6 +16,7 @@ import { ManualEntrySheet } from "@/components/workout/ManualEntrySheet";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { formatExerciseName } from "@/convex/lib/exerciseName";
+import { packSupersetOrder, supersetBlocks } from "@/convex/lib/superset";
 import { readableError } from "@/lib/errors";
 import { EXAMPLE_EXERCISES } from "@/lib/examples";
 import {
@@ -109,7 +110,23 @@ export function DayDetail({ dayKey }: { dayKey: string }) {
     );
     return canonicalExerciseIds(merged);
   }, [log.outbox, orderedSessions]);
-  const groups = useMemo(() => groupPerformedSets(visibleSets), [visibleSets]);
+  const groups = useMemo(() => {
+    const performed = groupPerformedSets(visibleSets);
+    const supersetByExercise = new Map<string, string | null>();
+    for (const session of orderedSessions) {
+      for (const exercise of session.exercises) {
+        if (!supersetByExercise.has(exercise.exerciseId)) {
+          supersetByExercise.set(exercise.exerciseId, exercise.supersetId ?? null);
+        }
+      }
+    }
+    return packSupersetOrder(
+      performed.map((group) => ({
+        ...group,
+        supersetId: supersetByExercise.get(group.exerciseId) ?? null,
+      })),
+    );
+  }, [orderedSessions, visibleSets]);
 
   useEffect(() => {
     if (day?.sessions) {
@@ -450,35 +467,53 @@ export function DayDetail({ dayKey }: { dayKey: string }) {
         <p className="mt-8 text-base text-muted">No sets were logged.</p>
       ) : (
         <ul aria-label="Exercises" className="mt-5 flex flex-col border-t border-line">
-          {groups.map((group) => (
-            <ExerciseRow
-              key={group.exerciseId}
-              name={group.name}
-              sets={group.sets}
-              exerciseHref={
-                group.exerciseId.startsWith("local:") ? undefined : `/exercises/${group.exerciseId}`
-              }
-              expanded={expandedId === group.exerciseId}
-              onToggle={() =>
-                setExpandedId((current) => (current === group.exerciseId ? null : group.exerciseId))
-              }
-              onEditSet={(set: SetLine) =>
-                setManual({
-                  key: Date.now(),
-                  mode: "edit",
-                  setId: set._id,
-                  exerciseName: set.exerciseName,
-                  reps: set.reps,
-                  weightLb: set.weightLb,
-                  durationSec: set.durationSec,
-                  distanceM: set.distanceM,
-                  rpe: set.rpe,
-                  setType: set.setType,
-                })
-              }
-              onRemoveSet={(setId) => void deleteSet(setId)}
-              removingId={removingId}
-            />
+          {supersetBlocks(groups).map((block) => (
+            <li
+              key={block.items.map((item) => item.exerciseId).join(":")}
+              className={block.supersetId ? "border-l-2 border-foreground pl-3" : undefined}
+            >
+              {block.supersetId ? (
+                <p className="pt-3 text-xs font-medium tracking-[0.06em] text-subtle uppercase">
+                  Superset
+                </p>
+              ) : null}
+              <ul>
+                {block.items.map((group) => (
+                  <ExerciseRow
+                    key={group.exerciseId}
+                    name={group.name}
+                    sets={group.sets}
+                    exerciseHref={
+                      group.exerciseId.startsWith("local:")
+                        ? undefined
+                        : `/exercises/${group.exerciseId}`
+                    }
+                    expanded={expandedId === group.exerciseId}
+                    onToggle={() =>
+                      setExpandedId((current) =>
+                        current === group.exerciseId ? null : group.exerciseId,
+                      )
+                    }
+                    onEditSet={(set: SetLine) =>
+                      setManual({
+                        key: Date.now(),
+                        mode: "edit",
+                        setId: set._id,
+                        exerciseName: set.exerciseName,
+                        reps: set.reps,
+                        weightLb: set.weightLb,
+                        durationSec: set.durationSec,
+                        distanceM: set.distanceM,
+                        rpe: set.rpe,
+                        setType: set.setType,
+                      })
+                    }
+                    onRemoveSet={(setId) => void deleteSet(setId)}
+                    removingId={removingId}
+                  />
+                ))}
+              </ul>
+            </li>
           ))}
         </ul>
       )}

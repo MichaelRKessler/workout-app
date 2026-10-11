@@ -61,6 +61,19 @@ import { browserStore, loadCachedAccess } from "@/lib/offline/storage";
 import { setFromPrefill } from "@/lib/prefill";
 import { calendarDayBounds, calendarDayKey, groupHistoryDays } from "@/lib/historyDays";
 import { splitWorkoutPlan, type VisiblePlanItem } from "@/lib/workoutPlan";
+import { takeToast } from "@/lib/pendingToast";
+import {
+  DEFAULT_REST_SECONDS,
+  readRestSeconds,
+  REST_STORAGE_KEY,
+} from "@/lib/restTimer";
+import {
+  linkWithNext,
+  normalizeSupersetItems,
+  restAfterSet,
+  restOwnerId,
+  unlinkSuperset,
+} from "@/convex/lib/superset";
 import { useMutation, useQuery } from "convex/react";
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 
@@ -70,6 +83,20 @@ type Toasted = ToastMessage & { id: number };
  * The Log tab. With no open workout it shows the start screen; the first set
  * confirmed by voice, by typing, or by hand opens one.
  */
+function blankPlanItem(exerciseId: string, name: string): VisiblePlanItem {
+  return {
+    exerciseId,
+    name,
+    targetSets: null,
+    targetReps: null,
+    targetWeightLb: null,
+    targetDurationSec: null,
+    targetDistanceM: null,
+    skipped: false,
+    supersetId: null,
+  };
+}
+
 function toPendingExercise(item: VisiblePlanItem): PendingPlanExercise {
   return {
     exerciseId: item.exerciseId,
@@ -80,6 +107,7 @@ function toPendingExercise(item: VisiblePlanItem): PendingPlanExercise {
     targetDurationSec: item.targetDurationSec,
     targetDistanceM: item.targetDistanceM,
     restSeconds: null,
+    supersetId: item.supersetId,
     skipped: item.skipped,
   };
 }
@@ -150,6 +178,7 @@ export function LogWorkout() {
               exerciseId: exercise.exerciseId,
               name: exercise.name,
               setCount: exercise.setCount,
+              supersetId: exercise.supersetId,
             })),
           }))
         : [
@@ -163,6 +192,7 @@ export function LogWorkout() {
                 exerciseId: exercise.exerciseId,
                 name: exercise.name,
                 setCount: exercise.setCount,
+                supersetId: exercise.supersetId,
               })),
             },
           ];
@@ -315,6 +345,7 @@ export function LogWorkout() {
       ...(item.targetWeightLb != null ? { targetWeightLb: item.targetWeightLb } : {}),
       ...(item.targetDurationSec != null ? { targetDurationSec: item.targetDurationSec } : {}),
       ...(item.targetDistanceM != null ? { targetDistanceM: item.targetDistanceM } : {}),
+      ...(item.supersetId ? { supersetId: item.supersetId } : {}),
       ...(item.skipped ? { skipped: true as const } : {}),
     }));
     void setSessionPlan({
@@ -326,6 +357,22 @@ export function LogWorkout() {
       attachedPlan.current = null;
     });
   }, [localPlan, offline, openSession, setSessionPlan, viewerEmail]);
+
+  const [deviceRest, setDeviceRest] = useState(DEFAULT_REST_SECONDS);
+  useEffect(() => {
+    const read = () =>
+      setDeviceRest(readRestSeconds(window.localStorage.getItem(REST_STORAGE_KEY)));
+    read();
+    window.addEventListener("workout-rest-default", read);
+    return () => window.removeEventListener("workout-rest-default", read);
+  }, []);
+
+  useEffect(() => {
+    const pending = takeToast();
+    if (pending) {
+      setToast({ id: Date.now(), tone: "info", message: pending });
+    }
+  }, []);
 
   const beginError = beginWorkout.error;
   const clearBeginError = beginWorkout.clearError;
@@ -368,6 +415,33 @@ export function LogWorkout() {
     localPlan?.name ??
     (openSession === undefined ? snapshot?.plan?.name : null) ??
     null;
+  const restCue = useMemo(() => {
+    if (sessionSets.length === 0 || activePlan.length === 0) {
+      return { hold: false, ownerName: null as string | null, onPlan: false };
+    }
+    let newestId: string | null = null;
+    let newestAt = -1;
+    for (const set of sessionSets) {
+      if (set.loggedAt >= newestAt) {
+        newestAt = set.loggedAt;
+        newestId = set.exerciseId;
+      }
+    }
+    if (!newestId || !activePlan.some((item) => item.exerciseId === newestId)) {
+      return { hold: false, ownerName: null, onPlan: false };
+    }
+    const counts = new Map(groups.map((group) => [group.exerciseId, group.sets.length]));
+    const decision = restAfterSet(activePlan, counts, newestId);
+    const rests = new Map(
+      activePlan.map((item) => [
+        item.exerciseId,
+        exercises?.exercises.find((exercise) => exercise._id === item.exerciseId)?.restSeconds ?? null,
+      ]),
+    );
+    const ownerId = restOwnerId(decision.exerciseIds, rests, newestId, deviceRest);
+    const owner = activePlan.find((item) => item.exerciseId === ownerId);
+    return { hold: !decision.start, ownerName: owner?.name ?? null, onPlan: true };
+  }, [activePlan, deviceRest, exercises?.exercises, groups, sessionSets]);
   const newestSetId = useMemo(() => {
     let newest: (typeof sessionSets)[number] | undefined;
     for (const set of sessionSets) {
@@ -537,7 +611,7 @@ export function LogWorkout() {
       sessionStartedAt: target.sessionStartedAt,
       note: toSave.note,
       sets: toSave.exercises.flatMap((exercise) =>
-        exercise.sets.map((set) => ({
+          exercise.sets.map((set) => ({
           exerciseName: exercise.exerciseName,
           weightLb: set.weightLb,
           reps: set.reps,
@@ -545,6 +619,7 @@ export function LogWorkout() {
           distanceM: set.distanceM,
           rpe: set.rpe,
           setType: set.setType,
+          ...(exercise.supersetId ? { supersetId: exercise.supersetId } : {}),
         })),
       ),
     });
@@ -766,12 +841,17 @@ export function LogWorkout() {
       ...(item.targetWeightLb != null ? { targetWeightLb: item.targetWeightLb } : {}),
       ...(item.targetDurationSec != null ? { targetDurationSec: item.targetDurationSec } : {}),
       ...(item.targetDistanceM != null ? { targetDistanceM: item.targetDistanceM } : {}),
+      ...(item.supersetId ? { supersetId: item.supersetId } : {}),
       ...(item.skipped ? { skipped: true as const } : {}),
     };
   }
 
-  async function savePlan(next: VisiblePlanItem[]) {
-    const exercises = next.map(toPendingExercise);
+  async function savePlan(
+    next: Array<Omit<VisiblePlanItem, "supersetId"> & { supersetId?: string | null }>,
+  ) {
+    const exercises = normalizeSupersetItems(next).map((item) =>
+      toPendingExercise({ ...item, supersetId: item.supersetId ?? null }),
+    );
     if (!knownSession) {
       const plan: PendingPlan = {
         startedAt: localPlan?.startedAt ?? snapshot?.plan?.startedAt ?? Date.now(),
@@ -964,6 +1044,16 @@ export function LogWorkout() {
             }
           }}
           onDiscard={() => void discardWorkout()}
+          restHold={restCue.hold}
+          restExerciseName={restCue.onPlan ? restCue.ownerName : undefined}
+          onLinkFree={
+            planView
+              ? undefined
+              : (index) => {
+                  const items = groups.map((group) => blankPlanItem(group.exerciseId, group.name));
+                  void savePlan(linkWithNext(items, index));
+                }
+          }
           exerciseCount={
             planView ? planView.rows.length + planView.extras.length : undefined
           }
@@ -992,7 +1082,11 @@ export function LogWorkout() {
                       ),
                     )
                   }
-                  onMove={(index, direction) => void savePlan(moveItem(planView.rows, index, direction))}
+                  onMove={(index, direction) =>
+                    void savePlan(normalizeSupersetItems(moveItem(activePlan, index, direction)))
+                  }
+                  onLink={(index) => void savePlan(linkWithNext(activePlan, index))}
+                  onUnlink={(index) => void savePlan(unlinkSuperset(activePlan, index))}
                   onEditSet={openEdit}
                   onRemoveSet={(setId) => void deleteSet(setId)}
                   removingId={removingId}
@@ -1020,6 +1114,21 @@ export function LogWorkout() {
                           onEditSet={openEdit}
                           onRemoveSet={(setId) => void deleteSet(setId)}
                           removingId={removingId}
+                          footer={
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const appended = [
+                                  ...activePlan,
+                                  blankPlanItem(group.exerciseId, group.name),
+                                ];
+                                void savePlan(linkWithNext(appended, appended.length - 2));
+                              }}
+                              className="mb-2 ml-14 min-h-11 text-sm font-medium text-muted"
+                            >
+                              Superset with plan
+                            </button>
+                          }
                         />
                       ))}
                     </ul>

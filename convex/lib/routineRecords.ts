@@ -14,6 +14,7 @@ import {
   type RoutineTargets,
 } from "./routinePlan";
 import { setExerciseRest } from "./rest";
+import { carrySupersetIds, cleanSupersetId, withStoredSuperset } from "./superset";
 import { getOrCreateExercise, getOwnedSession } from "./workouts";
 
 type Reader = QueryCtx | MutationCtx;
@@ -59,8 +60,9 @@ export async function resolveRoutineExercises(
     targetDurationSec?: number;
     targetDistanceM?: number;
     restSeconds?: number | null;
+    supersetId?: string;
   }>,
-): Promise<Array<RoutineTargets & { exerciseId: Id<"exercises"> }>> {
+): Promise<Array<RoutineTargets & { exerciseId: Id<"exercises">; supersetId?: string }>> {
   if (exercises.length < 1) {
     throw new Error("Add at least one exercise");
   }
@@ -68,7 +70,7 @@ export async function resolveRoutineExercises(
     throw new Error(`A routine can have up to ${MAX_ROUTINE_EXERCISES} exercises`);
   }
 
-  const resolved: Array<RoutineTargets & { exerciseId: Id<"exercises"> }> = [];
+  const resolved: Array<RoutineTargets & { exerciseId: Id<"exercises">; supersetId?: string }> = [];
   const seen = new Set<string>();
   for (const exercise of exercises) {
     const exerciseId = await resolveExerciseId(ctx, userId, exercise);
@@ -83,12 +85,14 @@ export async function resolveRoutineExercises(
       }
       await setExerciseRest(ctx, userId, stored, exercise.restSeconds);
     }
+    const supersetId = cleanSupersetId(exercise.supersetId);
     resolved.push({
       exerciseId,
       ...normalizeTargets(exercise),
+      ...(supersetId ? { supersetId } : {}),
     });
   }
-  return resolved;
+  return withStoredSuperset(resolved);
 }
 
 async function resolveExerciseId(
@@ -160,10 +164,14 @@ export async function presentRoutineExercises(
       exerciseId,
       name: stored.name,
       restSeconds: stored.restSeconds ?? null,
+      supersetId: exercise.supersetId ?? null,
       ...presentTargets(exercise),
     });
   }
-  return presented;
+  return withStoredSuperset(presented).map((exercise) => ({
+    ...exercise,
+    supersetId: exercise.supersetId ?? null,
+  }));
 }
 
 export async function nextSortIndex(ctx: Reader, userId: Id<"users">): Promise<number> {
@@ -176,23 +184,26 @@ export async function nextSortIndex(ctx: Reader, userId: Id<"users">): Promise<n
 }
 
 export function normalizePlanInput(
-  exercises: Array<RoutineTargets & { exerciseId: string; skipped?: boolean }>,
+  exercises: Array<RoutineTargets & { exerciseId: string; skipped?: boolean; supersetId?: string }>,
 ): PlanExercise[] {
   if (exercises.length > MAX_ROUTINE_EXERCISES) {
     throw new Error(`A plan can have up to ${MAX_ROUTINE_EXERCISES} exercises`);
   }
   const seen = new Set<string>();
-  return exercises.map((exercise) => {
+  const mapped = exercises.map((exercise) => {
     if (seen.has(exercise.exerciseId)) {
       throw new Error("Each exercise can be in the plan once");
     }
     seen.add(exercise.exerciseId);
+    const supersetId = cleanSupersetId(exercise.supersetId);
     return {
       exerciseId: exercise.exerciseId,
       ...normalizeTargets(exercise),
       ...(exercise.skipped ? { skipped: true } : {}),
+      ...(supersetId ? { supersetId } : {}),
     };
   });
+  return withStoredSuperset(mapped);
 }
 
 export async function assertOwnedPlan(
@@ -273,7 +284,11 @@ export async function planFromOwnedSessions(
   if (derived.length > MAX_ROUTINE_EXERCISES) {
     throw new Error(`A routine can have up to ${MAX_ROUTINE_EXERCISES} exercises`);
   }
-  const plan = derived.map((item) => {
+  const carried = carrySupersetIds(
+    derived,
+    sessions.map((session) => session.plan ?? []),
+  );
+  const plan = withStoredSuperset(carried).map((item) => {
     const exerciseId = ctx.db.normalizeId("exercises", item.exerciseId);
     if (!exerciseId) {
       throw new Error("Exercise not found");
@@ -296,7 +311,9 @@ export async function repointExerciseReferences(
     }
     const next = repointExercises(routine.exercises, fromId, intoId);
     if (next.changed) {
-      await ctx.db.patch("routines", routine._id, { exercises: next.items });
+      await ctx.db.patch("routines", routine._id, {
+        exercises: withStoredSuperset(next.items),
+      });
     }
   }
 
@@ -312,7 +329,9 @@ export async function repointExerciseReferences(
     }
     const next = repointExercises(session.plan, fromId, intoId);
     if (next.changed) {
-      await ctx.db.patch("sessions", session._id, { plan: next.items });
+      await ctx.db.patch("sessions", session._id, {
+        plan: withStoredSuperset(next.items),
+      });
     }
   }
 }

@@ -23,11 +23,16 @@ export function RestTimer({
   loading,
   exerciseRestSeconds = null,
   onExerciseRest,
+  hold = false,
+  restLabel = null,
 }: {
   setCount: number;
   loading: boolean;
   exerciseRestSeconds?: number | null;
   onExerciseRest?: (seconds: number) => void;
+  /** A superset round is still open, so this set does not start a countdown. */
+  hold?: boolean;
+  restLabel?: string | null;
 }) {
   const [globalSeconds, setGlobalSeconds] = useState(DEFAULT_REST_SECONDS);
   const [displaySeconds, setDisplaySeconds] = useState(DEFAULT_REST_SECONDS);
@@ -40,9 +45,11 @@ export function RestTimer({
   const globalRef = useRef(globalSeconds);
   const displayRef = useRef(displaySeconds);
   const setCountRef = useRef(setCount);
+  const holdRef = useRef(hold);
   globalRef.current = globalSeconds;
   displayRef.current = displaySeconds;
   setCountRef.current = setCount;
+  holdRef.current = hold;
 
   useEffect(() => {
     const stored = readRestSeconds(window.localStorage.getItem(REST_STORAGE_KEY));
@@ -56,6 +63,7 @@ export function RestTimer({
       return;
     }
     window.localStorage.setItem(REST_STORAGE_KEY, String(globalSeconds));
+    window.dispatchEvent(new Event("workout-rest-default"));
   }, [ready, globalSeconds]);
 
   useEffect(() => {
@@ -67,16 +75,20 @@ export function RestTimer({
       return;
     }
     if (setCount > previousCount.current) {
-      const duration = exerciseRestSeconds ?? globalRef.current;
-      const start = Date.now();
       adjusted.current = false;
-      setDisplaySeconds(duration);
-      setEndsAt(restEndFrom(start, duration));
-      setNow(start);
       vibratedFor.current = null;
+      if (hold) {
+        setEndsAt(null);
+      } else {
+        const duration = exerciseRestSeconds ?? globalRef.current;
+        const start = Date.now();
+        setDisplaySeconds(duration);
+        setEndsAt(restEndFrom(start, duration));
+        setNow(start);
+      }
     }
     previousCount.current = setCount;
-  }, [exerciseRestSeconds, loading, setCount]);
+  }, [exerciseRestSeconds, hold, loading, setCount]);
 
   useEffect(() => {
     if (adjusted.current || endsAt === null || setCountRef.current === 0) {
@@ -126,6 +138,12 @@ export function RestTimer({
       setDisplaySeconds(next);
       return;
     }
+    if (holdRef.current) {
+      adjusted.current = true;
+      setDisplaySeconds(next);
+      onExerciseRest?.(next);
+      return;
+    }
     adjusted.current = true;
     setDisplaySeconds(next);
     setEndsAt((current) => {
@@ -151,7 +169,10 @@ export function RestTimer({
     "flex size-11 items-center justify-center rounded-full text-foreground hover:bg-fill-2";
 
   return (
-    <div className="flex items-center gap-0.5 rounded-full border border-line bg-surface py-0.5 pr-0.5 pl-2.5">
+    <div
+      className="flex items-center gap-0.5 rounded-full border border-line bg-surface py-0.5 pr-0.5 pl-2.5"
+      title={restLabel ? `Rest follows ${restLabel}` : undefined}
+    >
       <span className="sr-only">{spoken}</span>
       <span aria-hidden="true" className="flex items-baseline gap-1 pr-0.5">
         <span className="text-xs font-medium tracking-[0.06em] text-subtle uppercase">Rest</span>

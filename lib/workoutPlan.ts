@@ -9,6 +9,8 @@ export type VisiblePlanItem = {
   targetDurationSec: number | null;
   targetDistanceM: number | null;
   skipped: boolean;
+  /** Shared by adjacent exercises. Null when the exercise stands alone. */
+  supersetId: string | null;
 };
 
 /** Plan order first. Exercises logged outside the plan stay after it. */
