@@ -340,11 +340,13 @@ describe("allow list", () => {
     const allowed = await createUser(t, "friend@example.com", { allow: true });
     const blocked = await createUser(t, "stranger@example.com");
     const sessionId = await allowed.asUser.mutation(api.sessions.start, {});
-    const ids = await allowed.asUser.mutation(api.sets.logMany, {
-      sessionId,
-      exerciseName: "squat",
-      sets: [{ reps: 5, weightLb: 135 }],
-    });
+    const ids = (
+      await allowed.asUser.mutation(api.sets.logMany, {
+        sessionId,
+        exerciseName: "squat",
+        sets: [{ reps: 5, weightLb: 135 }],
+      })
+    ).setIds;
 
     await expect(
       blocked.asUser.mutation(api.sets.logMany, {

@@ -5,8 +5,12 @@ import {
   formatDuration,
   formatElapsed,
   formatLastTime,
+  formatPersonalRecord,
   formatSetShort,
+  formatVolumeLb,
+  formatWorkoutLength,
   pluralize,
+  streakLabel,
 } from "../lib/format.ts";
 
 test("set labels are compact in lists and spelled out for screen readers", () => {
@@ -62,4 +66,38 @@ test("counts pick the right noun", () => {
   assert.equal(pluralize(1, "set"), "1 set");
   assert.equal(pluralize(12, "set"), "12 sets");
   assert.equal(pluralize(2, "exercise"), "2 exercises");
+});
+
+test("a past workout with no recorded length hides the duration", () => {
+  assert.equal(formatWorkoutLength(1_000, 1_000), null);
+  assert.equal(formatWorkoutLength(2_000, 1_000), null);
+  assert.equal(formatWorkoutLength(0, 52 * 60_000), "52 min");
+});
+
+test("volume, streaks, and personal records have stable labels", () => {
+  assert.equal(formatVolumeLb(0), "0 lb");
+  assert.equal(formatVolumeLb(9420.4), "9,420 lb");
+  assert.equal(streakLabel(0), "No streak yet");
+  assert.equal(streakLabel(1), "1-week streak");
+  assert.equal(streakLabel(4), "4-week streak");
+  assert.equal(
+    formatPersonalRecord({
+      exerciseName: "bench press",
+      kind: "both",
+      reps: 5,
+      weightLb: 225,
+      epleyLb: 262.5,
+    }),
+    "New PR · bench press · 225 lb · est. 1RM 262.5 lb",
+  );
+  assert.equal(
+    formatPersonalRecord({
+      exerciseName: "push-ups",
+      kind: "reps",
+      reps: 20,
+      weightLb: 0,
+      epleyLb: null,
+    }),
+    "New PR · push-ups · 20 reps",
+  );
 });

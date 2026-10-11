@@ -4,7 +4,7 @@ import { Button } from "@/components/Button";
 import { ChevronRightIcon } from "@/components/icons";
 import { PageHeader, SectionLabel } from "@/components/PageHeader";
 import { api } from "@/convex/_generated/api";
-import { formatDuration, formatMonthHeading, monthKey, pluralize } from "@/lib/format";
+import { formatMonthHeading, formatWorkoutLength, monthKey, pluralize } from "@/lib/format";
 import { usePaginatedQuery } from "convex/react";
 import Link from "next/link";
 import { useMemo } from "react";
@@ -33,6 +33,12 @@ export function HistoryList() {
   return (
     <div className="px-5 pt-3 pb-[calc(32px+env(safe-area-inset-bottom))]">
       <PageHeader backHref="/" title="History" />
+      <Link
+        href="/history/log"
+        className="mt-4 inline-flex min-h-11 items-center rounded-full border border-line bg-surface px-4 text-[15px] font-medium hover:bg-fill-2"
+      >
+        Log a past workout
+      </Link>
 
       {status === "LoadingFirstPage" ? (
         <p className="mt-8 text-[15px] text-muted">Loading history…</p>
@@ -51,32 +57,52 @@ export function HistoryList() {
                   (sum, exercise) => sum + exercise.setCount,
                   0,
                 );
+                const length = formatWorkoutLength(session.startedAt, session.completedAt);
                 return (
-                  <li key={session._id}>
+                  <li
+                    key={session._id}
+                    className="flex min-h-[72px] items-center gap-4 border-b border-line py-2.5"
+                  >
                     <Link
                       href={`/history/${session._id}`}
-                      className="flex min-h-[72px] items-center gap-4 border-b border-line py-2.5 hover:bg-fill-2/60"
+                      aria-label={`Open workout on ${date.toLocaleDateString(undefined, { month: "long", day: "numeric" })}`}
+                      className="flex w-9 shrink-0 flex-col items-center rounded-lg hover:bg-fill-2"
+                      suppressHydrationWarning
                     >
-                      <span className="flex w-9 shrink-0 flex-col items-center" suppressHydrationWarning>
-                        <span className="text-[11px] font-semibold tracking-[0.06em] text-subtle uppercase">
-                          {date.toLocaleDateString(undefined, { weekday: "short" })}
-                        </span>
-                        <span className="font-mono text-[22px] font-medium tracking-[-0.03em]">
-                          {date.getDate()}
-                        </span>
+                      <span className="text-[11px] font-semibold tracking-[0.06em] text-subtle uppercase">
+                        {date.toLocaleDateString(undefined, { weekday: "short" })}
                       </span>
-                      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                        <span className="truncate text-[15px] font-medium">
-                          {session.exercises.map((exercise) => exercise.name).join(", ") ||
-                            "No sets"}
-                        </span>
-                        <span className="text-[13px] text-muted">
-                          {pluralize(session.exercises.length, "exercise")} ·{" "}
-                          {pluralize(setCount, "set")} ·{" "}
-                          {formatDuration(session.completedAt - session.startedAt)}
-                        </span>
+                      <span className="font-mono text-[22px] font-medium tracking-[-0.03em]">
+                        {date.getDate()}
                       </span>
-                      <ChevronRightIcon className="size-[18px] shrink-0 text-subtle" strokeWidth={1.8} />
+                    </Link>
+                    <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                      <span className="truncate text-[15px] font-medium">
+                        {session.exercises.length === 0
+                          ? "No sets"
+                          : session.exercises.map((exercise, index) => (
+                              <span key={exercise.exerciseId}>
+                                {index > 0 ? ", " : null}
+                                <Link
+                                  href={`/exercises/${exercise.exerciseId}`}
+                                  className="hover:underline"
+                                >
+                                  {exercise.name}
+                                </Link>
+                              </span>
+                            ))}
+                      </span>
+                      <Link href={`/history/${session._id}`} className="text-[13px] text-muted hover:underline">
+                        {pluralize(session.exercises.length, "exercise")} · {pluralize(setCount, "set")}
+                        {length ? ` · ${length}` : ""}
+                      </Link>
+                    </span>
+                    <Link
+                      href={`/history/${session._id}`}
+                      aria-label="Open workout"
+                      className="flex size-11 shrink-0 items-center justify-center rounded-full text-subtle hover:bg-fill-2"
+                    >
+                      <ChevronRightIcon className="size-[18px]" strokeWidth={1.8} />
                     </Link>
                   </li>
                 );

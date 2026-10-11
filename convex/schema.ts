@@ -32,8 +32,10 @@ export default defineSchema({
     loggedAt: v.number(),
   })
     .index("by_session_and_exercise", ["sessionId", "exerciseId"])
-    // Both fields already exist on every set, including ones saved before this index.
-    .index("by_user_and_exercise", ["userId", "exerciseId"]),
+    // loggedAt is already on every set. This replaces a user+exercise index
+    // that sorted by creation time: a workout logged today for last month
+    // must sort by when the set was performed.
+    .index("by_user_exercise_and_logged", ["userId", "exerciseId", "loggedAt"]),
   allowedEmails: defineTable({
     email: v.string(),
     createdAt: v.number(),

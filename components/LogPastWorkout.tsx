@@ -1,0 +1,254 @@
+"use client";
+
+import { Button } from "@/components/Button";
+import { CloseIcon, PlusIcon } from "@/components/icons";
+import { PageHeader } from "@/components/PageHeader";
+import { api } from "@/convex/_generated/api";
+import { formatExerciseName } from "@/convex/lib/exerciseName";
+import { readableError } from "@/lib/errors";
+import { formatPersonalRecords } from "@/lib/format";
+import { parseReps, parseWeightLb } from "@/lib/numbers";
+import { defaultPastWorkoutTime, fromDatetimeLocalValue, toDatetimeLocalValue } from "@/lib/pastWorkout";
+import { stashToast } from "@/lib/pendingToast";
+import { useMutation } from "convex/react";
+import { useRouter } from "next/navigation";
+import { FormEvent, useEffect, useState } from "react";
+
+type DraftSet = { key: string; reps: string; weight: string };
+type DraftExercise = { key: string; name: string; sets: DraftSet[] };
+
+const fieldClass =
+  "h-12 w-full min-w-0 rounded-xl border border-line bg-background px-3 text-base text-foreground outline-none focus:border-foreground";
+
+function nextKey(): string {
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function blankSet(): DraftSet {
+  return { key: nextKey(), reps: "", weight: "" };
+}
+
+function blankExercise(): DraftExercise {
+  return { key: nextKey(), name: "", sets: [blankSet()] };
+}
+
+export function LogPastWorkout() {
+  const router = useRouter();
+  const logPast = useMutation(api.sessions.logPast);
+  const [when, setWhen] = useState("");
+  const [exercises, setExercises] = useState<DraftExercise[]>([blankExercise()]);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setWhen(toDatetimeLocalValue(defaultPastWorkoutTime(Date.now())));
+  }, []);
+
+  function updateExercise(key: string, patch: Partial<DraftExercise>) {
+    setExercises((current) =>
+      current.map((exercise) => (exercise.key === key ? { ...exercise, ...patch } : exercise)),
+    );
+  }
+
+  function updateSet(exerciseKey: string, setKey: string, patch: Partial<DraftSet>) {
+    setExercises((current) =>
+      current.map((exercise) => {
+        if (exercise.key !== exerciseKey) {
+          return exercise;
+        }
+        return {
+          ...exercise,
+          sets: exercise.sets.map((set) => (set.key === setKey ? { ...set, ...patch } : set)),
+        };
+      }),
+    );
+  }
+
+  async function onSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const startedAt = fromDatetimeLocalValue(when);
+    if (startedAt === null) {
+      setError("Pick a date and time.");
+      return;
+    }
+    if (startedAt > Date.now() + 60_000) {
+      setError("Pick a time that has already happened.");
+      return;
+    }
+
+    const payload: Array<{ name: string; sets: Array<{ reps: number; weightLb: number }> }> = [];
+    for (const exercise of exercises) {
+      const formatted = formatExerciseName(exercise.name);
+      if (!formatted) {
+        setError("Enter an exercise name up to 80 characters.");
+        return;
+      }
+      const sets: Array<{ reps: number; weightLb: number }> = [];
+      for (const set of exercise.sets) {
+        const reps = parseReps(set.reps);
+        if (reps === null) {
+          setError("Reps must be a whole number from 1 to 999.");
+          return;
+        }
+        const weightLb = parseWeightLb(set.weight);
+        if (weightLb === null) {
+          setError("Weight must be 0 to 2000 lb, with up to two decimal places.");
+          return;
+        }
+        sets.push({ reps, weightLb });
+      }
+      payload.push({ name: formatted.name, sets });
+    }
+
+    setPending(true);
+    setError(null);
+    try {
+      const saved = await logPast({ startedAt, exercises: payload });
+      const record = formatPersonalRecords(saved.personalRecords);
+      if (record) {
+        stashToast(record);
+      }
+      router.push(`/history/${saved.sessionId}`);
+    } catch (caught) {
+      setError(readableError(caught));
+      setPending(false);
+    }
+  }
+
+  return (
+    <form
+      onSubmit={(event) => void onSubmit(event)}
+      className="px-5 pt-3 pb-[calc(32px+env(safe-area-inset-bottom))]"
+    >
+      <PageHeader backHref="/history" backLabel="Back to history" title="Log a past workout">
+        <p className="mt-1.5 text-[15px] leading-normal text-muted">
+          It is saved as finished, so it won&apos;t replace the workout you have open.
+        </p>
+      </PageHeader>
+
+      <label htmlFor="past-when" className="mt-6 block text-[11px] font-medium tracking-[0.1em] text-subtle uppercase">
+        When
+      </label>
+      <input
+        id="past-when"
+        type="datetime-local"
+        value={when}
+        onChange={(event) => {
+          setWhen(event.target.value);
+          setError(null);
+        }}
+        required
+        className={`mt-2 ${fieldClass}`}
+      />
+
+      <ul className="mt-6 flex flex-col gap-4">
+        {exercises.map((exercise, exerciseIndex) => (
+          <li key={exercise.key} className="rounded-2xl border border-line bg-surface p-4">
+            <div className="flex items-center justify-between gap-2">
+              <label
+                htmlFor={`past-exercise-${exercise.key}`}
+                className="text-[11px] font-medium tracking-[0.1em] text-subtle uppercase"
+              >
+                Exercise {exerciseIndex + 1}
+              </label>
+              {exercises.length > 1 ? (
+                <button
+                  type="button"
+                  onClick={() =>
+                    setExercises((current) => current.filter((item) => item.key !== exercise.key))
+                  }
+                  className="min-h-11 rounded-full px-2 text-sm font-medium text-danger hover:bg-fill-2"
+                >
+                  Remove
+                </button>
+              ) : null}
+            </div>
+            <input
+              id={`past-exercise-${exercise.key}`}
+              value={exercise.name}
+              onChange={(event) => updateExercise(exercise.key, { name: event.target.value })}
+              placeholder="Bench press"
+              autoComplete="off"
+              maxLength={80}
+              className={`mt-2 ${fieldClass}`}
+            />
+            <div className="mt-3 flex flex-col gap-2">
+              {exercise.sets.map((set, setIndex) => (
+                <div key={set.key} className="grid grid-cols-[28px_minmax(0,1fr)_minmax(0,1fr)_44px] items-center gap-2">
+                  <span className="font-mono text-[15px] text-muted">{setIndex + 1}</span>
+                  <input
+                    value={set.reps}
+                    onChange={(event) => updateSet(exercise.key, set.key, { reps: event.target.value })}
+                    inputMode="numeric"
+                    placeholder="Reps"
+                    aria-label={`Set ${setIndex + 1} reps`}
+                    className="h-12 w-full rounded-xl border border-line bg-background text-center font-mono text-lg font-medium outline-none focus:border-foreground"
+                  />
+                  <input
+                    value={set.weight}
+                    onChange={(event) => updateSet(exercise.key, set.key, { weight: event.target.value })}
+                    inputMode="decimal"
+                    placeholder="lb"
+                    aria-label={`Set ${setIndex + 1} weight in pounds`}
+                    className="h-12 w-full rounded-xl border border-line bg-background text-center font-mono text-lg font-medium outline-none focus:border-foreground"
+                  />
+                  <button
+                    type="button"
+                    onClick={() =>
+                      updateExercise(exercise.key, {
+                        sets:
+                          exercise.sets.length === 1
+                            ? exercise.sets
+                            : exercise.sets.filter((item) => item.key !== set.key),
+                      })
+                    }
+                    disabled={exercise.sets.length === 1}
+                    aria-label={`Remove set ${setIndex + 1}`}
+                    className="flex size-11 items-center justify-center rounded-full text-subtle hover:bg-fill-2 disabled:opacity-30"
+                  >
+                    <CloseIcon className="size-[18px]" strokeWidth={1.8} />
+                  </button>
+                </div>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={() =>
+                updateExercise(exercise.key, {
+                  sets: [...exercise.sets, blankSet()],
+                })
+              }
+              className="mt-2 flex min-h-11 items-center gap-2 text-[15px] font-medium"
+            >
+              <PlusIcon className="size-[18px]" strokeWidth={1.8} />
+              Add a set
+            </button>
+          </li>
+        ))}
+      </ul>
+
+      <button
+        type="button"
+        onClick={() => setExercises((current) => [...current, blankExercise()])}
+        className="mt-3 flex min-h-11 items-center gap-2 text-[15px] font-medium"
+      >
+        <PlusIcon className="size-[18px]" strokeWidth={1.8} />
+        Add an exercise
+      </button>
+
+      {error ? (
+        <p role="alert" className="mt-3 text-sm leading-5 text-danger">
+          {error}
+        </p>
+      ) : (
+        <p className="mt-3 text-[13px] text-subtle">
+          Weights are in pounds. Use 0 for bodyweight. The length isn&apos;t recorded.
+        </p>
+      )}
+
+      <Button type="submit" size="lg" className="mt-5 w-full" disabled={pending}>
+        {pending ? "Saving…" : "Save workout"}
+      </Button>
+    </form>
+  );
+}

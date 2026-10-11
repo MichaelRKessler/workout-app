@@ -16,7 +16,8 @@ import { formatExerciseName } from "@/convex/lib/exerciseName";
 import { plannedCompletedAt, workoutLooksStale } from "@/convex/lib/sessionTiming";
 import { readableError } from "@/lib/errors";
 import { EXAMPLE_EXERCISES } from "@/lib/examples";
-import { formatDuration, pluralize } from "@/lib/format";
+import { formatDuration, formatPersonalRecord, pluralize } from "@/lib/format";
+import { localWeekFirstDay, weekRange } from "@/convex/lib/week";
 import { groupSets, type SetLine } from "@/lib/groupSets";
 import {
   draftToProposal,
@@ -78,6 +79,16 @@ export function LogWorkout() {
   const [ending, setEnding] = useState(false);
   const [keeping, setKeeping] = useState(false);
   const [now, setNow] = useState(0);
+  const week = useMemo(
+    () => (now > 0 ? weekRange(now, localWeekFirstDay(navigator.language)) : null),
+    [now],
+  );
+  const weekSummary = useQuery(
+    api.sessions.weeklySummary,
+    openSession === null && week
+      ? { weekStarts: week.weekStarts, weekEndsAt: week.weekEndsAt }
+      : "skip",
+  );
   const [toast, setToast] = useState<Toasted | null>(null);
   const [repeatingId, setRepeatingId] = useState<string | null>(null);
   const [removingId, setRemovingId] = useState<string | null>(null);
@@ -129,13 +140,18 @@ export function LogWorkout() {
     setToast({ ...message, id: Date.now() });
   }
 
-  function showAdded(ids: Array<Id<"sets">>, exerciseName: string) {
+  function showAdded(
+    ids: Array<Id<"sets">>,
+    exerciseName: string,
+    personalRecord: Parameters<typeof formatPersonalRecord>[0] | null,
+  ) {
     if (ids.length === 0) {
       return;
     }
+    const added = `Added ${pluralize(ids.length, "set")} · ${exerciseName}`;
     showToast({
       tone: "info",
-      message: `Added ${pluralize(ids.length, "set")} · ${exerciseName}`,
+      message: personalRecord ? `${formatPersonalRecord(personalRecord)}. ${added}` : added,
       action: { label: "Undo", onClick: () => void undo(ids) },
     });
   }
@@ -244,14 +260,14 @@ export function LogWorkout() {
     setSheetNotice(null);
     try {
       const sessionId = await ensureSessionId();
-      const savedIds = await logSets({
+      const saved = await logSets({
         sessionId,
         exerciseName: toSave.exerciseName,
         sets: toSave.sets,
       });
       dispatch({ type: "saved" });
       setDraft(null);
-      showAdded(savedIds, toSave.exerciseName);
+      showAdded(saved.setIds, toSave.exerciseName, saved.personalRecord);
     } catch (error) {
       setDraft(proposalToDraft(toSave));
       dispatch({ type: "save-failed", proposal: toSave });
@@ -298,18 +314,21 @@ export function LogWorkout() {
     setManualPending(true);
     try {
       if (manual?.mode === "edit") {
-        await updateSet({
+        const personalRecord = await updateSet({
           setId: manual.setId,
           reps: set.reps,
           weightLb: set.weightLb,
         });
         setManual(null);
+        if (personalRecord) {
+          showToast({ tone: "info", message: formatPersonalRecord(personalRecord) });
+        }
         return null;
       }
       const sessionId = await ensureSessionId();
-      const id = await logSet({ sessionId, ...set });
+      const saved = await logSet({ sessionId, ...set });
       setManual(null);
-      showAdded([id], set.exerciseName);
+      showAdded([saved.setId], set.exerciseName, saved.personalRecord);
       return null;
     } catch (error) {
       return readableError(error);
@@ -325,13 +344,13 @@ export function LogWorkout() {
     }
     setRepeatingId(group.exerciseId);
     try {
-      const id = await logSet({
+      const saved = await logSet({
         sessionId: openSession._id,
         exerciseName: group.name,
         reps: last.reps,
         weightLb: last.weightLb,
       });
-      showAdded([id], group.name);
+      showAdded([saved.setId], group.name, saved.personalRecord);
     } catch (error) {
       showToast({ tone: "error", message: readableError(error) });
     } finally {
@@ -483,6 +502,7 @@ export function LogWorkout() {
       ) : (
         <HomeView
           lastWorkout={history === undefined ? undefined : (history.page[0] ?? null)}
+          weekSummary={weekSummary}
           voiceBusy={voiceBusy}
           onVoice={() => void startVoice()}
           onManual={openManual}

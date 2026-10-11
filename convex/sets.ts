@@ -3,6 +3,12 @@ import type { Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { authedMutation, authedQuery } from "./lib/customFunctions";
 import {
+  personalRecordForBatch,
+  personalRecordValidator,
+  type PersonalRecord,
+} from "./lib/records";
+import {
+  EXERCISE_RECORD_SCAN,
   MAX_SETS_PER_BATCH,
   assertReps,
   assertSessionCanAcceptSets,
@@ -10,7 +16,8 @@ import {
   getOrCreateExercise,
   getOwnedSession,
   loadPreviousExerciseSets,
-  requireOpenSession,
+  loadRecentSetsForExercise,
+  requireWritableSession,
 } from "./lib/workouts";
 
 const setValidator = v.object({
@@ -87,13 +94,63 @@ export const listForSession = authedQuery({
   },
 });
 
+const loggedSetsValidator = v.object({
+  setIds: v.array(v.id("sets")),
+  personalRecord: v.union(personalRecordValidator, v.null()),
+});
+
+async function performedAt(
+  ctx: MutationCtx,
+  session: { _id: Id<"sessions">; status: "open" | "completed"; startedAt: number },
+  count: number,
+): Promise<number> {
+  if (session.status === "open") {
+    return Date.now();
+  }
+  const existing = await ctx.db
+    .query("sets")
+    .withIndex("by_session_and_exercise", (q) => q.eq("sessionId", session._id))
+    .take(500);
+  let newest = session.startedAt;
+  for (const set of existing) {
+    if (set.loggedAt > newest) {
+      newest = set.loggedAt;
+    }
+  }
+  const now = Date.now();
+  let base = newest + 1;
+  if (base + count - 1 > now) {
+    base = now - (count - 1);
+  }
+  if (base < session.startedAt) {
+    base = session.startedAt;
+  }
+  return base;
+}
+
+async function recordForInserted(
+  ctx: MutationCtx,
+  userId: Id<"users">,
+  exerciseId: Id<"exercises">,
+  exerciseName: string,
+  created: Array<{ reps: number; weightLb: number; _id: Id<"sets"> }>,
+): Promise<PersonalRecord | null> {
+  const recent = await loadRecentSetsForExercise(ctx, userId, exerciseId);
+  const createdIds = new Set(created.map((set) => set._id));
+  const previous = recent
+    .filter((set) => !createdIds.has(set._id))
+    .slice(0, EXERCISE_RECORD_SCAN)
+    .map((set) => ({ reps: set.reps, weightLb: set.weightLb }));
+  return personalRecordForBatch(exerciseName, created, previous);
+}
+
 async function insertSets(
   ctx: MutationCtx,
   userId: Id<"users">,
-  sessionId: Id<"sessions">,
+  session: { _id: Id<"sessions">; status: "open" | "completed"; startedAt: number },
   exerciseName: string,
   sets: Array<{ reps: number; weightLb: number }>,
-): Promise<Array<Id<"sets">>> {
+): Promise<{ setIds: Array<Id<"sets">>; personalRecord: PersonalRecord | null }> {
   if (sets.length > MAX_SETS_PER_BATCH) {
     throw new Error(`Log up to ${MAX_SETS_PER_BATCH} sets at a time`);
   }
@@ -102,11 +159,12 @@ async function insertSets(
     reps: assertReps(set.reps),
     weightLb: assertWeightLb(set.weightLb),
   }));
-  await assertSessionCanAcceptSets(ctx, sessionId, validated.length);
+  await assertSessionCanAcceptSets(ctx, session._id, validated.length);
   const exerciseId = await getOrCreateExercise(ctx, userId, exerciseName);
+  const exercise = await ctx.db.get("exercises", exerciseId);
+  const loggedAt = await performedAt(ctx, session, validated.length);
 
-  const loggedAt = Date.now();
-  const ids: Array<Id<"sets">> = [];
+  const created: Array<{ _id: Id<"sets">; reps: number; weightLb: number }> = [];
   for (let index = 0; index < validated.length; index += 1) {
     const set = validated[index];
     if (!set) {
@@ -114,18 +172,26 @@ async function insertSets(
     }
     // One millisecond apart so a batch keeps its confirmed order when sorted
     // by loggedAt, even if the writes share the same clock reading.
-    ids.push(
-      await ctx.db.insert("sets", {
-        userId,
-        sessionId,
-        exerciseId,
-        reps: set.reps,
-        weightLb: set.weightLb,
-        loggedAt: loggedAt + index,
-      }),
-    );
+    const setId = await ctx.db.insert("sets", {
+      userId,
+      sessionId: session._id,
+      exerciseId,
+      reps: set.reps,
+      weightLb: set.weightLb,
+      loggedAt: loggedAt + index,
+    });
+    created.push({ _id: setId, reps: set.reps, weightLb: set.weightLb });
   }
-  return ids;
+  return {
+    setIds: created.map((set) => set._id),
+    personalRecord: await recordForInserted(
+      ctx,
+      userId,
+      exerciseId,
+      exercise?.name ?? exerciseName,
+      created,
+    ),
+  };
 }
 
 export const log = authedMutation({
@@ -135,16 +201,20 @@ export const log = authedMutation({
     reps: v.number(),
     weightLb: v.number(),
   },
-  returns: v.id("sets"),
+  returns: v.object({
+    setId: v.id("sets"),
+    personalRecord: v.union(personalRecordValidator, v.null()),
+  }),
   handler: async (ctx, args) => {
-    const session = await requireOpenSession(ctx, ctx.userId, args.sessionId);
-    const [setId] = await insertSets(ctx, ctx.userId, session._id, args.exerciseName, [
+    const session = await requireWritableSession(ctx, ctx.userId, args.sessionId);
+    const saved = await insertSets(ctx, ctx.userId, session, args.exerciseName, [
       { reps: args.reps, weightLb: args.weightLb },
     ]);
+    const setId = saved.setIds[0];
     if (!setId) {
       throw new Error("Add at least one set");
     }
-    return setId;
+    return { setId, personalRecord: saved.personalRecord };
   },
 });
 
@@ -154,19 +224,13 @@ export const logMany = authedMutation({
     exerciseName: v.string(),
     sets: v.array(setInput),
   },
-  returns: v.array(v.id("sets")),
+  returns: loggedSetsValidator,
   handler: async (ctx, args) => {
     if (args.sets.length === 0) {
       throw new Error("Add at least one set");
     }
-    const session = await requireOpenSession(ctx, ctx.userId, args.sessionId);
-    return await insertSets(
-      ctx,
-      ctx.userId,
-      session._id,
-      args.exerciseName,
-      args.sets,
-    );
+    const session = await requireWritableSession(ctx, ctx.userId, args.sessionId);
+    return await insertSets(ctx, ctx.userId, session, args.exerciseName, args.sets);
   },
 });
 
@@ -176,17 +240,28 @@ export const update = authedMutation({
     reps: v.number(),
     weightLb: v.number(),
   },
-  returns: v.null(),
+  returns: v.union(personalRecordValidator, v.null()),
   handler: async (ctx, args) => {
     const set = await ctx.db.get("sets", args.setId);
     if (!set || set.userId !== ctx.userId) {
       throw new Error("Set not found");
     }
-    await requireOpenSession(ctx, ctx.userId, set.sessionId);
+    await requireWritableSession(ctx, ctx.userId, set.sessionId);
     const reps = assertReps(args.reps);
     const weightLb = assertWeightLb(args.weightLb);
+    const exercise = await ctx.db.get("exercises", set.exerciseId);
+    const recent = await loadRecentSetsForExercise(ctx, ctx.userId, set.exerciseId);
+    const previous = recent
+      .filter((item) => item._id !== set._id)
+      .slice(0, EXERCISE_RECORD_SCAN)
+      .map((item) => ({ reps: item.reps, weightLb: item.weightLb }));
+    const personalRecord = personalRecordForBatch(
+      exercise?.name ?? "Exercise",
+      [{ reps, weightLb }],
+      previous,
+    );
     await ctx.db.patch("sets", args.setId, { reps, weightLb });
-    return null;
+    return personalRecord;
   },
 });
 
@@ -244,7 +319,7 @@ async function deleteOwnedSets(
   if (sessionId === null) {
     throw new Error("Choose at least one set");
   }
-  await requireOpenSession(ctx, userId, sessionId);
+  await requireWritableSession(ctx, userId, sessionId);
 
   for (const setId of uniqueIds) {
     await ctx.db.delete("sets", setId);

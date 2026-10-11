@@ -4,6 +4,7 @@ import { ExerciseGlyph, PlusIcon, Spinner } from "@/components/icons";
 import { exerciseIconKind } from "@/lib/exerciseIcon";
 import { describeSet, formatSetShort } from "@/lib/format";
 import type { SetLine } from "@/lib/groupSets";
+import Link from "next/link";
 import { useId } from "react";
 
 export function ExerciseTile({ name }: { name: string }) {
@@ -47,6 +48,7 @@ export function ExerciseRow({
   onEditSet,
   onRemoveSet,
   removingId = null,
+  exerciseHref,
 }: {
   name: string;
   sets: SetLine[];
@@ -58,15 +60,36 @@ export function ExerciseRow({
   onEditSet?: (set: SetLine) => void;
   onRemoveSet?: (setId: string) => void;
   removingId?: string | null;
+  exerciseHref?: string;
 }) {
   const detailId = useId();
   const last = sets[sets.length - 1];
+  const nameNode = exerciseHref ? (
+    <Link href={exerciseHref} className="truncate text-base font-semibold tracking-[-0.01em] hover:underline">
+      {name}
+    </Link>
+  ) : (
+    <span className="truncate text-base font-semibold tracking-[-0.01em]">{name}</span>
+  );
   const summary = (
     <>
       <ExerciseTile name={name} />
       <span className="flex min-w-0 flex-1 flex-col gap-1">
-        <span className="truncate text-base font-semibold tracking-[-0.01em]">{name}</span>
-        <SetTokens sets={sets} newestSetId={newestSetId} />
+        {nameNode}
+        {onToggle && exerciseHref ? (
+          <button
+            type="button"
+            onClick={onToggle}
+            aria-expanded={expanded}
+            aria-controls={detailId}
+            aria-label={`${expanded ? "Hide" : "Show"} sets for ${name}`}
+            className="text-left"
+          >
+            <SetTokens sets={sets} newestSetId={newestSetId} />
+          </button>
+        ) : (
+          <SetTokens sets={sets} newestSetId={newestSetId} />
+        )}
       </span>
     </>
   );
@@ -74,7 +97,7 @@ export function ExerciseRow({
   return (
     <li className="border-b border-line-soft last:border-b-0">
       <div className="flex items-center gap-3.5 py-3.5">
-        {onToggle ? (
+        {onToggle && !exerciseHref ? (
           <button
             type="button"
             onClick={onToggle}

@@ -192,15 +192,17 @@ describe("saving and undoing a set list", () => {
     ).rejects.toThrow("Exercise name");
     expect(await asUser.query(api.sets.listForSession, { sessionId })).toHaveLength(0);
 
-    const ids = await asUser.mutation(api.sets.logMany, {
-      sessionId,
-      exerciseName: "bench press",
-      sets: [
-        { reps: 10, weightLb: 135 },
-        { reps: 8, weightLb: 155.555 },
-        { reps: 6, weightLb: 165 },
-      ],
-    });
+    const ids = (
+      await asUser.mutation(api.sets.logMany, {
+        sessionId,
+        exerciseName: "bench press",
+        sets: [
+          { reps: 10, weightLb: 135 },
+          { reps: 8, weightLb: 155.555 },
+          { reps: 6, weightLb: 165 },
+        ],
+      })
+    ).setIds;
     expect(ids).toHaveLength(3);
 
     const listed = await asUser.query(api.sets.listForSession, { sessionId });
@@ -217,7 +219,7 @@ describe("saving and undoing a set list", () => {
     expect(times[1]).toBe((times[0] ?? 0) + 1);
     expect(times[2]).toBe((times[0] ?? 0) + 2);
 
-    const singleId = await asUser.mutation(api.sets.log, {
+    const { setId: singleId } = await asUser.mutation(api.sets.log, {
       sessionId,
       exerciseName: "bench press",
       reps: 4,
@@ -350,14 +352,16 @@ describe("saving and undoing a set list", () => {
     const t = testBackend();
     const asUser = await signIn(t, "Michael");
     const sessionId = await asUser.mutation(api.sessions.start, {});
-    const ids = await asUser.mutation(api.sets.logMany, {
-      sessionId,
-      exerciseName: "deadlift",
-      sets: [
-        { reps: 3, weightLb: 225 },
-        { reps: 3, weightLb: 245 },
-      ],
-    });
+    const ids = (
+      await asUser.mutation(api.sets.logMany, {
+        sessionId,
+        exerciseName: "deadlift",
+        sets: [
+          { reps: 3, weightLb: 225 },
+          { reps: 3, weightLb: 245 },
+        ],
+      })
+    ).setIds;
     const first = ids[0];
     const second = ids[1];
     if (!first || !second) {
@@ -366,7 +370,7 @@ describe("saving and undoing a set list", () => {
 
     const other = await signIn(t, "Someone else");
     const otherSession = await other.mutation(api.sessions.start, {});
-    const otherSet = await other.mutation(api.sets.log, {
+    const { setId: otherSet } = await other.mutation(api.sets.log, {
       sessionId: otherSession,
       exerciseName: "curl",
       reps: 8,
@@ -380,7 +384,7 @@ describe("saving and undoing a set list", () => {
 
     await asUser.mutation(api.sessions.complete, { sessionId });
     const nextSession = await asUser.mutation(api.sessions.start, {});
-    const kept = await asUser.mutation(api.sets.log, {
+    const { setId: kept } = await asUser.mutation(api.sets.log, {
       sessionId: nextSession,
       exerciseName: "deadlift",
       reps: 1,
@@ -397,9 +401,9 @@ describe("saving and undoing a set list", () => {
     expect(await asUser.query(api.sets.listForSession, { sessionId: nextSession })).toHaveLength(
       0,
     );
-    await expect(
-      asUser.mutation(api.sets.removeMany, { setIds: [second] }),
-    ).rejects.toThrow("already finished");
+    await asUser.mutation(api.sets.removeMany, { setIds: [second] });
+    const finished = await asUser.query(api.sessions.get, { sessionId });
+    expect(finished?.sets.map((set) => set._id)).toEqual([first]);
   });
 });
 
@@ -768,14 +772,16 @@ describe("previous workout and editing a set", () => {
     const asUser = await signIn(t, "Michael");
     const other = await signIn(t, "Someone else");
     const sessionId = await asUser.mutation(api.sessions.start, {});
-    const [firstId, secondId] = await asUser.mutation(api.sets.logMany, {
-      sessionId,
-      exerciseName: "bench press",
-      sets: [
-        { reps: 10, weightLb: 135 },
-        { reps: 8, weightLb: 155 },
-      ],
-    });
+    const [firstId, secondId] = (
+      await asUser.mutation(api.sets.logMany, {
+        sessionId,
+        exerciseName: "bench press",
+        sets: [
+          { reps: 10, weightLb: 135 },
+          { reps: 8, weightLb: 155 },
+        ],
+      })
+    ).setIds;
     if (!firstId || !secondId) {
       throw new Error("Expected two sets");
     }
@@ -810,11 +816,9 @@ describe("previous workout and editing a set", () => {
     ).rejects.toThrow("Not authenticated");
 
     await asUser.mutation(api.sessions.complete, { sessionId });
-    await expect(
-      asUser.mutation(api.sets.update, { setId: firstId, reps: 5, weightLb: 100 }),
-    ).rejects.toThrow("already finished");
+    await asUser.mutation(api.sets.update, { setId: firstId, reps: 5, weightLb: 100 });
     const still = await asUser.query(api.sessions.get, { sessionId });
-    expect(still?.sets[0]).toMatchObject({ reps: 9, weightLb: 140.13 });
+    expect(still?.sets[0]).toMatchObject({ reps: 5, weightLb: 100, loggedAt: before?.loggedAt });
   });
 
   test("voice names belong to the signed-in user, recent first, and stop at 40", async () => {

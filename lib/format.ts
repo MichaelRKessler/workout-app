@@ -60,6 +60,17 @@ export function formatElapsed(ms: number): string {
   return `${minutes}:${ss}`;
 }
 
+/**
+ * Workout length, or null when the end was stored as the start.
+ * Past workouts do that because their length was never recorded.
+ */
+export function formatWorkoutLength(startedAt: number, completedAt: number): string | null {
+  if (completedAt <= startedAt) {
+    return null;
+  }
+  return formatDuration(completedAt - startedAt);
+}
+
 /** Workout length: "52 min", or "1 h 5 min". Under a minute counts as 1 min. */
 export function formatDuration(ms: number): string {
   const minutes = Math.max(1, Math.round(ms / 60_000));
@@ -73,6 +84,65 @@ export function formatDuration(ms: number): string {
 
 export function pluralize(count: number, singular: string, plural = `${singular}s`) {
   return `${count} ${count === 1 ? singular : plural}`;
+}
+
+/** "9,420 lb". Bodyweight volume is 0 lb. */
+export function formatVolumeLb(volumeLb: number): string {
+  const rounded = Math.round(volumeLb);
+  const digits = String(Math.abs(rounded));
+  const withCommas = digits.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  return `${rounded < 0 ? "-" : ""}${withCommas} lb`;
+}
+
+export function streakLabel(weeks: number): string {
+  if (weeks <= 0) {
+    return "No streak yet";
+  }
+  if (weeks === 1) {
+    return "1-week streak";
+  }
+  return `${weeks}-week streak`;
+}
+
+export function formatPersonalRecord(record: {
+  exerciseName: string;
+  kind: "weight" | "epley" | "both" | "reps";
+  reps: number;
+  weightLb: number;
+  epleyLb: number | null;
+}): string {
+  if (record.kind === "reps") {
+    return `New PR · ${record.exerciseName} · ${pluralize(record.reps, "rep")}`;
+  }
+  const load = formatWeightLb(record.weightLb);
+  const estimate =
+    record.epleyLb === null ? null : `est. 1RM ${formatWeightLb(record.epleyLb)}`;
+  if (record.kind === "epley" && estimate) {
+    return `New PR · ${record.exerciseName} · ${estimate}`;
+  }
+  if (record.kind === "both" && estimate) {
+    return `New PR · ${record.exerciseName} · ${load} · ${estimate}`;
+  }
+  return `New PR · ${record.exerciseName} · ${load}`;
+}
+
+export function formatPersonalRecords(
+  records: Array<{
+    exerciseName: string;
+    kind: "weight" | "epley" | "both" | "reps";
+    reps: number;
+    weightLb: number;
+    epleyLb: number | null;
+  }>,
+): string | null {
+  const first = records[0];
+  if (!first) {
+    return null;
+  }
+  if (records.length === 1) {
+    return formatPersonalRecord(first);
+  }
+  return `New PRs · ${records.map((record) => record.exerciseName).join(", ")}`;
 }
 
 /** "Sun, Oct 11" */
