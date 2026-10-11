@@ -1,6 +1,6 @@
 # Workout
 
-A mobile-friendly workout log. Sign in with Google, record sets, reps, and weight for any exercise, and open the history later.
+A mobile-friendly workout log. Sign in with Google, record sets, reps, and weight for any exercise, and open the history later. The home screen shows this week against last week. Each exercise has its own history, with your best set, an estimated one-rep max, and a trend. A finished workout can be corrected or deleted, and a workout you forgot can be logged for the day it happened.
 
 Voice comes first. Tap the mic and say a set, for example “bench press, three sets of ten at 135” or “push-ups 20”. The app shows the exercise, sets, reps, and weight so you can edit them. Nothing is written until you confirm, and the first confirmed set starts the workout. During a workout you can also type a set in the bar at the bottom (“squat 3x5 225”), tap `+` for the manual form, or tap `+` on an exercise to log its last set again. Each add shows an Undo.
 

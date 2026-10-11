@@ -2,7 +2,14 @@
 
 import { BrandMark, ChevronRightIcon, KeyboardIcon, MicIcon } from "@/components/icons";
 import { TopActions } from "@/components/TopActions";
-import { formatDuration, formatLongDate, formatShortDate, pluralize } from "@/lib/format";
+import {
+  formatLongDate,
+  formatShortDate,
+  formatVolumeLb,
+  formatWorkoutLength,
+  pluralize,
+  streakLabel,
+} from "@/lib/format";
 import Link from "next/link";
 
 export type LastWorkout = {
@@ -12,14 +19,26 @@ export type LastWorkout = {
   exercises: Array<{ name: string; setCount: number }>;
 };
 
+export type WeekSummary = {
+  workouts: number;
+  sets: number;
+  volumeLb: number;
+  previousWorkouts: number;
+  previousSets: number;
+  previousVolumeLb: number;
+  streakWeeks: number;
+};
+
 /** No workout open: the mic starts one with the first confirmed set. */
 export function HomeView({
   lastWorkout,
+  weekSummary,
   voiceBusy,
   onVoice,
   onManual,
 }: {
   lastWorkout: LastWorkout | null | undefined;
+  weekSummary?: WeekSummary | null;
   voiceBusy: boolean;
   onVoice: () => void;
   onManual: () => void;
@@ -66,7 +85,15 @@ export function HomeView({
           <KeyboardIcon className="size-[18px]" />
           Type it instead
         </button>
+        <Link
+          href="/history/log"
+          className="mt-1 inline-flex min-h-11 items-center rounded-full px-4 text-[15px] font-medium text-muted hover:bg-fill-2"
+        >
+          Log a past workout
+        </Link>
       </main>
+
+      {weekSummary ? <WeeklySummary summary={weekSummary} /> : null}
 
       {lastWorkout ? (
         <Link
@@ -81,17 +108,40 @@ export function HomeView({
               {lastWorkout.exercises.map((exercise) => exercise.name).join(", ") || "No sets"}
             </span>
             <span className="text-[13px] text-muted">
-              {pluralize(lastWorkout.exercises.length, "exercise")} ·{" "}
-              {pluralize(
-                lastWorkout.exercises.reduce((sum, exercise) => sum + exercise.setCount, 0),
-                "set",
-              )}{" "}
-              · {formatDuration(lastWorkout.completedAt - lastWorkout.startedAt)}
+              {[
+                pluralize(lastWorkout.exercises.length, "exercise"),
+                pluralize(
+                  lastWorkout.exercises.reduce((sum, exercise) => sum + exercise.setCount, 0),
+                  "set",
+                ),
+                formatWorkoutLength(lastWorkout.startedAt, lastWorkout.completedAt),
+              ]
+                .filter((part) => part !== null)
+                .join(" · ")}
             </span>
           </span>
           <ChevronRightIcon className="size-5 shrink-0 text-subtle" />
         </Link>
       ) : null}
     </div>
+  );
+}
+
+function WeeklySummary({ summary }: { summary: WeekSummary }) {
+  return (
+    <section aria-label="This week" className="mb-3 rounded-[18px] border border-line bg-surface p-4">
+      <div className="flex items-baseline justify-between gap-3">
+        <h2 className="text-[11px] font-medium tracking-[0.1em] text-subtle uppercase">This week</h2>
+        <p className="text-[13px] text-muted">{streakLabel(summary.streakWeeks)}</p>
+      </div>
+      <p className="mt-2 text-[15px] font-medium">
+        {pluralize(summary.workouts, "workout")} · {pluralize(summary.sets, "set")} ·{" "}
+        {formatVolumeLb(summary.volumeLb)}
+      </p>
+      <p className="mt-0.5 text-[13px] text-muted">
+        Last week · {pluralize(summary.previousWorkouts, "workout")} ·{" "}
+        {pluralize(summary.previousSets, "set")} · {formatVolumeLb(summary.previousVolumeLb)}
+      </p>
+    </section>
   );
 }

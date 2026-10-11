@@ -2,7 +2,7 @@ import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { formatExerciseName, MAX_KNOWN_EXERCISE_NAMES } from "./exerciseName";
 
-const MAX_SETS_PER_SESSION = 500;
+export const MAX_SETS_PER_SESSION = 500;
 
 /** One confirmed voice list, and one Undo of that list. */
 export const MAX_SETS_PER_BATCH = 30;
@@ -77,6 +77,36 @@ export async function requireOpenSession(
   return session;
 }
 
+/** The owner's open or finished workout. Finished workouts can be corrected. */
+export async function requireWritableSession(
+  ctx: MutationCtx,
+  userId: Id<"users">,
+  sessionId: Id<"sessions">,
+) {
+  const session = await getOwnedSession(ctx, userId, sessionId);
+  if (!session) {
+    throw new Error("Workout not found");
+  }
+  return session;
+}
+
+/** Newest sets for one exercise, by when they were performed. */
+export const EXERCISE_RECORD_SCAN = 2000;
+
+export async function loadRecentSetsForExercise(
+  ctx: QueryCtx | MutationCtx,
+  userId: Id<"users">,
+  exerciseId: Id<"exercises">,
+) {
+  return await ctx.db
+    .query("sets")
+    .withIndex("by_user_exercise_and_logged", (q) =>
+      q.eq("userId", userId).eq("exerciseId", exerciseId),
+    )
+    .order("desc")
+    .take(EXERCISE_RECORD_SCAN + 1);
+}
+
 export async function assertSessionCanAcceptSets(
   ctx: MutationCtx,
   sessionId: Id<"sessions">,
@@ -129,7 +159,7 @@ export async function loadPreviousExerciseSets(
 
   const recent = await ctx.db
     .query("sets")
-    .withIndex("by_user_and_exercise", (q) =>
+    .withIndex("by_user_exercise_and_logged", (q) =>
       q.eq("userId", userId).eq("exerciseId", exercise._id),
     )
     .order("desc")

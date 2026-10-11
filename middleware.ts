@@ -6,7 +6,12 @@ import {
 import { NextFetchEvent, NextRequest, NextResponse } from "next/server";
 
 const isSignInPage = createRouteMatcher(["/signin"]);
-const isProtectedRoute = createRouteMatcher(["/", "/history(.*)", "/settings"]);
+const isProtectedRoute = createRouteMatcher([
+  "/",
+  "/history(.*)",
+  "/exercises(.*)",
+  "/settings",
+]);
 
 const authMiddleware = convexAuthNextjsMiddleware(
   async (request, { convexAuth }) => {
