@@ -10,6 +10,10 @@ export function DeleteWorkoutSheet({
   error,
   onCancel,
   onConfirm,
+  title = "Delete this workout?",
+  body,
+  confirmLabel = "Delete workout",
+  cancelLabel = "Keep workout",
 }: {
   open: boolean;
   summary: string;
@@ -17,15 +21,20 @@ export function DeleteWorkoutSheet({
   error: string | null;
   onCancel: () => void;
   onConfirm: () => void;
+  title?: string;
+  body?: string;
+  confirmLabel?: string;
+  cancelLabel?: string;
 }) {
+  const message =
+    body ??
+    `This permanently deletes the workout from ${summary} and every set in it. This can't be undone.`;
   return (
     <Sheet open={open} onClose={onCancel} labelledBy="delete-workout-title" dismissible={!pending}>
       <h2 id="delete-workout-title" className="mt-2 text-xl font-semibold tracking-[-0.02em]">
-        Delete this workout?
+        {title}
       </h2>
-      <p className="mt-1.5 text-base leading-normal text-muted">
-        This permanently deletes the workout from {summary} and every set in it. This can&apos;t be undone.
-      </p>
+      <p className="mt-1.5 text-base leading-normal text-muted">{message}</p>
       {error ? (
         <p role="alert" className="mt-3 text-sm text-danger">
           {error}
@@ -33,7 +42,7 @@ export function DeleteWorkoutSheet({
       ) : null}
       <div className="mt-6 flex gap-2.5">
         <Button variant="secondary" size="lg" className="flex-1" onClick={onCancel} disabled={pending}>
-          Keep workout
+          {cancelLabel}
         </Button>
         <Button
           variant="danger"
@@ -42,7 +51,7 @@ export function DeleteWorkoutSheet({
           onClick={onConfirm}
           disabled={pending}
         >
-          {pending ? "Deleting…" : "Delete workout"}
+          {pending ? "Deleting…" : confirmLabel}
         </Button>
       </div>
     </Sheet>

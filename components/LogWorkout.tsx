@@ -45,6 +45,7 @@ import {
   type VoiceDraft,
 } from "@/lib/voice/confirm";
 import { moveItem } from "@/convex/lib/routinePlan";
+import { useBrowserTimeZone } from "@/components/useBrowserTimeZone";
 import {
   PENDING_PLAN_EVENT,
   loadPendingPlan,
@@ -56,6 +57,7 @@ import {
 } from "@/lib/offline/routineCache";
 import { browserStore, loadCachedAccess } from "@/lib/offline/storage";
 import { setFromPrefill } from "@/lib/prefill";
+import { calendarDayBounds, calendarDayKey, groupHistoryDays } from "@/lib/historyDays";
 import { splitWorkoutPlan, type VisiblePlanItem } from "@/lib/workoutPlan";
 import { useMutation, useQuery } from "convex/react";
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
@@ -106,8 +108,63 @@ export function LogWorkout() {
     api.sessions.listHistory,
     openSession === null ? { paginationOpts: { numItems: 1, cursor: null } } : "skip",
   );
+  const timeZone = useBrowserTimeZone();
+  const latestStartedAt = history?.page[0]?.startedAt;
+  const latestDay = useMemo(() => {
+    if (!timeZone || latestStartedAt === undefined) {
+      return null;
+    }
+    return calendarDayBounds(calendarDayKey(latestStartedAt, timeZone), timeZone);
+  }, [latestStartedAt, timeZone]);
+  const latestDaySessions = useQuery(
+    api.sessions.listDay,
+    openSession === null && latestDay
+      ? { startedFrom: latestDay.start, startedUntil: latestDay.end }
+      : "skip",
+  );
   const log = useOfflineLog();
   const { offline, outbox, snapshot } = log;
+  const lastWorkout = useMemo(() => {
+    if (history === undefined || !timeZone) {
+      return undefined;
+    }
+    const latest = history.page[0];
+    if (!latest) {
+      return null;
+    }
+    if (!offline && latestDay && latestDaySessions === undefined) {
+      return undefined;
+    }
+    const rows =
+      latestDaySessions && latestDaySessions.sessions.length > 0
+        ? latestDaySessions.sessions.map((session) => ({
+            id: session._id,
+            startedAt: session.startedAt,
+            completedAt: session.completedAt ?? session.startedAt,
+            status: "completed" as const,
+            volumeLb: session.volumeLb,
+            exercises: session.exercises.map((exercise) => ({
+              exerciseId: exercise.exerciseId,
+              name: exercise.name,
+              setCount: exercise.setCount,
+            })),
+          }))
+        : [
+            {
+              id: latest._id,
+              startedAt: latest.startedAt,
+              completedAt: latest.completedAt,
+              status: "completed" as const,
+              volumeLb: latest.volumeLb ?? 0,
+              exercises: latest.exercises.map((exercise) => ({
+                exerciseId: exercise.exerciseId,
+                name: exercise.name,
+                setCount: exercise.setCount,
+              })),
+            },
+          ];
+    return groupHistoryDays(rows, timeZone)[0] ?? null;
+  }, [history, latestDay, latestDaySessions, offline, timeZone]);
 
   const unit = useWeightUnit();
   const [voice, dispatch] = useReducer(reduceVoiceLog, { status: "idle" });
@@ -940,7 +997,7 @@ export function LogWorkout() {
         />
       ) : (
         <HomeView
-          lastWorkout={history === undefined ? undefined : (history.page[0] ?? null)}
+          lastWorkout={lastWorkout}
           weekSummary={weekSummary}
           routines={routineList ?? cachedRoutines ?? undefined}
           voiceBusy={voiceBusy}

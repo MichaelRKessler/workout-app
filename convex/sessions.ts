@@ -5,6 +5,7 @@ import { internal } from "./_generated/api";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { internalMutation } from "./_generated/server";
 import { authedMutation, authedQuery } from "./lib/customFunctions";
+import { assertDayWindow } from "./lib/dayWindow";
 import { formatExerciseName } from "./lib/exerciseName";
 import { normalizeNote } from "./lib/measures";
 import {
@@ -51,6 +52,7 @@ const historyItemValidator = v.object({
   startedAt: v.number(),
   completedAt: v.number(),
   exercises: v.array(exerciseSummaryValidator),
+  volumeLb: v.number(),
 });
 
 const setDetailValidator = v.object({
@@ -400,6 +402,7 @@ export const listHistory = authedQuery({
           startedAt: session.startedAt,
           completedAt: session.completedAt ?? session.startedAt,
           exercises: summarizeExercises(sets),
+          volumeLb: volumeLb(sets),
         };
       }),
     );
@@ -550,38 +553,188 @@ export const remove = authedMutation({
         "An open workout can't be deleted. Discard it if it's empty, or finish it first",
       );
     }
-    await deleteFinishedSets(ctx, session);
-    await ctx.db.delete("sessions", session._id);
+    await deleteFinishedSession(ctx, session);
     return null;
   },
 });
 
-async function deleteFinishedSets(
+const MAX_DAY_SESSIONS = 40;
+
+const daySessionValidator = v.object({
+  _id: v.id("sessions"),
+  status: v.literal("completed"),
+  startedAt: v.number(),
+  completedAt: v.union(v.number(), v.null()),
+  note: v.union(v.string(), v.null()),
+  exercises: v.array(exerciseSummaryValidator),
+  sets: v.array(setDetailValidator),
+  volumeLb: v.number(),
+});
+
+/**
+ * Finished workouts performed in one local day. The browser computes the
+ * day bounds; this only returns the signed-in user's completed sessions.
+ * Open workouts are excluded so a live session is not folded into the day.
+ */
+export const listDay = authedQuery({
+  args: {
+    startedFrom: v.number(),
+    startedUntil: v.number(),
+  },
+  returns: v.object({
+    sessions: v.array(daySessionValidator),
+    truncated: v.boolean(),
+  }),
+  handler: async (ctx, args) => {
+    const { sessions, truncated } = await completedSessionsInWindow(
+      ctx,
+      ctx.userId,
+      args.startedFrom,
+      args.startedUntil,
+    );
+    const detailed: Array<{
+      _id: Id<"sessions">;
+      status: "completed";
+      startedAt: number;
+      completedAt: number | null;
+      note: string | null;
+      exercises: Array<{
+        exerciseId: Id<"exercises">;
+        name: string;
+        setCount: number;
+      }>;
+      sets: Awaited<ReturnType<typeof loadSessionSets>>;
+      volumeLb: number;
+    }> = [];
+    for (const session of sessions) {
+      const sets = await loadSessionSets(ctx, session._id);
+      detailed.push({
+        _id: session._id,
+        status: "completed" as const,
+        startedAt: session.startedAt,
+        completedAt: session.completedAt ?? null,
+        note: session.note ?? null,
+        exercises: summarizeExercises(sets),
+        sets,
+        volumeLb: volumeLb(sets),
+      });
+    }
+    return { sessions: detailed, truncated };
+  },
+});
+
+/**
+ * Deletes every finished workout the owner performed in one local day, and
+ * the sets on those workouts. One mutation, so a failure keeps the day intact.
+ * Open workouts in the same window are left alone.
+ */
+export const removeDay = authedMutation({
+  args: {
+    startedFrom: v.number(),
+    startedUntil: v.number(),
+  },
+  returns: v.object({
+    workouts: v.number(),
+    sets: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    const { sessions, truncated } = await completedSessionsInWindow(
+      ctx,
+      ctx.userId,
+      args.startedFrom,
+      args.startedUntil,
+    );
+    if (truncated) {
+      throw new Error("This day has too many workouts to delete");
+    }
+    if (sessions.length === 0) {
+      throw new Error("No finished workouts on this day");
+    }
+
+    const plans: Array<{ sessionId: Id<"sessions">; setIds: Array<Id<"sets">> }> = [];
+    for (const session of sessions) {
+      if (session.userId !== ctx.userId || session.status !== "completed") {
+        throw new Error("Workout not found");
+      }
+      plans.push({
+        sessionId: session._id,
+        setIds: await collectOwnedSetIds(ctx, session),
+      });
+    }
+
+    let sets = 0;
+    for (const plan of plans) {
+      for (const setId of plan.setIds) {
+        await ctx.db.delete("sets", setId);
+        sets += 1;
+      }
+      await ctx.db.delete("sessions", plan.sessionId);
+    }
+    return { workouts: plans.length, sets };
+  },
+});
+
+async function completedSessionsInWindow(
+  ctx: QueryCtx | MutationCtx,
+  userId: Id<"users">,
+  startedFrom: number,
+  startedUntil: number,
+) {
+  assertDayWindow(startedFrom, startedUntil);
+  const found = await ctx.db
+    .query("sessions")
+    .withIndex("by_user_status_and_started", (q) =>
+      q
+        .eq("userId", userId)
+        .eq("status", "completed")
+        .gte("startedAt", startedFrom)
+        .lt("startedAt", startedUntil),
+    )
+    .order("asc")
+    .take(MAX_DAY_SESSIONS + 1);
+
+  const sessions: Array<(typeof found)[number]> = [];
+  for (const session of found) {
+    if (session.userId !== userId || session.status !== "completed") {
+      continue;
+    }
+    if (sessions.length < MAX_DAY_SESSIONS) {
+      sessions.push(session);
+    }
+  }
+  return { sessions, truncated: found.length > MAX_DAY_SESSIONS };
+}
+
+async function deleteFinishedSession(
   ctx: MutationCtx,
   session: { _id: Id<"sessions">; userId: Id<"users"> },
 ): Promise<void> {
-  for (let page = 0; page < 20; page += 1) {
-    const sets = await ctx.db
-      .query("sets")
-      .withIndex("by_session_and_exercise", (q) => q.eq("sessionId", session._id))
-      .take(100);
-    if (sets.length === 0) {
-      return;
-    }
-    for (const set of sets) {
-      if (set.userId !== session.userId) {
-        throw new Error("Workout not found");
-      }
-      await ctx.db.delete("sets", set._id);
-    }
+  const setIds = await collectOwnedSetIds(ctx, session);
+  for (const setId of setIds) {
+    await ctx.db.delete("sets", setId);
   }
-  const leftover = await ctx.db
+  await ctx.db.delete("sessions", session._id);
+}
+
+async function collectOwnedSetIds(
+  ctx: QueryCtx | MutationCtx,
+  session: { _id: Id<"sessions">; userId: Id<"users"> },
+): Promise<Array<Id<"sets">>> {
+  const sets = await ctx.db
     .query("sets")
     .withIndex("by_session_and_exercise", (q) => q.eq("sessionId", session._id))
-    .take(1);
-  if (leftover.length > 0) {
+    .take(2001);
+  if (sets.length > 2000) {
     throw new Error("This workout has too many sets to delete");
   }
+  const ids: Array<Id<"sets">> = [];
+  for (const set of sets) {
+    if (set.userId !== session.userId) {
+      throw new Error("Workout not found");
+    }
+    ids.push(set._id);
+  }
+  return ids;
 }
 
 const weeklySummaryValidator = v.object({

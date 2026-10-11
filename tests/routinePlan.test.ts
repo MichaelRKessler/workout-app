@@ -10,7 +10,7 @@ import {
   routinePrefillFromTarget,
 } from "../convex/lib/routinePlan.ts";
 import { formatRoutineTarget, suggestRoutineName } from "../lib/format.ts";
-import { groupByLocalDay, localDayKey } from "../lib/historyDays.ts";
+import { calendarDayKey, groupHistoryDays } from "../lib/historyDays.ts";
 import { loadPendingPlan, loadRoutineCache, savePendingPlan, saveRoutineCache } from "../lib/offline/routineCache.ts";
 import { loadSnapshot, saveSnapshot, type KeyValueStore } from "../lib/offline/storage.ts";
 import { prefillValues, setFromPrefill } from "../lib/prefill.ts";
@@ -268,16 +268,23 @@ test("history days follow the local calendar, not UTC midnight", () => {
   const morning = new Date(2026, 9, 11, 8).getTime();
   const evening = new Date(2026, 9, 11, 20).getTime();
   const next = new Date(2026, 9, 12, 7).getTime();
-  assert.equal(localDayKey(morning), localDayKey(evening));
-  assert.notEqual(localDayKey(morning), localDayKey(next));
-  const groups = groupByLocalDay([
-    { id: "later", startedAt: evening },
-    { id: "earlier", startedAt: morning },
-    { id: "next", startedAt: next },
+  assert.equal(calendarDayKey(morning), calendarDayKey(evening));
+  assert.notEqual(calendarDayKey(morning), calendarDayKey(next));
+  const session = (id: string, startedAt: number) => ({
+    id,
+    startedAt,
+    completedAt: startedAt + 60_000,
+    volumeLb: 0,
+    exercises: [],
+  });
+  const days = groupHistoryDays([
+    session("later", evening),
+    session("earlier", morning),
+    session("next", next),
   ]);
   assert.deepEqual(
-    groups.map((group) => group.items.map((item) => item.id)),
-    [["later", "earlier"], ["next"]],
+    days.map((day) => day.sessionIds),
+    [["next"], ["earlier", "later"]],
   );
 });
 
