@@ -593,3 +593,300 @@ describe("workouts left unfinished", () => {
     expect(stored?.completedAt).toBe(loggedAt + STALE_END_MARGIN_MS);
   });
 });
+
+describe("previous workout and editing a set", () => {
+  test("the previous workout's sets come back for that exercise only", async () => {
+    const t = testBackend();
+    const asUser = await signIn(t, "Michael");
+    const other = await signIn(t, "Someone else");
+
+    const first = await asUser.mutation(api.sessions.start, {});
+    await asUser.mutation(api.sets.logMany, {
+      sessionId: first,
+      exerciseName: "bench press",
+      sets: [
+        { reps: 10, weightLb: 135 },
+        { reps: 10, weightLb: 135 },
+        { reps: 8, weightLb: 145 },
+      ],
+    });
+    await asUser.mutation(api.sets.log, {
+      sessionId: first,
+      exerciseName: "squat",
+      reps: 5,
+      weightLb: 225,
+    });
+    await asUser.mutation(api.sessions.complete, { sessionId: first });
+
+    const second = await asUser.mutation(api.sessions.start, {});
+    await asUser.mutation(api.sets.log, {
+      sessionId: second,
+      exerciseName: "squat",
+      reps: 3,
+      weightLb: 245,
+    });
+
+    expect(
+      await asUser.query(api.sets.recentForExercise, {
+        exerciseName: " Bench   Press ",
+        excludeSessionId: second,
+      }),
+    ).toEqual({
+      exerciseName: "bench press",
+      normalizedName: "bench press",
+      sets: [
+        { reps: 10, weightLb: 135 },
+        { reps: 10, weightLb: 135 },
+        { reps: 8, weightLb: 145 },
+      ],
+    });
+    expect(
+      (
+        await asUser.query(api.sets.recentForExercise, {
+          exerciseName: "squat",
+          excludeSessionId: second,
+        })
+      )?.sets,
+    ).toEqual([{ reps: 5, weightLb: 225 }]);
+    expect(
+      (await asUser.query(api.sets.recentForExercise, { exerciseName: "squat" }))?.sets,
+    ).toEqual([{ reps: 3, weightLb: 245 }]);
+    expect(await asUser.query(api.sets.recentForExercise, { exerciseName: "   " })).toBeNull();
+    expect(await asUser.query(api.sets.recentForExercise, { exerciseName: "curl" })).toBeNull();
+
+    await t.run(async (ctx) => {
+      const session = await ctx.db.get("sessions", second);
+      const exercise = await ctx.db
+        .query("exercises")
+        .withIndex("by_user_and_normalized_name", (q) =>
+          q.eq("userId", session!.userId).eq("normalizedName", "bench press"),
+        )
+        .unique();
+      if (!session || !exercise) {
+        throw new Error("Expected the open workout and bench press");
+      }
+      for (let index = 0; index < 120; index += 1) {
+        await ctx.db.insert("sets", {
+          userId: session.userId,
+          sessionId: second,
+          exerciseId: exercise._id,
+          reps: 5,
+          weightLb: 100,
+          loggedAt: Date.now() + index,
+        });
+      }
+    });
+
+    expect(
+      (
+        await asUser.query(api.sets.recentForExercise, {
+          exerciseName: "bench press",
+          excludeSessionId: second,
+        })
+      )?.sets,
+    ).toEqual([
+      { reps: 10, weightLb: 135 },
+      { reps: 10, weightLb: 135 },
+      { reps: 8, weightLb: 145 },
+    ]);
+
+    const otherSession = await other.mutation(api.sessions.start, {});
+    await other.mutation(api.sets.log, {
+      sessionId: otherSession,
+      exerciseName: "bench press",
+      reps: 12,
+      weightLb: 95,
+    });
+    expect(
+      (await other.query(api.sets.recentForExercise, { exerciseName: "bench press" }))?.sets,
+    ).toEqual([{ reps: 12, weightLb: 95 }]);
+    expect(
+      (
+        await asUser.query(api.sets.recentForExercise, {
+          exerciseName: "bench press",
+          excludeSessionId: second,
+        })
+      )?.sets[0],
+    ).toEqual({ reps: 10, weightLb: 135 });
+
+    await expect(
+      t.query(api.sets.recentForExercise, { exerciseName: "bench press" }),
+    ).rejects.toThrow("Not authenticated");
+  });
+
+  test("an open workout full of one exercise still finds the earlier workout", async () => {
+    const t = testBackend();
+    const asUser = await signIn(t, "Michael");
+    const first = await asUser.mutation(api.sessions.start, {});
+    await asUser.mutation(api.sets.log, {
+      sessionId: first,
+      exerciseName: "bench press",
+      reps: 10,
+      weightLb: 135,
+    });
+    await asUser.mutation(api.sessions.complete, { sessionId: first });
+    const second = await asUser.mutation(api.sessions.start, {});
+
+    await t.run(async (ctx) => {
+      const session = await ctx.db.get("sessions", second);
+      if (!session) {
+        throw new Error("Expected the open workout");
+      }
+      const exercise = await ctx.db
+        .query("exercises")
+        .withIndex("by_user_and_normalized_name", (q) =>
+          q.eq("userId", session.userId).eq("normalizedName", "bench press"),
+        )
+        .unique();
+      if (!exercise) {
+        throw new Error("Expected bench press");
+      }
+      for (let index = 0; index < 500; index += 1) {
+        await ctx.db.insert("sets", {
+          userId: session.userId,
+          sessionId: second,
+          exerciseId: exercise._id,
+          reps: 5,
+          weightLb: 100,
+          loggedAt: Date.now() + index,
+        });
+      }
+    });
+
+    expect(
+      (
+        await asUser.query(api.sets.recentForExercise, {
+          exerciseName: "bench press",
+          excludeSessionId: second,
+        })
+      )?.sets,
+    ).toEqual([{ reps: 10, weightLb: 135 }]);
+  });
+
+  test("editing reps and weight leaves the set where it was logged", async () => {
+    const t = testBackend();
+    const asUser = await signIn(t, "Michael");
+    const other = await signIn(t, "Someone else");
+    const sessionId = await asUser.mutation(api.sessions.start, {});
+    const [firstId, secondId] = await asUser.mutation(api.sets.logMany, {
+      sessionId,
+      exerciseName: "bench press",
+      sets: [
+        { reps: 10, weightLb: 135 },
+        { reps: 8, weightLb: 155 },
+      ],
+    });
+    if (!firstId || !secondId) {
+      throw new Error("Expected two sets");
+    }
+    const before = await t.run(async (ctx) => await ctx.db.get("sets", firstId));
+
+    await asUser.mutation(api.sets.update, {
+      setId: firstId,
+      reps: 9,
+      weightLb: 140.129,
+    });
+    const listed = await asUser.query(api.sets.listForSession, { sessionId });
+    expect(listed.map((set) => [set._id, set.reps, set.weightLb])).toEqual([
+      [firstId, 9, 140.13],
+      [secondId, 8, 155],
+    ]);
+    const after = await t.run(async (ctx) => await ctx.db.get("sets", firstId));
+    expect(after?.loggedAt).toBe(before?.loggedAt);
+    expect(after?.exerciseId).toBe(before?.exerciseId);
+    expect(after?.order).toBeUndefined();
+
+    await expect(
+      asUser.mutation(api.sets.update, { setId: firstId, reps: 0, weightLb: 100 }),
+    ).rejects.toThrow("Reps must be a whole number");
+    await expect(
+      asUser.mutation(api.sets.update, { setId: firstId, reps: 5, weightLb: -1 }),
+    ).rejects.toThrow("Weight must be between 0 and 2000 lb");
+    await expect(
+      other.mutation(api.sets.update, { setId: firstId, reps: 5, weightLb: 100 }),
+    ).rejects.toThrow("Set not found");
+    await expect(
+      t.mutation(api.sets.update, { setId: firstId, reps: 5, weightLb: 100 }),
+    ).rejects.toThrow("Not authenticated");
+
+    await asUser.mutation(api.sessions.complete, { sessionId });
+    await expect(
+      asUser.mutation(api.sets.update, { setId: firstId, reps: 5, weightLb: 100 }),
+    ).rejects.toThrow("already finished");
+    const still = await asUser.query(api.sessions.get, { sessionId });
+    expect(still?.sets[0]).toMatchObject({ reps: 9, weightLb: 140.13 });
+  });
+
+  test("voice names belong to the signed-in user, recent first, and stop at 40", async () => {
+    const t = testBackend();
+    const asUser = await signIn(t, "Michael");
+    const other = await signIn(t, "Someone else");
+
+    const older = await asUser.mutation(api.sessions.start, {});
+    await asUser.mutation(api.sets.log, {
+      sessionId: older,
+      exerciseName: "squat",
+      reps: 5,
+      weightLb: 200,
+    });
+    await asUser.mutation(api.sets.log, {
+      sessionId: older,
+      exerciseName: "bench press",
+      reps: 8,
+      weightLb: 135,
+    });
+    await asUser.mutation(api.sessions.complete, { sessionId: older });
+
+    const newer = await asUser.mutation(api.sessions.start, {});
+    await asUser.mutation(api.sets.log, {
+      sessionId: newer,
+      exerciseName: "deadlift",
+      reps: 3,
+      weightLb: 315,
+    });
+
+    const otherSession = await other.mutation(api.sessions.start, {});
+    await other.mutation(api.sets.log, {
+      sessionId: otherSession,
+      exerciseName: "curl",
+      reps: 12,
+      weightLb: 30,
+    });
+
+    expect(await asUser.query(api.exercises.namesForVoice, {})).toEqual([
+      "deadlift",
+      "bench press",
+      "squat",
+    ]);
+    expect(await other.query(api.exercises.namesForVoice, {})).toEqual(["curl"]);
+    await expect(t.query(api.exercises.namesForVoice, {})).rejects.toThrow("Not authenticated");
+
+    await t.run(async (ctx) => {
+      const session = await ctx.db.get("sessions", newer);
+      if (!session) {
+        throw new Error("Expected the open workout");
+      }
+      for (let index = 1; index <= 41; index += 1) {
+        const name = `Lift ${String(index).padStart(2, "0")}`;
+        await ctx.db.insert("exercises", {
+          userId: session.userId,
+          name,
+          normalizedName: name.toLowerCase(),
+          createdAt: index,
+        });
+      }
+    });
+    await asUser.mutation(api.sets.log, {
+      sessionId: newer,
+      exerciseName: "Lift 41",
+      reps: 10,
+      weightLb: 50,
+    });
+
+    const capped = await asUser.query(api.exercises.namesForVoice, {});
+    expect(capped).toHaveLength(40);
+    expect(capped[0]).toBe("Lift 41");
+    expect(capped).not.toContain("curl");
+    expect(capped).not.toContain("Lift 40");
+  });
+});

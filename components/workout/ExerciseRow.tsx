@@ -34,7 +34,7 @@ function SetTokens({ sets, newestSetId }: { sets: SetLine[]; newestSetId?: strin
 
 /**
  * One exercise and its sets. With `onRepeat` it is part of the open workout:
- * the + logs the last set again and tapping the row shows each set with Remove.
+ * the + logs the last set again and tapping the row shows each set with Edit and Remove.
  */
 export function ExerciseRow({
   name,
@@ -44,6 +44,7 @@ export function ExerciseRow({
   onToggle,
   onRepeat,
   repeating = false,
+  onEditSet,
   onRemoveSet,
   removingId = null,
 }: {
@@ -54,6 +55,7 @@ export function ExerciseRow({
   onToggle?: () => void;
   onRepeat?: () => void;
   repeating?: boolean;
+  onEditSet?: (set: SetLine) => void;
   onRemoveSet?: (setId: string) => void;
   removingId?: string | null;
 }) {
@@ -105,16 +107,30 @@ export function ExerciseRow({
                 <span className="text-subtle">Set {index + 1}</span>
                 <span className="ml-3 font-mono">{formatSetShort(set)}</span>
               </span>
-              {onRemoveSet ? (
-                <button
-                  type="button"
-                  onClick={() => onRemoveSet(set._id)}
-                  disabled={removingId === set._id}
-                  aria-label={`Remove set ${index + 1} of ${name}`}
-                  className="min-h-11 rounded-full px-3 font-medium text-danger hover:bg-fill-2 disabled:opacity-50"
-                >
-                  {removingId === set._id ? "Removing…" : "Remove"}
-                </button>
+              {onEditSet || onRemoveSet ? (
+                <span className="flex items-center">
+                  {onEditSet ? (
+                    <button
+                      type="button"
+                      onClick={() => onEditSet(set)}
+                      aria-label={`Edit set ${index + 1} of ${name}`}
+                      className="min-h-11 rounded-full px-3 font-medium hover:bg-fill-2"
+                    >
+                      Edit
+                    </button>
+                  ) : null}
+                  {onRemoveSet ? (
+                    <button
+                      type="button"
+                      onClick={() => onRemoveSet(set._id)}
+                      disabled={removingId === set._id}
+                      aria-label={`Remove set ${index + 1} of ${name}`}
+                      className="min-h-11 rounded-full px-3 font-medium text-danger hover:bg-fill-2 disabled:opacity-50"
+                    >
+                      {removingId === set._id ? "Removing…" : "Remove"}
+                    </button>
+                  ) : null}
+                </span>
               ) : null}
             </li>
           ))}

@@ -85,6 +85,23 @@ describe("allow list", () => {
       reps: 5,
       weightLb: 185,
     })).rejects.toThrow("You don't have access yet");
+    const [logged] = await allowed.asUser.query(api.sets.listForSession, { sessionId });
+    if (!logged) {
+      throw new Error("Expected a logged set");
+    }
+    await expect(
+      blocked.asUser.query(api.sets.recentForExercise, { exerciseName: "squat" }),
+    ).rejects.toThrow("You don't have access yet");
+    await expect(blocked.asUser.query(api.exercises.namesForVoice, {})).rejects.toThrow(
+      "You don't have access yet",
+    );
+    await expect(
+      blocked.asUser.mutation(api.sets.update, {
+        setId: logged._id,
+        reps: 4,
+        weightLb: 100,
+      }),
+    ).rejects.toThrow("You don't have access yet");
   });
 
   test("the admin email is allowed without a row, in any case, and is the only admin", async () => {

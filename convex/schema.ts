@@ -30,7 +30,10 @@ export default defineSchema({
     // Unused. Optional so sets saved before we stopped writing it still validate.
     order: v.optional(v.number()),
     loggedAt: v.number(),
-  }).index("by_session_and_exercise", ["sessionId", "exerciseId"]),
+  })
+    .index("by_session_and_exercise", ["sessionId", "exerciseId"])
+    // Both fields already exist on every set, including ones saved before this index.
+    .index("by_user_and_exercise", ["userId", "exerciseId"]),
   allowedEmails: defineTable({
     email: v.string(),
     createdAt: v.number(),

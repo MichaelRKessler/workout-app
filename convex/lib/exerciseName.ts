@@ -1,5 +1,8 @@
 const MAX_EXERCISE_NAME_LENGTH = 80;
 
+/** How many of the signed-in user's names a voice prompt may include. */
+export const MAX_KNOWN_EXERCISE_NAMES = 40;
+
 export type FormattedExerciseName = {
   name: string;
   normalizedName: string;

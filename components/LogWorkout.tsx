@@ -51,6 +51,7 @@ export function LogWorkout() {
   const discardSession = useMutation(api.sessions.discard);
   const logSet = useMutation(api.sets.log);
   const logSets = useMutation(api.sets.logMany);
+  const updateSet = useMutation(api.sets.update);
   const removeSet = useMutation(api.sets.remove);
   const removeSets = useMutation(api.sets.removeMany);
 
@@ -59,7 +60,18 @@ export function LogWorkout() {
   const [draft, setDraft] = useState<VoiceDraft | null>(null);
   const [sheetNotice, setSheetNotice] = useState<string | null>(null);
   const [text, setText] = useState("");
-  const [manual, setManual] = useState<{ key: number; exerciseName: string } | null>(null);
+  const [manual, setManual] = useState<
+    | { key: number; mode: "add"; exerciseName: string }
+    | {
+        key: number;
+        mode: "edit";
+        setId: Id<"sets">;
+        exerciseName: string;
+        reps: number;
+        weightLb: number;
+      }
+    | null
+  >(null);
   const [manualPending, setManualPending] = useState(false);
   const [finishOpen, setFinishOpen] = useState(false);
   const [finishError, setFinishError] = useState<string | null>(null);
@@ -260,12 +272,40 @@ export function LogWorkout() {
       dispatch({ type: "dismiss" });
     }
     setToast(null);
-    setManual({ key: Date.now(), exerciseName: groups[groups.length - 1]?.name ?? "" });
+    setManual({
+      key: Date.now(),
+      mode: "add",
+      exerciseName: groups[groups.length - 1]?.name ?? "",
+    });
+  }
+
+  function openEdit(set: SetLine) {
+    if (voice.status === "error") {
+      dispatch({ type: "dismiss" });
+    }
+    setToast(null);
+    setManual({
+      key: Date.now(),
+      mode: "edit",
+      setId: set._id as Id<"sets">,
+      exerciseName: set.exerciseName,
+      reps: set.reps,
+      weightLb: set.weightLb,
+    });
   }
 
   async function addManual(set: { exerciseName: string; reps: number; weightLb: number }) {
     setManualPending(true);
     try {
+      if (manual?.mode === "edit") {
+        await updateSet({
+          setId: manual.setId,
+          reps: set.reps,
+          weightLb: set.weightLb,
+        });
+        setManual(null);
+        return null;
+      }
       const sessionId = await ensureSessionId();
       const id = await logSet({ sessionId, ...set });
       setManual(null);
@@ -421,6 +461,7 @@ export function LogWorkout() {
               : undefined
           }
           onRepeat={(group) => void repeatSet(group)}
+          onEditSet={openEdit}
           onRemoveSet={(setId) => void deleteSet(setId)}
           onFinish={() => {
             setFinishError(null);
@@ -477,6 +518,7 @@ export function LogWorkout() {
         source={source}
         saving={voice.status === "saving"}
         notice={sheetNotice}
+        excludeSessionId={openSession?._id}
         onChange={setDraft}
         onDiscard={discardDraft}
         onConfirm={() => void confirmDraft()}
@@ -487,9 +529,13 @@ export function LogWorkout() {
         <ManualEntrySheet
           key={manual.key}
           open
+          mode={manual.mode}
           initialExercise={manual.exerciseName}
+          initialReps={manual.mode === "edit" ? manual.reps : undefined}
+          initialWeight={manual.mode === "edit" ? manual.weightLb : undefined}
           library={library}
           sessionSets={sessionSets}
+          excludeSessionId={openSession?._id}
           pending={manualPending}
           onClose={() => setManual(null)}
           onAdd={addManual}

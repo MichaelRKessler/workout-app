@@ -4,6 +4,8 @@ import { Button } from "@/components/Button";
 import { CloseIcon, KeyboardIcon, MicIcon, PlusIcon, RetryIcon } from "@/components/icons";
 import { Sheet } from "@/components/Sheet";
 import { ExerciseTile } from "@/components/workout/ExerciseRow";
+import { usePreviousExercise } from "@/components/workout/usePreviousExercise";
+import type { Id } from "@/convex/_generated/dataModel";
 import { pluralize } from "@/lib/format";
 import type { VoiceDraft } from "@/lib/voice/confirm";
 import { MAX_VOICE_SETS } from "@/lib/voice/proposal";
@@ -18,6 +20,7 @@ export function ConfirmSheet({
   source,
   saving,
   notice,
+  excludeSessionId,
   onChange,
   onDiscard,
   onConfirm,
@@ -28,11 +31,14 @@ export function ConfirmSheet({
   source: "voice" | "text";
   saving: boolean;
   notice: string | null;
+  excludeSessionId?: Id<"sessions">;
   onChange: (draft: VoiceDraft) => void;
   onDiscard: () => void;
   onConfirm: () => void;
   onRecordAgain: () => void;
 }) {
+  const history = usePreviousExercise(open && draft ? draft.exerciseName : "", excludeSessionId);
+
   if (!draft) {
     return null;
   }
@@ -108,6 +114,7 @@ export function ConfirmSheet({
           className="h-12 min-w-0 flex-1 border-0 border-b border-line bg-transparent p-0 text-[22px] font-semibold tracking-[-0.02em] text-foreground outline-none focus:border-foreground disabled:opacity-60"
         />
       </div>
+      {history.label ? <p className="mt-2 text-[13px] text-muted">{history.label}</p> : null}
 
       <div className="mt-5 grid grid-cols-[28px_minmax(0,1fr)_minmax(0,1fr)_44px] items-center gap-x-2.5 gap-y-2">
         <span className="text-[11px] font-medium tracking-[0.1em] text-subtle uppercase">Set</span>
