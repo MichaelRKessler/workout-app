@@ -1,3 +1,4 @@
+import { isSetType } from "../../convex/lib/setType.ts";
 import type { SetLine } from "../groupSets.ts";
 import { emptyOutbox, parseOutbox, type Outbox } from "./outbox.ts";
 import type { PendingPlan } from "./routineCache.ts";
@@ -102,6 +103,43 @@ export function saveWeightUnit(store: KeyValueStore, unit: "lb" | "kg"): void {
     return;
   }
   store.set(`${PREFIX}unit`, unit);
+}
+
+export type CachedProgression = {
+  enabled: boolean;
+  incrementLb: number | null;
+};
+
+export function loadProgression(store: KeyValueStore): CachedProgression | null {
+  const raw = store.get(`${PREFIX}progression`);
+  if (!raw) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (typeof parsed !== "object" || parsed === null) {
+      return null;
+    }
+    const row = parsed as Record<string, unknown>;
+    if (typeof row.enabled !== "boolean") {
+      return null;
+    }
+    const incrementLb =
+      typeof row.incrementLb === "number" ? row.incrementLb : row.incrementLb === null ? null : undefined;
+    if (incrementLb === undefined) {
+      return null;
+    }
+    return { enabled: row.enabled, incrementLb };
+  } catch {
+    return null;
+  }
+}
+
+export function saveProgression(store: KeyValueStore, progression: CachedProgression): void {
+  if (writesSuspended) {
+    return;
+  }
+  store.set(`${PREFIX}progression`, JSON.stringify(progression));
 }
 
 export function clearOfflineStorage(store: KeyValueStore): void {
@@ -210,6 +248,7 @@ function parseSnapshotPlan(value: unknown): PendingPlan | null {
       targetDurationSec:
         typeof exercise.targetDurationSec === "number" ? exercise.targetDurationSec : null,
       targetDistanceM: typeof exercise.targetDistanceM === "number" ? exercise.targetDistanceM : null,
+      restSeconds: typeof exercise.restSeconds === "number" ? exercise.restSeconds : null,
       skipped: exercise.skipped === true,
     });
   }
@@ -264,6 +303,7 @@ function parseSetLine(value: unknown): SetLine | null {
     durationSec: typeof set.durationSec === "number" ? set.durationSec : null,
     distanceM: typeof set.distanceM === "number" ? set.distanceM : null,
     rpe: typeof set.rpe === "number" ? set.rpe : null,
+    ...(isSetType(set.setType) ? { setType: set.setType } : {}),
     loggedAt: set.loggedAt,
     clientId: typeof set.clientId === "string" ? set.clientId : null,
   };

@@ -6,9 +6,10 @@ import { PageHeader, SectionLabel } from "@/components/PageHeader";
 import { useOfflineLog } from "@/components/OfflineSync";
 import { useGuardedSignOut } from "@/components/useGuardedSignOut";
 import { useTheme } from "@/components/useTheme";
+import { useProgression } from "@/components/useProgression";
 import { useWeightUnit } from "@/components/WeightUnit";
 import { api } from "@/convex/_generated/api";
-import type { WeightUnit } from "@/convex/lib/units";
+import { fromPounds, toPounds, WEIGHT_STEP, type WeightUnit } from "@/convex/lib/units";
 import { useMutation, useQuery } from "convex/react";
 import Link from "next/link";
 import { useState } from "react";
@@ -17,10 +18,13 @@ export function SettingsScreen() {
   const viewer = useQuery(api.users.viewer);
   const { theme, setTheme } = useTheme();
   const unit = useWeightUnit();
+  const progression = useProgression();
   const { offline } = useOfflineLog();
   const signOut = useGuardedSignOut();
   const setWeightUnit = useMutation(api.users.setWeightUnit);
+  const setProgression = useMutation(api.users.setProgression);
   const [savingUnit, setSavingUnit] = useState(false);
+  const [savingProgression, setSavingProgression] = useState(false);
 
   const name = viewer?.name || viewer?.email || "Signed in";
   const initial = (viewer?.name || viewer?.email || "").trim().charAt(0).toUpperCase();
@@ -37,6 +41,25 @@ export function SettingsScreen() {
       setSavingUnit(false);
     }
   }
+
+  async function saveProgression(next: { enabled?: boolean; incrementLb?: number | null }) {
+    if (savingProgression || offline) {
+      return;
+    }
+    setSavingProgression(true);
+    try {
+      await setProgression({
+        suggestNextWeight: next.enabled ?? progression.enabled,
+        progressionIncrementLb:
+          next.incrementLb !== undefined ? next.incrementLb : progression.storedIncrementLb,
+      });
+    } finally {
+      setSavingProgression(false);
+    }
+  }
+
+  const step = WEIGHT_STEP[unit];
+  const shownIncrement = fromPounds(progression.incrementLb, unit);
 
   return (
     <div className="px-5 pt-3 pb-[calc(32px+env(safe-area-inset-bottom))]">
@@ -70,6 +93,78 @@ export function SettingsScreen() {
             Shown in this unit. Saved weights stay in pounds, so a workout logged in pounds still
             means pounds if you switch to kilograms.
             {offline ? " Changing the unit needs a connection." : ""}
+          </p>
+        </div>
+      </section>
+
+      <section aria-labelledby="settings-suggestions" className="mt-7">
+        <SectionLabel id="settings-suggestions">Next weight</SectionLabel>
+        <div className="overflow-hidden rounded-[1.25rem] border border-line bg-surface">
+          <div className="flex min-h-14 items-center justify-between gap-4 px-4">
+            <span id="suggest-weight-label" className="text-base font-medium">
+              Suggest next weight
+            </span>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={progression.enabled}
+              aria-labelledby="suggest-weight-label"
+              disabled={savingProgression || offline}
+              onClick={() => void saveProgression({ enabled: !progression.enabled })}
+              className="-mr-1 flex h-11 items-center px-1 disabled:opacity-60"
+            >
+              <span
+                aria-hidden="true"
+                className={`relative h-8 w-13 rounded-full transition-colors ${
+                  progression.enabled ? "bg-foreground" : "bg-line"
+                }`}
+              >
+                <span
+                  className={`absolute top-0.5 left-0.5 size-7 rounded-full bg-surface shadow-[0_1px_3px_rgb(0_0_0/0.2)] transition-transform ${
+                    progression.enabled ? "translate-x-5" : "translate-x-0"
+                  }`}
+                />
+              </span>
+            </button>
+          </div>
+          {progression.enabled ? (
+            <div className="flex min-h-14 items-center justify-between gap-4 border-t border-line px-4 py-3">
+              <span className="text-base font-medium">Increment</span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  aria-label={`${step} ${unit} smaller increment`}
+                  disabled={savingProgression || offline}
+                  onClick={() =>
+                    void saveProgression({
+                      incrementLb: toPounds(Math.max(step, shownIncrement - step), unit),
+                    })
+                  }
+                  className="flex size-11 items-center justify-center rounded-full border border-line disabled:opacity-60"
+                >
+                  −
+                </button>
+                <span className="min-w-16 text-center font-mono text-base tabular-nums">
+                  {shownIncrement} {unit}
+                </span>
+                <button
+                  type="button"
+                  aria-label={`${step} ${unit} larger increment`}
+                  disabled={savingProgression || offline}
+                  onClick={() =>
+                    void saveProgression({ incrementLb: toPounds(shownIncrement + step, unit) })
+                  }
+                  className="flex size-11 items-center justify-center rounded-full border border-line disabled:opacity-60"
+                >
+                  +
+                </button>
+              </div>
+            </div>
+          ) : null}
+          <p className="border-t border-line px-4 py-3 text-sm leading-normal text-muted">
+            When every working set hit its reps last time, a Try button offers the next load.
+            Numbers stay as they are until you tap it.
+            {offline ? " Changing this needs a connection." : ""}
           </p>
         </div>
       </section>

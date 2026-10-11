@@ -3,6 +3,7 @@ import {
   formatDistance,
   setKind,
 } from "../convex/lib/measures.ts";
+import { countsTowardVolume, setTypeSpeech } from "../convex/lib/setType.ts";
 import { formatWeightAmount, LB_PER_KG, type WeightUnit } from "../convex/lib/units.ts";
 
 type DisplaySet = {
@@ -11,6 +12,7 @@ type DisplaySet = {
   durationSec?: number | null;
   distanceM?: number | null;
   rpe?: number | null;
+  setType?: string | null;
 };
 
 export function formatWeightLb(weightLb: number, unit: WeightUnit = "lb"): string {
@@ -53,11 +55,12 @@ export function formatSetShort(set: DisplaySet, unit: WeightUnit = "lb"): string
  * Mixed sets fall back to the compact list labels.
  */
 export function formatLastTime(sets: DisplaySet[], unit: WeightUnit = "lb"): string | null {
-  const first = sets[0];
+  const counted = sets.filter((set) => countsTowardVolume(set));
+  const first = counted[0];
   if (!first) {
     return null;
   }
-  const uniform = sets.every(
+  const uniform = counted.every(
     (set) =>
       (set.reps ?? null) === (first.reps ?? null) &&
       set.weightLb === first.weightLb &&
@@ -66,15 +69,15 @@ export function formatLastTime(sets: DisplaySet[], unit: WeightUnit = "lb"): str
   );
   if (uniform && setKind(first) === "strength") {
     if (first.weightLb === 0) {
-      return `Last time: ${sets.length}×${first.reps ?? 0} bodyweight`;
+      return `Last time: ${counted.length}×${first.reps ?? 0} bodyweight`;
     }
     const load = formatWeightAmount(first.weightLb, unit);
-    return `Last time: ${sets.length}×${first.reps ?? 0} @ ${load}`;
+    return `Last time: ${counted.length}×${first.reps ?? 0} @ ${load}`;
   }
   if (uniform) {
-    return `Last time: ${sets.length}×${formatSetShort(first, unit)}`;
+    return `Last time: ${counted.length}×${formatSetShort(first, unit)}`;
   }
-  return `Last time: ${sets.map((set) => formatSetShort(set, unit)).join(", ")}`;
+  return `Last time: ${counted.map((set) => formatSetShort(set, unit)).join(", ")}`;
 }
 
 /** Spoken-style set label for screen readers and buttons. */
@@ -102,6 +105,10 @@ export function describeSet(set: DisplaySet, unit: WeightUnit = "lb"): string {
   }
   if (set.rpe) {
     label += `, RPE ${set.rpe}`;
+  }
+  const speech = setTypeSpeech(set.setType);
+  if (speech) {
+    label += `, ${speech}`;
   }
   return label;
 }

@@ -152,4 +152,36 @@ describe("best efforts and volume", () => {
     expect(trend.points.map((point) => point.sessionId)).toEqual(["old", "new"]);
     expect(trend.points[0]?.value).toBe(epleyOneRepMax(140, 8));
   });
+
+  test("warm-ups skip records and volume, and drop sets skip records only", () => {
+    expect(
+      personalRecordForSet("bench press", { reps: 10, weightLb: 95, setType: "warmup" }, []),
+    ).toBeNull();
+    expect(
+      personalRecordForSet("bench press", { reps: 5, weightLb: 135, setType: "working" }, [
+        { reps: 10, weightLb: 225, setType: "warmup" },
+        { reps: 3, weightLb: 185, setType: "drop" },
+      ]),
+    ).toMatchObject({ kind: "both" });
+    expect(
+      personalRecordForSet("bench press", { reps: 3, weightLb: 185, setType: "drop" }, []),
+    ).toBeNull();
+    expect(
+      personalRecordForSet("bench press", { reps: 4, weightLb: 155, setType: "failure" }, [
+        { reps: 5, weightLb: 135 },
+      ]),
+    ).toMatchObject({ kind: "both" });
+    expect(
+      volumeLb([
+        { reps: 10, weightLb: 45, setType: "warmup" },
+        { reps: 8, weightLb: 100, setType: "drop" },
+        { reps: 5, weightLb: 50, setType: "failure" },
+      ]),
+    ).toBe(1050);
+    const efforts = summarizeEfforts([
+      { _id: "warm", sessionId: "a", reps: 10, weightLb: 300, loggedAt: 1, setType: "warmup" },
+      { _id: "work", sessionId: "a", reps: 5, weightLb: 135, loggedAt: 2, setType: "working" },
+    ]);
+    expect(efforts.bestWeight?.setId).toBe("work");
+  });
 });

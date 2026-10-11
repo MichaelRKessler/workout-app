@@ -1,5 +1,6 @@
 import { formatExerciseName } from "../convex/lib/exerciseName";
 import { formatClock, formatDistance, parseClock, parseDistanceInput } from "../convex/lib/measures";
+import { clampRestSeconds } from "../convex/lib/rest";
 import { MAX_ROUTINE_EXERCISES, MAX_TARGET_SETS } from "../convex/lib/routinePlan";
 import {
   formatWeightAmount,
@@ -20,6 +21,8 @@ export type RoutineDraftExercise = {
   weight: string;
   duration: string;
   distance: string;
+  /** Empty uses the device rest default. A number of seconds is the account rest. */
+  rest: string;
 };
 
 export type RoutineExercisePayload = {
@@ -29,6 +32,7 @@ export type RoutineExercisePayload = {
   targetWeightLb?: number;
   targetDurationSec?: number;
   targetDistanceM?: number;
+  restSeconds: number | null;
 };
 
 type SavedExercise = {
@@ -38,6 +42,7 @@ type SavedExercise = {
   targetWeightLb: number | null;
   targetDurationSec: number | null;
   targetDistanceM: number | null;
+  restSeconds?: number | null;
 };
 
 export function blankRoutineExercise(key: string): RoutineDraftExercise {
@@ -50,6 +55,7 @@ export function blankRoutineExercise(key: string): RoutineDraftExercise {
     weight: "",
     duration: "",
     distance: "",
+    rest: "",
   };
 }
 
@@ -76,6 +82,7 @@ export function savedExerciseToDraft(
       exercise.targetWeightLb === null ? "" : formatWeightAmount(exercise.targetWeightLb, unit),
     duration: exercise.targetDurationSec ? formatClock(exercise.targetDurationSec) : "",
     distance: exercise.targetDistanceM ? formatDistance(exercise.targetDistanceM) : "",
+    rest: exercise.restSeconds ? String(exercise.restSeconds) : "",
   };
 }
 
@@ -107,7 +114,9 @@ export function routineDraftToPayload(
     if (!targets.ok) {
       return targets;
     }
-    payloads.push({ name: formatted.name, ...targets.targets });
+    const restText = exercise.rest.trim();
+    const restSeconds = restText.length === 0 ? null : clampRestSeconds(Number(restText));
+    payloads.push({ name: formatted.name, restSeconds, ...targets.targets });
   }
   return { ok: true, exercises: payloads };
 }
@@ -115,7 +124,7 @@ export function routineDraftToPayload(
 function targetsFromDraft(
   exercise: RoutineDraftExercise,
   unit: WeightUnit,
-): { ok: true; targets: Omit<RoutineExercisePayload, "name"> } | { ok: false; error: string } {
+): { ok: true; targets: Omit<RoutineExercisePayload, "name" | "restSeconds"> } | { ok: false; error: string } {
   const sets = optionalSets(exercise.sets);
   if (sets.error) {
     return { ok: false, error: sets.error };

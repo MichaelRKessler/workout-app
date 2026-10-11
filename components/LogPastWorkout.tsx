@@ -5,7 +5,9 @@ import { useOfflineLog } from "@/components/OfflineSync";
 import { CloseIcon, PlusIcon } from "@/components/icons";
 import { PageHeader } from "@/components/PageHeader";
 import { useWeightUnit } from "@/components/WeightUnit";
+import { SetTypePicker } from "@/components/SetTypePicker";
 import { formatExerciseName } from "@/convex/lib/exerciseName";
+import type { SetType } from "@/convex/lib/setType";
 import { parseClock, parseDistanceInput, type SetKind } from "@/convex/lib/measures";
 import { maxDisplayWeight, parseDisplayWeight, toPounds } from "@/convex/lib/units";
 import { formatPersonalRecords } from "@/lib/format";
@@ -24,6 +26,7 @@ type DraftSet = {
   duration: string;
   distance: string;
   rpe: string;
+  setType: SetType;
 };
 type DraftExercise = { key: string; name: string; kind: SetKind; sets: DraftSet[] };
 
@@ -37,7 +40,7 @@ function nextKey(): string {
 }
 
 function blankSet(): DraftSet {
-  return { key: nextKey(), reps: "", weight: "", duration: "", distance: "", rpe: "" };
+  return { key: nextKey(), reps: "", weight: "", duration: "", distance: "", rpe: "", setType: "working" };
 }
 
 function blankExercise(): DraftExercise {
@@ -98,6 +101,7 @@ export function LogPastWorkout() {
         durationSec?: number;
         distanceM?: number;
         rpe?: number;
+        setType: SetType;
       }>;
     }> = [];
     for (const exercise of exercises) {
@@ -129,7 +133,7 @@ export function LogPastWorkout() {
             setError("Time must be from 1 second to 24 hours, like 90 or 1:30.");
             return;
           }
-          sets.push({ weightLb, durationSec, ...(rpe ? { rpe } : {}) });
+          sets.push({ weightLb, durationSec, setType: set.setType, ...(rpe ? { rpe } : {}) });
           continue;
         }
         if (exercise.kind === "distance") {
@@ -147,6 +151,7 @@ export function LogPastWorkout() {
             weightLb,
             distanceM,
             ...(durationSec ? { durationSec } : {}),
+            setType: set.setType,
             ...(rpe ? { rpe } : {}),
           });
           continue;
@@ -156,7 +161,7 @@ export function LogPastWorkout() {
           setError("Reps must be a whole number from 1 to 999.");
           return;
         }
-        sets.push({ weightLb, reps, ...(rpe ? { rpe } : {}) });
+        sets.push({ weightLb, reps, setType: set.setType, ...(rpe ? { rpe } : {}) });
       }
       payload.push({ name: formatted.name, sets });
     }
@@ -180,6 +185,7 @@ export function LogPastWorkout() {
             durationSec: set.durationSec ?? null,
             distanceM: set.distanceM ?? null,
             rpe: set.rpe ?? null,
+            setType: set.setType,
             loggedAt: at,
           };
         }),
@@ -367,6 +373,12 @@ export function LogPastWorkout() {
                       placeholder="RPE"
                       aria-label={`Set ${setIndex + 1} RPE`}
                       className={setFieldClass}
+                    />
+                  </div>
+                  <div className="mt-2">
+                    <SetTypePicker
+                      value={set.setType}
+                      onChange={(setType) => updateSet(exercise.key, set.key, { setType })}
                     />
                   </div>
                 </div>

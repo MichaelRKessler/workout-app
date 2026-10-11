@@ -4,6 +4,7 @@ import { Button } from "@/components/Button";
 import { TopActions } from "@/components/TopActions";
 import { Composer } from "@/components/workout/Composer";
 import { ExerciseRow } from "@/components/workout/ExerciseRow";
+import { useExerciseRest } from "@/components/useExerciseRest";
 import { RestTimer } from "@/components/workout/RestTimer";
 import { useWakeLock } from "@/components/workout/useWakeLock";
 import { formatElapsed, formatShortDate, pluralize } from "@/lib/format";
@@ -65,6 +66,17 @@ export function ActiveWorkout({
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const empty = !loadingSets && setCount === 0;
   useWakeLock();
+  let newestName: string | null = null;
+  let newestAt = -1;
+  for (const group of groups) {
+    for (const set of group.sets) {
+      if (set.loggedAt >= newestAt) {
+        newestAt = set.loggedAt;
+        newestName = group.name;
+      }
+    }
+  }
+  const exerciseRest = useExerciseRest(setCount > 0 ? newestName : null);
 
   return (
     <>
@@ -90,7 +102,12 @@ export function ActiveWorkout({
               {note ? <p className="mt-1 text-sm text-muted">{note}</p> : null}
             </div>
             <div className="flex items-center gap-2">
-              <RestTimer setCount={setCount} loading={loadingSets} />
+              <RestTimer
+                setCount={setCount}
+                loading={loadingSets}
+                exerciseRestSeconds={setCount > 0 ? exerciseRest.restSeconds : null}
+                onExerciseRest={(seconds) => void exerciseRest.save(seconds)}
+              />
               {empty ? (
                 <Button variant="secondary" onClick={onDiscard} disabled={ending}>
                   {ending ? "Discarding…" : "Discard"}

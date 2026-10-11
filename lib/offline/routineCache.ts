@@ -1,3 +1,4 @@
+import { rememberRest } from "../exerciseRest.ts";
 import type { KeyValueStore } from "./storage.ts";
 import { accountKey } from "./storage.ts";
 
@@ -11,6 +12,7 @@ export type CachedRoutineExercise = {
   targetWeightLb: number | null;
   targetDurationSec: number | null;
   targetDistanceM: number | null;
+  restSeconds: number | null;
 };
 
 export type CachedRoutine = {
@@ -45,6 +47,11 @@ export function saveRoutineCache(
   routines: CachedRoutine[],
 ): void {
   store.set(routineKey(email), JSON.stringify(routines));
+  for (const routine of routines) {
+    for (const exercise of routine.exercises) {
+      rememberRest(store, exercise.name, exercise.restSeconds);
+    }
+  }
 }
 
 export function loadPendingPlan(store: KeyValueStore, email: string | null): PendingPlan | null {
@@ -167,6 +174,7 @@ function parseExercise(value: unknown): CachedRoutineExercise | null {
     targetWeightLb: numberOrNull(exercise.targetWeightLb),
     targetDurationSec: numberOrNull(exercise.targetDurationSec),
     targetDistanceM: numberOrNull(exercise.targetDistanceM),
+    restSeconds: typeof exercise.restSeconds === "number" ? exercise.restSeconds : null,
   };
 }
 

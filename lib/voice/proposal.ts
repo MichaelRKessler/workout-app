@@ -1,5 +1,6 @@
 import { formatExerciseName } from "../../convex/lib/exerciseName";
 import { MAX_NOTE_LENGTH } from "../../convex/lib/measures";
+import { isSetType, type SetType } from "../../convex/lib/setType";
 import { LB_PER_KG, type WeightUnit } from "../../convex/lib/units";
 
 export { LB_PER_KG };
@@ -18,6 +19,7 @@ reps is 0 when the set is timed or distance only.
 durationSec is seconds, or 0 when the set is not timed. "plank 60 seconds" is durationSec 60. "7 minutes 30 seconds" is 450.
 distanceM is meters, or 0 when there is no distance. "row 2k" is 2000. "3 miles" is 4828.
 rpe is an effort from 1 to 10, or 0 when they did not say one.
+setType is "warmup" for a warm-up set, "drop" for a drop set, "failure" when they say to failure or a failure set, and "working" otherwise.
 note is a short remark about the workout, or an empty string.`;
 
 export const WORKOUT_PARSE_PROMPT = `You log strength, timed, and distance exercises from a short spoken recording.
@@ -71,8 +73,14 @@ const SET_SCHEMA = {
       type: "integer",
       description: "Effort from 1 to 10, or 0 when they did not say one.",
     },
+    setType: {
+      type: "string",
+      enum: ["warmup", "working", "drop", "failure"],
+      description:
+        'warmup, drop, failure, or working. Use "working" unless they name a warm-up, drop set, or failure set.',
+    },
   },
-  required: ["reps", "weight", "unit", "durationSec", "distanceM", "rpe"],
+  required: ["reps", "weight", "unit", "durationSec", "distanceM", "rpe", "setType"],
 } as const;
 
 export const WORKOUT_RESPONSE_SCHEMA = {
@@ -112,6 +120,7 @@ export type VoiceSet = {
   durationSec: number | null;
   distanceM: number | null;
   rpe: number | null;
+  setType: SetType;
 };
 
 export type VoiceProposal = {
@@ -333,7 +342,14 @@ function normalizeSet(
     );
   }
 
-  return { reps, weightLb, durationSec, distanceM, rpe };
+  return {
+    reps,
+    weightLb,
+    durationSec,
+    distanceM,
+    rpe,
+    setType: isSetType(value.setType) ? value.setType : "working",
+  };
 }
 
 function optionalCount(

@@ -61,6 +61,7 @@ type ManualState =
       durationSec: number | null;
       distanceM: number | null;
       rpe: number | null;
+      setType?: SetLine["setType"];
     };
 
 /**
@@ -176,6 +177,7 @@ export function DayDetail({ dayKey }: { dayKey: string }) {
     durationSec?: number;
     distanceM?: number;
     rpe?: number;
+    setType?: SetLine["setType"];
   }) {
     const target =
       manual?.mode === "add"
@@ -192,6 +194,7 @@ export function DayDetail({ dayKey }: { dayKey: string }) {
         durationSec: set.durationSec ?? null,
         distanceM: set.distanceM ?? null,
         rpe: set.rpe ?? null,
+        ...(set.setType !== undefined ? { setType: set.setType } : { setType: "working" as const }),
       };
       if (manual?.mode === "edit") {
         const saved = await log.editSet({
@@ -481,6 +484,7 @@ export function DayDetail({ dayKey }: { dayKey: string }) {
                   durationSec: set.durationSec,
                   distanceM: set.distanceM,
                   rpe: set.rpe,
+                  setType: set.setType,
                 })
               }
               onRemoveSet={(setId) => void deleteSet(setId)}
@@ -504,6 +508,7 @@ export function DayDetail({ dayKey }: { dayKey: string }) {
                   durationSec: manual.durationSec,
                   distanceM: manual.distanceM,
                   rpe: manual.rpe,
+                  setType: manual.setType,
                 }
               : undefined
           }

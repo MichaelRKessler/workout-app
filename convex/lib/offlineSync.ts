@@ -5,6 +5,7 @@ import { formatExerciseName } from "./exerciseName";
 import { combineNotes, normalizeNote, type NormalizedSet } from "./measures";
 import { personalRecordForBatch, type PersonalRecord } from "./records";
 import { plannedCompletedAt } from "./sessionTiming";
+import { resolvedSetType, type SetType } from "./setType";
 import {
   EXERCISE_RECORD_SCAN,
   MAX_SETS_PER_BATCH,
@@ -13,6 +14,7 @@ import {
   loadRecentSetsForExercise,
   normalizeSetInput,
   recordPoint,
+  storedSetFields,
 } from "./workouts";
 
 const EARLIEST_AT = Date.UTC(2000, 0, 1);
@@ -33,6 +35,7 @@ export type OfflineSetInput = {
   durationSec?: number;
   distanceM?: number;
   rpe?: number;
+  setType?: SetType;
   loggedAt: number;
   note?: string;
 };
@@ -45,6 +48,7 @@ export type OfflineEditInput = {
   durationSec?: number;
   distanceM?: number;
   rpe?: number;
+  setType?: SetType;
 };
 
 export type OfflineDeleteInput = {
@@ -212,13 +216,9 @@ function setDocument(
     userId: existing.userId,
     sessionId: existing.sessionId,
     exerciseId,
-    weightLb: normalized.weightLb,
     loggedAt: existing.loggedAt,
     ...(existing.order !== undefined ? { order: existing.order } : {}),
-    ...(normalized.reps !== undefined ? { reps: normalized.reps } : {}),
-    ...(normalized.durationSec !== undefined ? { durationSec: normalized.durationSec } : {}),
-    ...(normalized.distanceM !== undefined ? { distanceM: normalized.distanceM } : {}),
-    ...(normalized.rpe !== undefined ? { rpe: normalized.rpe } : {}),
+    ...storedSetFields(normalized),
     ...(clientId !== undefined ? { clientId } : {}),
     ...(revision !== undefined ? { clientRevision: revision } : {}),
   };
@@ -369,12 +369,8 @@ export async function acceptOfflineBatch(
           userId,
           sessionId,
           exerciseId,
-          weightLb: normalized.weightLb,
           loggedAt,
-          ...(normalized.reps !== undefined ? { reps: normalized.reps } : {}),
-          ...(normalized.durationSec !== undefined ? { durationSec: normalized.durationSec } : {}),
-          ...(normalized.distanceM !== undefined ? { distanceM: normalized.distanceM } : {}),
-          ...(normalized.rpe !== undefined ? { rpe: normalized.rpe } : {}),
+          ...storedSetFields(normalized),
           clientId: item.clientId,
           clientRevision: item.revision,
         });
@@ -495,7 +491,10 @@ export async function acceptOfflineBatch(
       if (!set || set.userId !== userId) {
         throw new Error("Set not found");
       }
-      const normalized = normalizeSetInput(item);
+      const normalized = normalizeSetInput({
+        ...item,
+        setType: item.setType ?? resolvedSetType(set.setType),
+      });
       const exercise = await ctx.db.get("exercises", set.exerciseId);
       await ctx.db.replace(
         "sets",

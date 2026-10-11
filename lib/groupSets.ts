@@ -1,3 +1,5 @@
+import type { SetType } from "../convex/lib/setType.ts";
+
 export type SetLine = {
   _id: string;
   exerciseId: string;
@@ -7,6 +9,7 @@ export type SetLine = {
   durationSec: number | null;
   distanceM: number | null;
   rpe: number | null;
+  setType?: SetType;
   loggedAt: number;
   /** Present on a set the phone has not finished syncing. */
   pending?: boolean;

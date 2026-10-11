@@ -231,6 +231,7 @@ test("a routine target is used only after the last logged set", () => {
   assert.deepEqual(setFromPrefill(prefillValues("curl", [], null, routine)), {
     reps: 8,
     weightLb: 95,
+    setType: "working",
   });
 });
 

@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { authedMutation } from "./lib/customFunctions";
 import { acceptOfflineBatch } from "./lib/offlineSync";
 import { personalRecordValidator } from "./lib/records";
+import { setTypeValidator } from "./lib/setTypeValidator";
 
 const setResult = v.object({
   clientId: v.string(),
@@ -39,6 +40,8 @@ const measureFields = {
   durationSec: v.optional(v.number()),
   distanceM: v.optional(v.number()),
   rpe: v.optional(v.number()),
+  // Omitted on a retry means working for a new set, and "leave it" for an edit.
+  setType: v.optional(setTypeValidator),
 };
 
 /**

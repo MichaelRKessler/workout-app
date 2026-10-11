@@ -1,5 +1,7 @@
 "use client";
 
+import { SetTypeTag } from "@/components/SetTypePicker";
+import { useProgression } from "@/components/useProgression";
 import { ExerciseTile } from "@/components/workout/ExerciseRow";
 import { usePreviousExercise } from "@/components/workout/usePreviousExercise";
 import { useWeightUnit } from "@/components/WeightUnit";
@@ -8,6 +10,7 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { formatRoutineTarget, formatSetShort } from "@/lib/format";
 import type { SetLine } from "@/lib/groupSets";
 import { prefillValues, setFromPrefill } from "@/lib/prefill";
+import { formatSuggestion, suggestionAlreadyShown, suggestNext } from "@/lib/suggestion";
 import { planProgress, routinePrefillFromTarget } from "@/convex/lib/routinePlan";
 
 export type PlanRow = {
@@ -145,6 +148,7 @@ function PlanRowView({
                   className="min-h-11 text-left"
                 >
                   {formatSetShort(set, unit)}
+                  <SetTypeTag setType={set.setType} />
                   {set.pending ? <span className="ml-1 font-sans text-xs">· pending</span> : null}
                 </button>
               ))}
@@ -230,6 +234,8 @@ function PlanLogButton({
   excludeSessionId?: Id<"sessions">;
   onLog: (exerciseId: string, name: string, set: ReturnType<typeof setFromPrefill>) => void;
 }) {
+  const unit = useWeightUnit();
+  const progression = useProgression();
   const previous = usePreviousExercise(row.name, excludeSessionId);
   const ready = (offline || !previous.loading) && !setsLoading;
   const values = prefillValues(
@@ -239,20 +245,55 @@ function PlanLogButton({
     routinePrefillFromTarget(row),
   );
   const set = setFromPrefill(values);
+  const suggestion =
+    ready && previous.sets
+      ? suggestNext(previous.sets, {
+          enabled: progression.enabled,
+          incrementLb: progression.incrementLb,
+          routine: { targetSets: row.targetSets, targetReps: row.targetReps },
+        })
+      : null;
+  const suggestionLabel =
+    suggestion && set && !suggestionAlreadyShown(suggestion, { kind: values.kind, reps: values.reps, weightLb: set.weightLb })
+      ? formatSuggestion(suggestion, unit)
+      : null;
+
+  function logSuggested() {
+    if (!set || !suggestion) {
+      return;
+    }
+    if (suggestion.kind === "weight") {
+      onLog(row.exerciseId, row.name, { ...set, weightLb: suggestion.weightLb, setType: "working" });
+      return;
+    }
+    onLog(row.exerciseId, row.name, { ...set, reps: suggestion.reps, setType: "working" });
+  }
 
   return (
-    <button
-      type="button"
-      disabled={!ready || logging || set === null}
-      onClick={() => {
-        if (set) {
-          onLog(row.exerciseId, row.name, set);
-        }
-      }}
-      className="min-h-11 shrink-0 rounded-full bg-inverse px-4 text-base font-semibold text-inverse-ink disabled:opacity-60"
-    >
-      {logging ? "Logging…" : ready ? "Log set" : "…"}
-    </button>
+    <span className="flex shrink-0 flex-col items-end gap-1">
+      {suggestionLabel ? (
+        <button
+          type="button"
+          disabled={logging}
+          onClick={logSuggested}
+          className="min-h-11 max-w-40 rounded-full border border-line px-3 text-left text-sm font-medium disabled:opacity-60"
+        >
+          {suggestionLabel}
+        </button>
+      ) : null}
+      <button
+        type="button"
+        disabled={!ready || logging || set === null}
+        onClick={() => {
+          if (set) {
+            onLog(row.exerciseId, row.name, set);
+          }
+        }}
+        className="min-h-11 shrink-0 rounded-full bg-inverse px-4 text-base font-semibold text-inverse-ink disabled:opacity-60"
+      >
+        {logging ? "Logging…" : ready ? "Log set" : "…"}
+      </button>
+    </span>
   );
 }
 

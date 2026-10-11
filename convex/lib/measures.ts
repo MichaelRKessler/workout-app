@@ -1,3 +1,4 @@
+import { resolvedSetType, type SetType } from "./setType";
 import { roundWeight } from "./units";
 
 export const MAX_DURATION_SEC = 24 * 60 * 60;
@@ -14,6 +15,7 @@ export type MeasureInput = {
   durationSec?: number | null;
   distanceM?: number | null;
   rpe?: number | null;
+  setType?: SetType | null;
 };
 
 /** Fields written on a set. Absent optionals are left off the document. */
@@ -23,6 +25,7 @@ export type NormalizedSet = {
   durationSec?: number;
   distanceM?: number;
   rpe?: number;
+  setType: SetType;
 };
 
 export function setKind(set: {
@@ -57,6 +60,7 @@ export function normalizeStoredSet(input: MeasureInput): NormalizedSet {
     ...(durationSec !== undefined ? { durationSec } : {}),
     ...(distanceM !== undefined ? { distanceM } : {}),
     ...(rpe !== undefined ? { rpe } : {}),
+    setType: resolvedSetType(input.setType),
   };
 }
 

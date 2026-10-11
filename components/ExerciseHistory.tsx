@@ -7,6 +7,7 @@ import { TrendChart } from "@/components/workout/TrendChart";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { formatClock, formatDistance } from "@/convex/lib/measures";
+import { SetTypeTag } from "@/components/SetTypePicker";
 import { formatSetShort, formatShortDate, formatVolumeLb, formatWeightLb, pluralize } from "@/lib/format";
 import { usePaginatedQuery, useQuery } from "convex/react";
 import Link from "next/link";
@@ -112,6 +113,7 @@ export function ExerciseHistory({ exerciseId }: { exerciseId: string }) {
                 {workout.sets.map((set) => (
                   <span key={set._id} className="mr-3 inline-flex items-center gap-1.5">
                     {formatSetShort(set, unit)}
+                    <SetTypeTag setType={set.setType} />
                     {highlight.has(set._id) ? (
                       <span className="font-sans text-xs font-semibold tracking-[0.05em] text-accent uppercase">
                         PR

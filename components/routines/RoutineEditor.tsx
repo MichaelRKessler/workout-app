@@ -5,7 +5,9 @@ import { PageHeader } from "@/components/PageHeader";
 import { Sheet } from "@/components/Sheet";
 import { useWeightUnit } from "@/components/WeightUnit";
 import { api } from "@/convex/_generated/api";
+import { formatClock } from "@/convex/lib/measures";
 import { readableError } from "@/lib/errors";
+import { adjustRestSeconds, DEFAULT_REST_SECONDS } from "@/lib/restTimer";
 import { moveItem } from "@/convex/lib/routinePlan";
 import {
   blankRoutineExercise,
@@ -172,6 +174,10 @@ export function RoutineEditor({ routineId }: { routineId?: string }) {
                   className={`${fieldClass} mt-2`}
                 />
               </label>
+              <RestField
+                rest={exercise.rest}
+                onChange={(rest) => patch(exercise.key, { rest })}
+              />
               <div role="group" aria-label="Target" className="mt-3 flex rounded-full border border-line p-0.5">
                 {(
                   [
@@ -378,6 +384,49 @@ export function RoutineEditor({ routineId }: { routineId?: string }) {
           </Button>
         </div>
       </Sheet>
+    </div>
+  );
+}
+
+function RestField({ rest, onChange }: { rest: string; onChange: (rest: string) => void }) {
+  const seconds = rest.trim() === "" ? null : Number(rest);
+  const shown = seconds === null || !Number.isFinite(seconds) ? DEFAULT_REST_SECONDS : seconds;
+  const label = seconds === null ? `Default · ${formatClock(shown)}` : formatClock(shown);
+  const buttonClass =
+    "flex size-11 items-center justify-center rounded-full border border-line text-foreground hover:bg-fill-2";
+  return (
+    <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+      <span className="text-sm">
+        <span className="font-medium">Rest</span>
+        <span className="ml-2 font-mono text-muted">{label}</span>
+      </span>
+      <span className="flex items-center gap-1">
+        {seconds !== null ? (
+          <button
+            type="button"
+            onClick={() => onChange("")}
+            className="min-h-11 px-2 text-sm font-medium text-muted"
+          >
+            Use default
+          </button>
+        ) : null}
+        <button
+          type="button"
+          aria-label="15 seconds less rest"
+          onClick={() => onChange(String(adjustRestSeconds(shown, -1)))}
+          className={buttonClass}
+        >
+          −
+        </button>
+        <button
+          type="button"
+          aria-label="15 seconds more rest"
+          onClick={() => onChange(String(adjustRestSeconds(shown, 1)))}
+          className={buttonClass}
+        >
+          +
+        </button>
+      </span>
     </div>
   );
 }

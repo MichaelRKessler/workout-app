@@ -109,6 +109,18 @@ describe("allow list", () => {
       blocked.asUser.mutation(api.users.setWeightUnit, { weightUnit: "kg" }),
     ).rejects.toThrow("You don't have access yet");
     await expect(
+      blocked.asUser.mutation(api.users.setProgression, {
+        suggestNextWeight: false,
+        progressionIncrementLb: 5,
+      }),
+    ).rejects.toThrow("You don't have access yet");
+    await expect(
+      blocked.asUser.mutation(api.exercises.setRest, { name: "squat", restSeconds: 120 }),
+    ).rejects.toThrow("You don't have access yet");
+    await expect(blocked.asUser.query(api.exercises.restForName, { name: "squat" })).rejects.toThrow(
+      "You don't have access yet",
+    );
+    await expect(
       blocked.asUser.mutation(api.sets.logWorkout, {
         sessionId,
         exercises: [{ exerciseName: "squat", sets: [{ reps: 5, weightLb: 185 }] }],

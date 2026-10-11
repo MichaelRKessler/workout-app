@@ -21,6 +21,7 @@ describe("set form prefill", () => {
       duration: "",
       distance: "",
       rpe: "",
+      setType: "working",
       source: "session",
     });
     expect(prefillValues("  Bench   Press ", session, null).source).toBe("session");
@@ -34,6 +35,7 @@ describe("set form prefill", () => {
       duration: "",
       distance: "",
       rpe: "",
+      setType: "working",
       source: "previous",
     });
     expect(
@@ -45,6 +47,7 @@ describe("set form prefill", () => {
       duration: "",
       distance: "",
       rpe: "",
+      setType: "working",
       source: "default",
     });
     expect(prefillValues("curl", [], null)).toEqual({
@@ -54,6 +57,7 @@ describe("set form prefill", () => {
       duration: "",
       distance: "",
       rpe: "",
+      setType: "working",
       source: "default",
     });
   });
@@ -67,6 +71,7 @@ describe("set form prefill", () => {
       duration: "",
       distance: "",
       rpe: "",
+      setType: "working",
       source: "routine",
     });
     expect(prefillValues("bench press", session, previous, routine).source).toBe("session");
@@ -86,5 +91,26 @@ describe("set form prefill", () => {
     expect(previousSetsForName("squat", history)).toBeNull();
     expect(previousSetsForName("deadlift", null)).toBeNull();
     expect(previousSetsForName(" Deadlift ", history)).toEqual(previous);
+  });
+
+  test("a previous warm-up does not fill the next workout", () => {
+    expect(
+      prefillValues(
+        "bench press",
+        [],
+        [
+          { reps: 10, weightLb: 45, setType: "warmup" },
+          { reps: 5, weightLb: 135, setType: "working" },
+        ],
+      ),
+    ).toMatchObject({ reps: "5", weight: "135", setType: "working", source: "previous" });
+    expect(
+      prefillValues("bench press", [], [{ reps: 10, weightLb: 45, setType: "warmup" }], {
+        reps: 8,
+        weightLb: 95,
+        durationSec: null,
+        distanceM: null,
+      }).source,
+    ).toBe("routine");
   });
 });

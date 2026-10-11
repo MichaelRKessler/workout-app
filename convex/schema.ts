@@ -9,6 +9,9 @@ export default defineSchema({
     name: v.string(),
     normalizedName: v.string(),
     createdAt: v.number(),
+    // Optional so exercises saved before per-exercise rest still validate.
+    // Absent means the device rest default.
+    restSeconds: v.optional(v.number()),
   }).index("by_user_and_normalized_name", ["userId", "normalizedName"]),
   sessions: defineTable({
     userId: v.id("users"),
@@ -62,6 +65,15 @@ export default defineSchema({
     // the same set twice. Older sets omit it, which is valid.
     clientId: v.optional(v.string()),
     clientRevision: v.optional(v.number()),
+    // Optional so sets saved before set types still validate. Absent means working.
+    setType: v.optional(
+      v.union(
+        v.literal("warmup"),
+        v.literal("working"),
+        v.literal("drop"),
+        v.literal("failure"),
+      ),
+    ),
   })
     .index("by_session_and_exercise", ["sessionId", "exerciseId"])
     .index("by_user_and_client_id", ["userId", "clientId"])
@@ -89,6 +101,10 @@ export default defineSchema({
   preferences: defineTable({
     userId: v.id("users"),
     weightUnit: v.union(v.literal("lb"), v.literal("kg")),
+    // Optional so preference rows saved before suggestions still validate.
+    // Absent means suggestions are on, with the unit's default increment.
+    suggestNextWeight: v.optional(v.boolean()),
+    progressionIncrementLb: v.optional(v.number()),
   }).index("by_user", ["userId"]),
   allowedEmails: defineTable({
     email: v.string(),

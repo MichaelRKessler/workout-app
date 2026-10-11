@@ -1,5 +1,6 @@
 "use client";
 
+import { SetTypeTag } from "@/components/SetTypePicker";
 import { useWeightUnit } from "@/components/WeightUnit";
 import { ExerciseGlyph, PlusIcon, Spinner } from "@/components/icons";
 import { exerciseIconKind } from "@/lib/exerciseIcon";
@@ -29,6 +30,7 @@ function SetTokens({ sets, newestSetId }: { sets: SetLine[]; newestSetId?: strin
           className={set._id === newestSetId ? "font-semibold text-foreground" : undefined}
         >
           {formatSetShort(set, unit)}
+          <SetTypeTag setType={set.setType} />
           {set.pending ? <span className="ml-1 font-sans text-xs tracking-normal">· pending</span> : null}
         </span>
       ))}
@@ -134,6 +136,7 @@ export function ExerciseRow({
                 <span className="text-subtle">Set {index + 1}</span>
                 <span className="ml-3 font-mono">
                   {formatSetShort(set, unit)}
+                  <SetTypeTag setType={set.setType} />
                   {set.pending ? <span className="ml-1 font-sans text-xs tracking-normal">· pending</span> : null}
                 </span>
               </span>

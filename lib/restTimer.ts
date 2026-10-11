@@ -1,23 +1,21 @@
-export const REST_STORAGE_KEY = "workout-rest-seconds";
-export const DEFAULT_REST_SECONDS = 90;
-export const MIN_REST_SECONDS = 15;
-export const MAX_REST_SECONDS = 300;
-export const REST_STEP_SECONDS = 15;
-export const REST_VIBRATION_PATTERN = [180, 80, 180];
+import {
+  clampRestSeconds,
+  DEFAULT_REST_SECONDS,
+  MAX_REST_SECONDS,
+  MIN_REST_SECONDS,
+  REST_STEP_SECONDS,
+} from "../convex/lib/rest.ts";
 
-export function clampRestSeconds(value: number): number {
-  if (!Number.isFinite(value)) {
-    return DEFAULT_REST_SECONDS;
-  }
-  const rounded = Math.round(value);
-  if (rounded < MIN_REST_SECONDS) {
-    return MIN_REST_SECONDS;
-  }
-  if (rounded > MAX_REST_SECONDS) {
-    return MAX_REST_SECONDS;
-  }
-  return rounded;
-}
+export {
+  clampRestSeconds,
+  DEFAULT_REST_SECONDS,
+  MAX_REST_SECONDS,
+  MIN_REST_SECONDS,
+  REST_STEP_SECONDS,
+};
+
+export const REST_STORAGE_KEY = "workout-rest-seconds";
+export const REST_VIBRATION_PATTERN = [180, 80, 180];
 
 export function readRestSeconds(stored: string | null): number {
   if (stored === null || stored.trim() === "") {

@@ -8,6 +8,8 @@ import {
   type PersonalRecord,
 } from "./lib/records";
 import { combineNotes, normalizeNote } from "./lib/measures";
+import { resolvedSetType } from "./lib/setType";
+import { setTypeValidator } from "./lib/setTypeValidator";
 import {
   EXERCISE_RECORD_SCAN,
   MAX_SETS_PER_BATCH,
@@ -20,6 +22,7 @@ import {
   presentSet,
   recordPoint,
   requireWritableSession,
+  storedSetFields,
 } from "./lib/workouts";
 
 const measureValidator = {
@@ -28,6 +31,7 @@ const measureValidator = {
   durationSec: v.union(v.number(), v.null()),
   distanceM: v.union(v.number(), v.null()),
   rpe: v.union(v.number(), v.null()),
+  setType: setTypeValidator,
 };
 
 const setValidator = v.object({
@@ -45,6 +49,7 @@ const setInput = v.object({
   durationSec: v.optional(v.number()),
   distanceM: v.optional(v.number()),
   rpe: v.optional(v.number()),
+  setType: v.optional(setTypeValidator),
 });
 
 const previousExerciseValidator = v.object({
@@ -168,6 +173,7 @@ async function insertSets(
     durationSec?: number;
     distanceM?: number;
     rpe?: number;
+    setType?: "warmup" | "working" | "drop" | "failure";
   }>,
   loggedAtStart?: number,
 ): Promise<{ setIds: Array<Id<"sets">>; personalRecord: PersonalRecord | null; nextLoggedAt: number }> {
@@ -193,12 +199,8 @@ async function insertSets(
       userId,
       sessionId: session._id,
       exerciseId,
-      weightLb: set.weightLb,
       loggedAt: loggedAt + index,
-      ...(set.reps !== undefined ? { reps: set.reps } : {}),
-      ...(set.durationSec !== undefined ? { durationSec: set.durationSec } : {}),
-      ...(set.distanceM !== undefined ? { distanceM: set.distanceM } : {}),
-      ...(set.rpe !== undefined ? { rpe: set.rpe } : {}),
+      ...storedSetFields(set),
     });
     created.push({ _id: setId, ...recordPoint(set) });
   }
@@ -224,6 +226,7 @@ export const log = authedMutation({
     durationSec: v.optional(v.number()),
     distanceM: v.optional(v.number()),
     rpe: v.optional(v.number()),
+    setType: v.optional(setTypeValidator),
   },
   returns: v.object({
     setId: v.id("sets"),
@@ -238,6 +241,7 @@ export const log = authedMutation({
         durationSec: args.durationSec,
         distanceM: args.distanceM,
         rpe: args.rpe,
+        setType: args.setType,
       },
     ]);
     const setId = saved.setIds[0];
@@ -330,6 +334,7 @@ export const update = authedMutation({
     durationSec: v.optional(v.number()),
     distanceM: v.optional(v.number()),
     rpe: v.optional(v.number()),
+    setType: v.optional(setTypeValidator),
   },
   returns: v.union(personalRecordValidator, v.null()),
   handler: async (ctx, args) => {
@@ -338,7 +343,10 @@ export const update = authedMutation({
       throw new Error("Set not found");
     }
     await requireWritableSession(ctx, ctx.userId, set.sessionId);
-    const normalized = normalizeSetInput(args);
+    const normalized = normalizeSetInput({
+      ...args,
+      setType: args.setType ?? resolvedSetType(set.setType),
+    });
     const exercise = await ctx.db.get("exercises", set.exerciseId);
     const recent = await loadRecentSetsForExercise(ctx, ctx.userId, set.exerciseId);
     const previous = recent
@@ -350,12 +358,15 @@ export const update = authedMutation({
       [recordPoint(normalized)],
       previous,
     );
-    await ctx.db.patch("sets", args.setId, {
-      weightLb: normalized.weightLb,
-      reps: normalized.reps,
-      durationSec: normalized.durationSec,
-      distanceM: normalized.distanceM,
-      rpe: normalized.rpe,
+    await ctx.db.replace("sets", args.setId, {
+      userId: set.userId,
+      sessionId: set.sessionId,
+      exerciseId: set.exerciseId,
+      loggedAt: set.loggedAt,
+      ...storedSetFields(normalized),
+      ...(set.order !== undefined ? { order: set.order } : {}),
+      ...(set.clientId !== undefined ? { clientId: set.clientId } : {}),
+      ...(set.clientRevision !== undefined ? { clientRevision: set.clientRevision } : {}),
     });
     return personalRecord;
   },

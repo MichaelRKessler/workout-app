@@ -1,5 +1,6 @@
 import { formatExerciseName } from "../../convex/lib/exerciseName.ts";
 import type { PersonalRecord } from "../../convex/lib/records.ts";
+import { isSetType, resolvedSetType, type SetType } from "../../convex/lib/setType.ts";
 import type { SetLine } from "../groupSets.ts";
 
 /** Matches the server batch cap in convex/lib/workouts.ts. */
@@ -14,6 +15,7 @@ export type SetBody = {
   durationSec: number | null;
   distanceM: number | null;
   rpe: number | null;
+  setType?: SetType;
   loggedAt: number;
 };
 
@@ -40,6 +42,7 @@ export type PendingEdit = {
   durationSec: number | null;
   distanceM: number | null;
   rpe: number | null;
+  setType?: SetType;
   syncError: string | null;
   echoed: boolean;
 };
@@ -185,6 +188,7 @@ export function enqueueSets(
         durationSec: set.durationSec,
         distanceM: set.distanceM,
         rpe: set.rpe,
+        ...(set.setType !== undefined ? { setType: set.setType } : {}),
         loggedAt,
       },
       syncError: null,
@@ -545,6 +549,7 @@ export function mergeVisibleSets(
         durationSec: edit.durationSec,
         distanceM: edit.distanceM,
         rpe: edit.rpe,
+        ...(edit.setType !== undefined ? { setType: edit.setType } : {}),
         pending: true,
         clientId: set.clientId ?? null,
       });
@@ -559,6 +564,7 @@ export function mergeVisibleSets(
         durationSec: newer.set.durationSec,
         distanceM: newer.set.distanceM,
         rpe: newer.set.rpe,
+        ...(newer.set.setType !== undefined ? { setType: newer.set.setType } : {}),
         pending: true,
         clientId: set.clientId ?? null,
       });
@@ -591,6 +597,7 @@ export function mergeVisibleSets(
       durationSec: set.set.durationSec,
       distanceM: set.set.distanceM,
       rpe: set.set.rpe,
+      ...(set.set.setType !== undefined ? { setType: set.set.setType } : {}),
       loggedAt: set.set.loggedAt,
       pending: true,
       clientId: set.clientId,
@@ -764,14 +771,17 @@ function exerciseIdFor(name: string, sets: SetLine[]): string {
 
 function measuresMatch(
   server: SetLine,
-  edit: Pick<PendingEdit, "reps" | "weightLb" | "durationSec" | "distanceM" | "rpe">,
+  edit: Pick<PendingEdit, "reps" | "weightLb" | "durationSec" | "distanceM" | "rpe" | "setType">,
 ): boolean {
+  const typeMatches =
+    edit.setType === undefined || resolvedSetType(server.setType) === resolvedSetType(edit.setType);
   return (
     server.reps === edit.reps &&
     server.weightLb === edit.weightLb &&
     server.durationSec === edit.durationSec &&
     server.distanceM === edit.distanceM &&
-    server.rpe === edit.rpe
+    server.rpe === edit.rpe &&
+    typeMatches
   );
 }
 
@@ -800,6 +810,7 @@ function parsePendingSet(value: unknown): PendingSet | null {
       durationSec: typeof body.durationSec === "number" ? body.durationSec : null,
       distanceM: typeof body.distanceM === "number" ? body.distanceM : null,
       rpe: typeof body.rpe === "number" ? body.rpe : null,
+      ...(isSetType(body.setType) ? { setType: body.setType } : {}),
       loggedAt: typeof body.loggedAt === "number" ? body.loggedAt : 0,
     },
     syncError: typeof value.syncError === "string" ? value.syncError : null,
@@ -823,6 +834,7 @@ function parsePendingEdit(value: unknown): PendingEdit | null {
     durationSec: typeof value.durationSec === "number" ? value.durationSec : null,
     distanceM: typeof value.distanceM === "number" ? value.distanceM : null,
     rpe: typeof value.rpe === "number" ? value.rpe : null,
+    ...(isSetType(value.setType) ? { setType: value.setType } : {}),
     syncError: typeof value.syncError === "string" ? value.syncError : null,
     echoed: value.echoed === true,
   };
