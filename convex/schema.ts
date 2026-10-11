@@ -25,4 +25,31 @@ export default defineSchema({
     order: v.number(),
     loggedAt: v.number(),
   }).index("by_session_and_exercise", ["sessionId", "exerciseId"]),
+  allowedEmails: defineTable({
+    email: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_email", ["email"])
+    .index("by_created", ["createdAt"]),
+  accessRequests: defineTable({
+    email: v.string(),
+    note: v.optional(v.string()),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("approved"),
+      v.literal("denied"),
+    ),
+    createdAt: v.number(),
+    resolvedAt: v.optional(v.number()),
+  })
+    .index("by_email_and_status", ["email", "status"])
+    .index("by_status", ["status"]),
+  // Written at Google sign-in. Enforcement uses the allow list, so an
+  // approval applies without another sign-in.
+  signInFlags: defineTable({
+    userId: v.id("users"),
+    email: v.union(v.string(), v.null()),
+    allowed: v.boolean(),
+    updatedAt: v.number(),
+  }).index("by_user", ["userId"]),
 });

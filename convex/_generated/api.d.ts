@@ -8,9 +8,11 @@
  * @module
  */
 
+import type * as access from "../access.js";
 import type * as auth from "../auth.js";
 import type * as exercises from "../exercises.js";
 import type * as http from "../http.js";
+import type * as lib_accessControl from "../lib/accessControl.js";
 import type * as lib_auth from "../lib/auth.js";
 import type * as lib_customFunctions from "../lib/customFunctions.js";
 import type * as lib_exerciseName from "../lib/exerciseName.js";
@@ -26,9 +28,11 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  access: typeof access;
   auth: typeof auth;
   exercises: typeof exercises;
   http: typeof http;
+  "lib/accessControl": typeof lib_accessControl;
   "lib/auth": typeof lib_auth;
   "lib/customFunctions": typeof lib_customFunctions;
   "lib/exerciseName": typeof lib_exerciseName;

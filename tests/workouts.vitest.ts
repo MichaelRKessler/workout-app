@@ -11,8 +11,14 @@ function testBackend() {
 }
 
 async function signIn(t: ReturnType<typeof testBackend>, name: string) {
+  const email = `${name.toLowerCase().replace(/[^a-z0-9]+/g, ".")}.user@example.com`;
   const userId = await t.run(async (ctx) => {
-    return await ctx.db.insert("users", { name });
+    const id = await ctx.db.insert("users", { name, email });
+    await ctx.db.insert("allowedEmails", {
+      email,
+      createdAt: Date.now(),
+    });
+    return id;
   });
   return t.withIdentity({ subject: `${userId}|${name}-session` });
 }

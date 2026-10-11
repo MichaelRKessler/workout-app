@@ -15,6 +15,7 @@ export type VoiceParseResult = {
 export async function handleVoiceParse(input: {
   token: string | null | undefined;
   signedIn: boolean;
+  allowed: boolean;
   apiKey: string | undefined;
   model?: string;
   audioBase64: string;
@@ -26,6 +27,12 @@ export async function handleVoiceParse(input: {
     return {
       status: 401,
       body: { error: "Sign in to log a set by voice." },
+    };
+  }
+  if (!input.allowed) {
+    return {
+      status: 403,
+      body: { error: "You don't have access yet." },
     };
   }
 
