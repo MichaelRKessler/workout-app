@@ -10,6 +10,7 @@ import { parseClock, parseDistanceInput, type SetKind } from "@/convex/lib/measu
 import { maxDisplayWeight, parseDisplayWeight, toPounds } from "@/convex/lib/units";
 import { formatPersonalRecords } from "@/lib/format";
 import { parseReps } from "@/lib/numbers";
+import { calendarDayKey } from "@/lib/historyDays";
 import { defaultPastWorkoutTime, fromDatetimeLocalValue, toDatetimeLocalValue } from "@/lib/pastWorkout";
 import { QUEUED_SAVE_MESSAGE } from "@/lib/offline/messages";
 import { stashToast } from "@/lib/pendingToast";
@@ -199,7 +200,7 @@ export function LogPastWorkout() {
       stashToast(record);
     }
     if (saved.sessionId) {
-      router.push(`/history/${saved.sessionId}`);
+      router.push(`/history/day/${calendarDayKey(startedAt)}`);
       return;
     }
     stashToast(QUEUED_SAVE_MESSAGE);

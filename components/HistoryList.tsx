@@ -3,8 +3,11 @@
 import { Button } from "@/components/Button";
 import { ChevronRightIcon } from "@/components/icons";
 import { PageHeader, SectionLabel } from "@/components/PageHeader";
+import { useBrowserTimeZone } from "@/components/useBrowserTimeZone";
+import { useWeightUnit } from "@/components/WeightUnit";
 import { api } from "@/convex/_generated/api";
-import { formatMonthHeading, formatWorkoutLength, monthKey, pluralize } from "@/lib/format";
+import { formatLongDate, formatMonthHeading, monthKey } from "@/lib/format";
+import { formatHistoryDayMeta, visibleHistoryDays, type HistoryDay } from "@/lib/historyDays";
 import { usePaginatedQuery } from "convex/react";
 import Link from "next/link";
 import { useMemo } from "react";
@@ -15,20 +18,43 @@ export function HistoryList() {
     {},
     { initialNumItems: 15 },
   );
+  const timeZone = useBrowserTimeZone();
+  const unit = useWeightUnit();
 
   const months = useMemo(() => {
-    const grouped: Array<{ key: string; label: string; sessions: typeof results }> = [];
-    for (const session of results) {
-      const key = monthKey(session.startedAt);
+    if (!timeZone) {
+      return [];
+    }
+    const hasMore = status === "CanLoadMore" || status === "LoadingMore";
+    const days = visibleHistoryDays(
+      results.map((session) => ({
+        id: session._id,
+        startedAt: session.startedAt,
+        completedAt: session.completedAt,
+        volumeLb: session.volumeLb ?? 0,
+        exercises: session.exercises.map((exercise) => ({
+          exerciseId: exercise.exerciseId,
+          name: exercise.name,
+          setCount: exercise.setCount,
+        })),
+      })),
+      hasMore,
+      timeZone,
+    );
+    const grouped: Array<{ key: string; label: string; days: HistoryDay[] }> = [];
+    for (const day of days) {
+      const key = monthKey(day.startedAt);
       const current = grouped[grouped.length - 1];
       if (current && current.key === key) {
-        current.sessions.push(session);
+        current.days.push(day);
       } else {
-        grouped.push({ key, label: formatMonthHeading(session.startedAt), sessions: [session] });
+        grouped.push({ key, label: formatMonthHeading(day.startedAt), days: [day] });
       }
     }
     return grouped;
-  }, [results]);
+  }, [results, status, timeZone]);
+
+  const waiting = !timeZone || status === "LoadingFirstPage";
 
   return (
     <div className="px-5 pt-3 pb-[calc(32px+env(safe-area-inset-bottom))]">
@@ -40,7 +66,7 @@ export function HistoryList() {
         Log a past workout
       </Link>
 
-      {status === "LoadingFirstPage" ? (
+      {waiting ? (
         <p className="mt-8 text-base text-muted">Loading history…</p>
       ) : results.length === 0 ? (
         <p className="mt-8 max-w-[22.5rem] text-base leading-normal text-muted">
@@ -51,21 +77,21 @@ export function HistoryList() {
           <section key={month.key} aria-labelledby={`month-${month.key}`} className="mt-7">
             <SectionLabel id={`month-${month.key}`}>{month.label}</SectionLabel>
             <ul className="flex flex-col">
-              {month.sessions.map((session) => {
-                const date = new Date(session.startedAt);
-                const setCount = session.exercises.reduce(
-                  (sum, exercise) => sum + exercise.setCount,
-                  0,
-                );
-                const length = formatWorkoutLength(session.startedAt, session.completedAt);
+              {month.days.map((day) => {
+                const href = `/history/day/${day.dayKey}`;
+                const date = new Date(day.startedAt);
+                const openLabel =
+                  day.workoutCount > 1
+                    ? `Open ${day.workoutCount} workouts on ${formatLongDate(day.startedAt)}`
+                    : `Open workout on ${formatLongDate(day.startedAt)}`;
                 return (
                   <li
-                    key={session._id}
-                    className="flex min-h-18 items-center gap-4 border-b border-line py-2.5"
+                    key={day.dayKey}
+                    className="flex min-h-18 items-center gap-3 border-b border-line py-2.5"
                   >
                     <Link
-                      href={`/history/${session._id}`}
-                      aria-label={`Open workout on ${date.toLocaleDateString(undefined, { month: "long", day: "numeric" })}`}
+                      href={href}
+                      aria-label={openLabel}
                       className="flex w-12 shrink-0 flex-col items-center rounded-lg hover:bg-fill-2"
                       suppressHydrationWarning
                     >
@@ -77,10 +103,10 @@ export function HistoryList() {
                       </span>
                     </Link>
                     <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                      <span className="truncate text-base font-medium">
-                        {session.exercises.length === 0
+                      <span className="line-clamp-2 text-base font-medium">
+                        {day.exercises.length === 0
                           ? "No sets"
-                          : session.exercises.map((exercise, index) => (
+                          : day.exercises.map((exercise, index) => (
                               <span key={exercise.exerciseId}>
                                 {index > 0 ? ", " : null}
                                 <Link
@@ -92,14 +118,13 @@ export function HistoryList() {
                               </span>
                             ))}
                       </span>
-                      <Link href={`/history/${session._id}`} className="text-sm text-muted hover:underline">
-                        {pluralize(session.exercises.length, "exercise")} · {pluralize(setCount, "set")}
-                        {length ? ` · ${length}` : ""}
+                      <Link href={href} className="text-sm text-pretty text-muted hover:underline">
+                        {formatHistoryDayMeta(day, unit)}
                       </Link>
                     </span>
                     <Link
-                      href={`/history/${session._id}`}
-                      aria-label="Open workout"
+                      href={href}
+                      aria-label={openLabel}
                       className="flex size-11 shrink-0 items-center justify-center rounded-full text-subtle hover:bg-fill-2"
                     >
                       <ChevronRightIcon className="size-5" strokeWidth={1.8} />

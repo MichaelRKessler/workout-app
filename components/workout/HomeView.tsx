@@ -1,5 +1,7 @@
 "use client";
 
+"use client";
+
 import { useWeightUnit } from "@/components/WeightUnit";
 import { BrandMark, ChevronRightIcon, KeyboardIcon, MicIcon } from "@/components/icons";
 import { TopActions } from "@/components/TopActions";
@@ -7,19 +9,12 @@ import {
   formatLongDate,
   formatShortDate,
   formatVolumeLb,
-  formatWorkoutLength,
   pluralize,
   streakLabel,
 } from "@/lib/format";
+import { formatHistoryDayMeta, type HistoryDay } from "@/lib/historyDays";
 import { OFFLINE_VOICE_MESSAGE } from "@/lib/offline/messages";
 import Link from "next/link";
-
-export type LastWorkout = {
-  _id: string;
-  startedAt: number;
-  completedAt: number;
-  exercises: Array<{ name: string; setCount: number }>;
-};
 
 export type WeekSummary = {
   workouts: number;
@@ -40,7 +35,7 @@ export function HomeView({
   onVoice,
   onManual,
 }: {
-  lastWorkout: LastWorkout | null | undefined;
+  lastWorkout: HistoryDay | null | undefined;
   weekSummary?: WeekSummary | null;
   voiceBusy: boolean;
   offline?: boolean;
@@ -103,35 +98,29 @@ export function HomeView({
 
       {weekSummary ? <WeeklySummary summary={weekSummary} /> : null}
 
-      {lastWorkout ? (
-        <Link
-          href={`/history/${lastWorkout._id}`}
-          className="flex items-center gap-3.5 rounded-[1.25rem] border border-line bg-surface p-4 hover:bg-fill-2"
-        >
-          <span className="flex min-w-0 flex-1 flex-col gap-1">
-            <span className="text-xs leading-snug font-medium tracking-[0.06em] text-subtle uppercase" suppressHydrationWarning>
-              Last workout · {formatShortDate(lastWorkout.startedAt)}
-            </span>
-            <span className="truncate text-base font-medium">
-              {lastWorkout.exercises.map((exercise) => exercise.name).join(", ") || "No sets"}
-            </span>
-            <span className="text-sm text-muted">
-              {[
-                pluralize(lastWorkout.exercises.length, "exercise"),
-                pluralize(
-                  lastWorkout.exercises.reduce((sum, exercise) => sum + exercise.setCount, 0),
-                  "set",
-                ),
-                formatWorkoutLength(lastWorkout.startedAt, lastWorkout.completedAt),
-              ]
-                .filter((part) => part !== null)
-                .join(" · ")}
-            </span>
-          </span>
-          <ChevronRightIcon className="size-5 shrink-0 text-subtle" />
-        </Link>
-      ) : null}
+      {lastWorkout ? <LastWorkoutCard workout={lastWorkout} /> : null}
     </div>
+  );
+}
+
+function LastWorkoutCard({ workout }: { workout: HistoryDay }) {
+  const unit = useWeightUnit();
+  return (
+    <Link
+      href={`/history/day/${workout.dayKey}`}
+      className="flex items-center gap-3.5 rounded-[1.25rem] border border-line bg-surface p-4 hover:bg-fill-2"
+    >
+      <span className="flex min-w-0 flex-1 flex-col gap-1">
+        <span className="text-xs leading-snug font-medium tracking-[0.06em] text-subtle uppercase" suppressHydrationWarning>
+          Last workout · {formatShortDate(workout.startedAt)}
+        </span>
+        <span className="line-clamp-2 text-base font-medium">
+          {workout.exercises.map((exercise) => exercise.name).join(", ") || "No sets"}
+        </span>
+        <span className="text-sm text-pretty text-muted">{formatHistoryDayMeta(workout, unit)}</span>
+      </span>
+      <ChevronRightIcon className="size-5 shrink-0 text-subtle" />
+    </Link>
   );
 }
 
