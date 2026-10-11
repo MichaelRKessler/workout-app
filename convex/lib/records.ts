@@ -382,13 +382,17 @@ export function summarizeEfforts(sets: EffortSet[]): {
 export type TrendPoint = {
   sessionId: string;
   startedAt: number;
-  value: number;
+  /** Best record metric in that workout. Null when every set was a warm-up or drop. */
+  value: number | null;
+  /** Reps × weight for the workout, in pounds. Warm-ups add nothing. Drop sets count. */
+  volumeLb: number;
 };
 
 /**
  * One point per workout, oldest first. Weighted exercises chart the best Epley
  * estimate in that workout. An exercise that has never used weight charts the
- * most reps instead.
+ * most reps instead. Warm-ups and drop sets are left out of `value`. Volume
+ * still includes drop sets and failure sets.
  */
 export type TrendUnit = "lb" | "reps" | "m" | "sec";
 
@@ -396,40 +400,117 @@ export function trendFromSets(
   sets: Array<EffortSet & { sessionStartedAt: number }>,
   maxPoints: number,
 ): { unit: TrendUnit; points: TrendPoint[] } {
-  const counted = sets.filter((set) => countsTowardRecord(set));
-  const weighted = counted.some((set) => setKind(set) === "strength" && set.weightLb > 0);
-  const strength = counted.some((set) => setKind(set) === "strength" && (set.reps ?? 0) > 0);
-  const distance = counted.some((set) => setKind(set) === "distance");
+  const recordSets = sets.filter((set) => countsTowardRecord(set));
+  const volumeSets = sets.filter((set) => countsTowardVolume(set));
+  const unitSource = recordSets.length > 0 ? recordSets : volumeSets;
+  const weighted = unitSource.some((set) => setKind(set) === "strength" && set.weightLb > 0);
+  const strength = unitSource.some((set) => setKind(set) === "strength" && (set.reps ?? 0) > 0);
+  const distance = unitSource.some((set) => setKind(set) === "distance");
   const unit: TrendUnit = weighted ? "lb" : strength ? "reps" : distance ? "m" : "sec";
   const bySession = new Map<string, TrendPoint>();
-  for (const set of counted) {
-    const value = trendValue(set, unit);
-    if (value === null) {
-      continue;
+  for (const set of sets) {
+    const existing = bySession.get(set.sessionId) ?? {
+      sessionId: set.sessionId,
+      startedAt: set.sessionStartedAt,
+      value: null,
+      volumeLb: 0,
+    };
+    if (countsTowardVolume(set)) {
+      const reps = set.reps ?? 0;
+      if (reps > 0 && set.weightLb > 0) {
+        existing.volumeLb = Math.round((existing.volumeLb + reps * set.weightLb) * 100) / 100;
+      }
     }
-    const existing = bySession.get(set.sessionId);
-    if (!existing) {
-      bySession.set(set.sessionId, {
-        sessionId: set.sessionId,
-        startedAt: set.sessionStartedAt,
-        value,
-      });
-      continue;
+    if (countsTowardRecord(set)) {
+      const value = trendValue(set, unit);
+      if (value !== null && (existing.value === null || value > existing.value)) {
+        existing.value = value;
+      }
     }
-    if (value > existing.value) {
-      existing.value = value;
-    }
+    bySession.set(set.sessionId, existing);
   }
-  const points = [...bySession.values()].sort((left, right) => {
-    if (left.startedAt !== right.startedAt) {
-      return left.startedAt - right.startedAt;
-    }
-    return left.sessionId < right.sessionId ? -1 : 1;
-  });
+  const points = [...bySession.values()]
+    .filter((point) => point.value !== null || point.volumeLb > 0)
+    .sort((left, right) => {
+      if (left.startedAt !== right.startedAt) {
+        return left.startedAt - right.startedAt;
+      }
+      return left.sessionId < right.sessionId ? -1 : 1;
+    });
   return {
     unit,
     points: points.slice(-maxPoints),
   };
+}
+
+/**
+ * The record this exercise set during one workout, compared with earlier sets.
+ * One line per exercise: a later set in the same workout replaces an earlier
+ * record, and beating both load and the Epley estimate is reported as both.
+ */
+export function achievedRecord(
+  exerciseName: string,
+  created: SetPoint[],
+  previous: SetPoint[],
+): PersonalRecord | null {
+  const baseline = previous.map((set) => ({
+    reps: set.reps,
+    weightLb: set.weightLb,
+    durationSec: set.durationSec,
+    distanceM: set.distanceM,
+    setType: resolvedSetType(set.setType),
+  }));
+  let latest: PersonalRecord | null = null;
+  let sawWeight = false;
+  let sawEpley = false;
+  let heaviest = 0;
+  let heaviestReps: number | null = null;
+  let bestEpley = 0;
+  for (const set of created) {
+    const record = personalRecordForSet(exerciseName, set, baseline);
+    if (record) {
+      latest = record;
+      if (record.kind === "weight" || record.kind === "both") {
+        sawWeight = true;
+        if (record.weightLb >= heaviest) {
+          heaviest = record.weightLb;
+          heaviestReps = record.reps;
+        }
+      }
+      if ((record.kind === "epley" || record.kind === "both") && record.epleyLb !== null) {
+        sawEpley = true;
+        if (record.epleyLb >= bestEpley) {
+          bestEpley = record.epleyLb;
+        }
+      }
+    }
+    baseline.push({
+      reps: set.reps,
+      weightLb: set.weightLb,
+      durationSec: set.durationSec,
+      distanceM: set.distanceM,
+      setType: resolvedSetType(set.setType),
+    });
+  }
+  if (!latest) {
+    return null;
+  }
+  if (
+    sawWeight &&
+    sawEpley &&
+    latest.kind !== "reps" &&
+    latest.kind !== "duration" &&
+    latest.kind !== "distance"
+  ) {
+    return {
+      ...latest,
+      kind: "both",
+      weightLb: heaviest,
+      reps: heaviestReps,
+      epleyLb: bestEpley,
+    };
+  }
+  return latest;
 }
 
 function trendValue(set: EffortSet, unit: TrendUnit): number | null {

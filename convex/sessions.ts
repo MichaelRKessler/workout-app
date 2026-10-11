@@ -5,7 +5,8 @@ import { internal } from "./_generated/api";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { internalMutation } from "./_generated/server";
 import { authedMutation, authedQuery } from "./lib/customFunctions";
-import { assertDayWindow } from "./lib/dayWindow";
+import { loadAchievedRecords } from "./lib/achievedRecords";
+import { assertDayWindow, assertMonthWindow } from "./lib/dayWindow";
 import { formatExerciseName } from "./lib/exerciseName";
 import { normalizeNote } from "./lib/measures";
 import { countsTowardVolume } from "./lib/setType";
@@ -107,7 +108,7 @@ const sessionDetailValidator = v.object({
   sets: v.array(setDetailValidator),
 });
 
-async function loadSessionSets(ctx: QueryCtx, sessionId: Id<"sessions">) {
+async function loadSessionSets(ctx: QueryCtx | MutationCtx, sessionId: Id<"sessions">) {
   const sets = await ctx.db
     .query("sets")
     .withIndex("by_session_and_exercise", (q) => q.eq("sessionId", sessionId))
@@ -325,7 +326,10 @@ export const complete = authedMutation({
     completedAt: v.optional(v.number()),
     note: v.optional(v.string()),
   },
-  returns: v.null(),
+  returns: v.object({
+    completedAt: v.number(),
+    personalRecords: v.array(personalRecordValidator),
+  }),
   handler: async (ctx, args) => {
     const session = await requireOpenSession(ctx, ctx.userId, args.sessionId);
     const lastSetAt = await newestLoggedAt(ctx, session._id);
@@ -345,7 +349,9 @@ export const complete = authedMutation({
       completedAt,
       note,
     });
-    return null;
+    const sets = await loadSessionSets(ctx, session._id);
+    const personalRecords = await loadAchievedRecords(ctx, ctx.userId, sets);
+    return { completedAt, personalRecords };
   },
 });
 
@@ -589,6 +595,49 @@ const daySessionValidator = v.object({
  * day bounds; this only returns the signed-in user's completed sessions.
  * Open workouts are excluded so a live session is not folded into the day.
  */
+const MAX_MONTH_SESSIONS = 120;
+
+/**
+ * Start times of finished workouts in one local month. The browser sends the
+ * month bounds and groups these onto calendar days. Open workouts are left out.
+ */
+export const calendar = authedQuery({
+  args: {
+    startedFrom: v.number(),
+    startedUntil: v.number(),
+  },
+  returns: v.object({
+    startedAts: v.array(v.number()),
+    truncated: v.boolean(),
+  }),
+  handler: async (ctx, args) => {
+    assertMonthWindow(args.startedFrom, args.startedUntil);
+    const found = await ctx.db
+      .query("sessions")
+      .withIndex("by_user_status_and_started", (q) =>
+        q
+          .eq("userId", ctx.userId)
+          .eq("status", "completed")
+          .gte("startedAt", args.startedFrom)
+          .lt("startedAt", args.startedUntil),
+      )
+      .order("asc")
+      .take(MAX_MONTH_SESSIONS + 1);
+
+    const startedAts: number[] = [];
+    for (const session of found) {
+      if (session.userId !== ctx.userId || session.status !== "completed") {
+        continue;
+      }
+      if (startedAts.length >= MAX_MONTH_SESSIONS) {
+        break;
+      }
+      startedAts.push(session.startedAt);
+    }
+    return { startedAts, truncated: found.length > MAX_MONTH_SESSIONS };
+  },
+});
+
 export const listDay = authedQuery({
   args: {
     startedFrom: v.number(),
@@ -596,6 +645,7 @@ export const listDay = authedQuery({
   },
   returns: v.object({
     sessions: v.array(daySessionValidator),
+    personalRecords: v.array(personalRecordValidator),
     truncated: v.boolean(),
   }),
   handler: async (ctx, args) => {
@@ -632,7 +682,12 @@ export const listDay = authedQuery({
         volumeLb: volumeLb(sets),
       });
     }
-    return { sessions: detailed, truncated };
+    const personalRecords = await loadAchievedRecords(
+      ctx,
+      ctx.userId,
+      detailed.flatMap((session) => session.sets),
+    );
+    return { sessions: detailed, personalRecords, truncated };
   },
 });
 

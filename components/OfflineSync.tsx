@@ -100,6 +100,8 @@ export type SyncOutcome = {
   setIds: string[];
   clientIds: string[];
   sessionId: string | null;
+  /** Set when a finish call stored an end time. Null for other actions. */
+  completedAt: number | null;
 };
 
 type OfflineLog = {
@@ -548,7 +550,7 @@ export function OfflineSyncProvider({
           delay(SYNC_TIMEOUT_MS).then(() => ({ kind: "timeout" as const })),
         ]);
         if (raced.kind === "ok") {
-          return outcome("synced", null, input.sessionId);
+          return outcome("synced", null, input.sessionId, raced.personalRecords, raced.completedAt);
         }
         if (raced.kind === "error") {
           return outcome("rejected", readableError(raced.error));
@@ -666,14 +668,17 @@ function outcome(
   status: SyncOutcome["status"],
   error: string | null,
   sessionId: string | null = null,
+  personalRecords: PersonalRecord[] = [],
+  completedAt: number | null = null,
 ): SyncOutcome {
   return {
     status,
     error,
-    personalRecords: [],
+    personalRecords,
     setIds: [],
     clientIds: [],
     sessionId,
+    completedAt,
   };
 }
 
@@ -706,6 +711,7 @@ function interpretSets(
       setIds: applied.flatMap((item) => (item.setId ? [item.setId] : [])),
       clientIds,
       sessionId: applied.find((item) => item.sessionId)?.sessionId ?? null,
+      completedAt: null,
     };
   }
   return { ...outcome("queued", null), clientIds };
@@ -890,24 +896,29 @@ async function directAction(
     complete: (args: {
       sessionId: Id<"sessions">;
       note?: string;
-    }) => Promise<null>;
+    }) => Promise<{ completedAt: number; personalRecords: PersonalRecord[] }>;
     keepGoing: (args: { sessionId: Id<"sessions"> }) => Promise<null>;
     discard: (args: { sessionId: Id<"sessions"> }) => Promise<null>;
   },
-): Promise<{ kind: "ok" } | { kind: "error"; error: unknown }> {
+): Promise<
+  | { kind: "ok"; personalRecords: PersonalRecord[]; completedAt: number | null }
+  | { kind: "error"; error: unknown }
+> {
   const sessionId = input.sessionId as Id<"sessions">;
   try {
     if (kind === "complete") {
-      await mutations.complete({
+      const saved = await mutations.complete({
         sessionId,
         ...(input.note !== undefined ? { note: input.note } : {}),
       });
-    } else if (kind === "keepGoing") {
+      return { kind: "ok", personalRecords: saved.personalRecords, completedAt: saved.completedAt };
+    }
+    if (kind === "keepGoing") {
       await mutations.keepGoing({ sessionId });
     } else {
       await mutations.discard({ sessionId });
     }
-    return { kind: "ok" };
+    return { kind: "ok", personalRecords: [], completedAt: null };
   } catch (error) {
     return { kind: "error", error };
   }

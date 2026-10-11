@@ -1,5 +1,6 @@
 "use client";
 
+import { FinishedWorkout } from "@/components/WorkoutSummaryCard";
 import { useOfflineLog, type SyncOutcome } from "@/components/OfflineSync";
 import { Toast, type ToastMessage } from "@/components/Toast";
 import { OpenWorkoutSheet } from "@/components/routines/OpenWorkoutSheet";
@@ -23,12 +24,13 @@ import { readableError } from "@/lib/errors";
 import { EXAMPLE_EXERCISES } from "@/lib/examples";
 import { useWeightUnit } from "@/components/WeightUnit";
 import { formatDuration, formatPersonalRecord, formatPersonalRecords, pluralize } from "@/lib/format";
+import { summarizeSessions, type WorkoutSummary } from "@/lib/workoutSummary";
+import type { PersonalRecord } from "@/convex/lib/records";
 import { localWeekFirstDay, weekRange } from "@/convex/lib/week";
 import { groupSets, type SetLine } from "@/lib/groupSets";
 import {
   OFFLINE_TYPED_MESSAGE,
   OFFLINE_VOICE_MESSAGE,
-  QUEUED_FINISH_MESSAGE,
   QUEUED_SAVE_MESSAGE,
 } from "@/lib/offline/messages";
 import {
@@ -194,6 +196,13 @@ export function LogWorkout() {
   const [finishOpen, setFinishOpen] = useState(false);
   const [finishError, setFinishError] = useState<string | null>(null);
   const [ending, setEnding] = useState(false);
+  const [finished, setFinished] = useState<{
+    summary: WorkoutSummary;
+    records: PersonalRecord[];
+    recordsPending: boolean;
+    note: string | null;
+    dayKey: string;
+  } | null>(null);
   const [keeping, setKeeping] = useState(false);
   const [now, setNow] = useState(0);
   const week = useMemo(
@@ -715,6 +724,10 @@ export function LogWorkout() {
     if (!knownSession && sessionSets.length === 0) {
       return;
     }
+    const snapshotSets = sessionSets;
+    const snapshotStart = startedAt;
+    const snapshotEnd = savedEnd;
+    const trimmed = idleTrimmed;
     setEnding(true);
     setFinishError(null);
     const saved = await log.finishWorkout({
@@ -730,9 +743,18 @@ export function LogWorkout() {
     setFinishOpen(false);
     publishPendingPlan(browserStore(), viewerEmail, null);
     setLocalPlan(null);
-    showToast({
-      tone: "info",
-      message: saved.status === "queued" ? QUEUED_FINISH_MESSAGE : "Workout saved to History.",
+    setFinished({
+      summary: summarizeSessions([
+        {
+          startedAt: snapshotStart,
+          completedAt: saved.completedAt ?? snapshotEnd,
+          sets: snapshotSets,
+        },
+      ]),
+      records: saved.personalRecords,
+      recordsPending: saved.status !== "synced",
+      note: trimmed ? "Idle time after your last set isn't counted." : null,
+      dayKey: calendarDayKey(snapshotStart, timeZone ?? undefined),
     });
   }
 
@@ -895,6 +917,20 @@ export function LogWorkout() {
           action: { label: "Add by hand", onClick: openManual },
         }
       : toast;
+
+  if (finished) {
+    return (
+      <FinishedWorkout
+        summary={finished.summary}
+        records={finished.records}
+        unit={unit}
+        recordsPending={finished.recordsPending}
+        note={finished.note}
+        dayKey={finished.dayKey}
+        onDone={() => setFinished(null)}
+      />
+    );
+  }
 
   return (
     <>

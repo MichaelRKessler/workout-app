@@ -4,10 +4,16 @@ import {
   calendarDayBounds,
   calendarDayKey,
   canonicalExerciseIds,
+  civilMonth,
   formatHistoryDayMeta,
   groupHistoryDays,
   groupPerformedSets,
+  markedDayKeys,
+  monthCells,
+  monthWindow,
+  shiftMonth,
   visibleHistoryDays,
+  weekdayIndex,
   type HistorySession,
 } from "../lib/historyDays.ts";
 import type { SetLine } from "../lib/groupSets.ts";
@@ -277,4 +283,43 @@ test("sets from both workouts group by the first time that exercise was performe
     unified[0]?.sets.map((set) => set._id),
     ["saved", "pending"],
   );
+});
+
+test("a month grid is Sunday-first and a window is the local month", () => {
+  const cells = monthCells(2026, 10, "UTC");
+  assert.ok(cells);
+  const inMonth = cells.filter((cell) => cell.inMonth);
+  assert.equal(inMonth.length, 31);
+  assert.equal(inMonth[0]?.dayKey, "2026-10-01");
+  assert.equal(inMonth[30]?.dayKey, "2026-10-31");
+  assert.equal(cells.length % 7, 0);
+  assert.equal(weekdayIndex(Date.parse("2026-10-11T12:00:00.000Z"), "UTC"), 0);
+
+  const october = monthWindow(2026, 10, "UTC");
+  assert.ok(october);
+  assert.equal(october.end - october.start, 31 * 24 * HOUR);
+  assert.equal(calendarDayKey(october.start, "UTC"), "2026-10-01");
+  assert.equal(calendarDayKey(october.end, "UTC"), "2026-11-01");
+
+  const march = monthWindow(2026, 3, LA);
+  assert.ok(march);
+  assert.equal(march.end - march.start, 31 * 24 * HOUR - HOUR);
+
+  assert.deepEqual(shiftMonth(2026, 12, 1), { year: 2027, month: 1 });
+  assert.deepEqual(shiftMonth(2026, 1, -1), { year: 2025, month: 12 });
+  assert.deepEqual(civilMonth(Date.parse("2026-10-11T06:30:00.000Z"), LA), {
+    year: 2026,
+    month: 10,
+  });
+  assert.deepEqual(civilMonth(Date.parse("2026-10-01T06:30:00.000Z"), LA), {
+    year: 2026,
+    month: 9,
+  });
+
+  const marks = markedDayKeys(
+    [Date.parse("2026-10-11T15:00:00.000Z"), Date.parse("2026-10-11T23:00:00.000Z")],
+    "UTC",
+  );
+  assert.equal(marks.get("2026-10-11"), 2);
+  assert.equal(markedDayKeys([Date.parse("2026-10-11T06:30:00.000Z")], LA).get("2026-10-10"), 1);
 });

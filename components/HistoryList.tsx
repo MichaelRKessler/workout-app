@@ -1,6 +1,7 @@
 "use client";
 
 import { Button } from "@/components/Button";
+import { HistoryCalendar } from "@/components/HistoryCalendar";
 import { ChevronRightIcon } from "@/components/icons";
 import { PageHeader, SectionLabel } from "@/components/PageHeader";
 import { useBrowserTimeZone } from "@/components/useBrowserTimeZone";
@@ -10,7 +11,11 @@ import { formatLongDate, formatMonthHeading, monthKey } from "@/lib/format";
 import { formatHistoryDayMeta, visibleHistoryDays, type HistoryDay } from "@/lib/historyDays";
 import { usePaginatedQuery } from "convex/react";
 import Link from "next/link";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
+
+const HISTORY_VIEW_KEY = "workout-history-view";
+
+type HistoryView = "list" | "calendar";
 
 export function HistoryList() {
   const { results, status, loadMore } = usePaginatedQuery(
@@ -20,6 +25,19 @@ export function HistoryList() {
   );
   const timeZone = useBrowserTimeZone();
   const unit = useWeightUnit();
+  const [view, setView] = useState<HistoryView>("list");
+
+  useEffect(() => {
+    const stored = window.localStorage.getItem(HISTORY_VIEW_KEY);
+    if (stored === "list" || stored === "calendar") {
+      setView(stored);
+    }
+  }, []);
+
+  function chooseView(next: HistoryView) {
+    setView(next);
+    window.localStorage.setItem(HISTORY_VIEW_KEY, next);
+  }
 
   const months = useMemo(() => {
     if (!timeZone) {
@@ -65,8 +83,38 @@ export function HistoryList() {
       >
         Log a past workout
       </Link>
+      <div role="tablist" aria-label="History layout" className="mt-4 grid grid-cols-2 gap-1 rounded-full bg-fill p-1">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={view === "list"}
+          onClick={() => chooseView("list")}
+          className={`min-h-11 rounded-full text-base font-medium ${
+            view === "list" ? "bg-surface text-foreground shadow-float" : "text-muted"
+          }`}
+        >
+          List
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={view === "calendar"}
+          onClick={() => chooseView("calendar")}
+          className={`min-h-11 rounded-full text-base font-medium ${
+            view === "calendar" ? "bg-surface text-foreground shadow-float" : "text-muted"
+          }`}
+        >
+          Calendar
+        </button>
+      </div>
 
-      {waiting ? (
+      {view === "calendar" ? (
+        timeZone ? (
+          <HistoryCalendar timeZone={timeZone} />
+        ) : (
+          <p className="mt-8 text-base text-muted">Loading calendar…</p>
+        )
+      ) : waiting ? (
         <p className="mt-8 text-base text-muted">Loading history…</p>
       ) : results.length === 0 ? (
         <p className="mt-8 max-w-[22.5rem] text-base leading-normal text-muted">
@@ -137,12 +185,12 @@ export function HistoryList() {
         ))
       )}
 
-      {status === "CanLoadMore" ? (
+      {view === "list" && status === "CanLoadMore" ? (
         <Button variant="secondary" className="mt-6 w-full" onClick={() => loadMore(15)}>
           Load more
         </Button>
       ) : null}
-      {status === "LoadingMore" ? (
+      {view === "list" && status === "LoadingMore" ? (
         <p className="mt-6 text-center text-sm text-muted">Loading more…</p>
       ) : null}
     </div>

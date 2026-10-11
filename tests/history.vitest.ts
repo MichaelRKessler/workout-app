@@ -646,3 +646,115 @@ describe("finished workouts on one local day", () => {
     );
   });
 });
+
+describe("summary records and the month calendar", () => {
+  test("finishing returns records and leaves warm-ups and drops out", async () => {
+    const t = testBackend();
+    const asUser = await signIn(t, "Michael");
+    const blocked = await signIn(t, "Blocked", { allow: false });
+    const sessionId = await asUser.mutation(api.sessions.start, {});
+    await asUser.mutation(api.sets.log, {
+      sessionId,
+      exerciseName: "bench press",
+      reps: 10,
+      weightLb: 95,
+      setType: "warmup",
+    });
+    await asUser.mutation(api.sets.log, {
+      sessionId,
+      exerciseName: "bench press",
+      reps: 1,
+      weightLb: 300,
+      setType: "drop",
+    });
+    await asUser.mutation(api.sets.log, {
+      sessionId,
+      exerciseName: "bench press",
+      reps: 5,
+      weightLb: 135,
+    });
+    const finished = await asUser.mutation(api.sessions.complete, { sessionId });
+    expect(finished.personalRecords).toEqual([
+      expect.objectContaining({ exerciseName: "bench press", kind: "both", weightLb: 135 }),
+    ]);
+    expect(finished.completedAt).toBeGreaterThan(0);
+
+    const later = await asUser.mutation(api.sessions.start, {});
+    await asUser.mutation(api.sets.log, {
+      sessionId: later,
+      exerciseName: "bench press",
+      reps: 5,
+      weightLb: 95,
+    });
+    const noRecord = await asUser.mutation(api.sessions.complete, { sessionId: later });
+    expect(noRecord.personalRecords).toEqual([]);
+
+    await expect(blocked.mutation(api.sessions.complete, { sessionId: later })).rejects.toThrow(
+      "You don't have access yet",
+    );
+  });
+
+  test("a day keeps the records it earned, and the calendar stays on the signed-in user", async () => {
+    const t = testBackend();
+    const owner = await signIn(t, "Michael");
+    const other = await signIn(t, "Someone else");
+    const blocked = await signIn(t, "Blocked", { allow: false });
+    const morning = Date.UTC(2026, 8, 11, 15);
+    const evening = morning + 6 * HOUR;
+    const later = Date.UTC(2026, 8, 20, 15);
+    const monthStart = Date.UTC(2026, 8, 1);
+    const monthEnd = Date.UTC(2026, 9, 1);
+
+    await owner.mutation(api.sessions.logPast, {
+      startedAt: morning,
+      exercises: [{ name: "squat", sets: [{ reps: 5, weightLb: 185 }] }],
+    });
+    await owner.mutation(api.sessions.logPast, {
+      startedAt: evening,
+      exercises: [{ name: "squat", sets: [{ reps: 3, weightLb: 205 }] }],
+    });
+    await owner.mutation(api.sessions.logPast, {
+      startedAt: later,
+      exercises: [{ name: "squat", sets: [{ reps: 1, weightLb: 315 }] }],
+    });
+    await other.mutation(api.sessions.logPast, {
+      startedAt: morning + HOUR,
+      exercises: [{ name: "deadlift", sets: [{ reps: 5, weightLb: 405 }] }],
+    });
+    const openId = await owner.mutation(api.sessions.start, {});
+    await t.run(async (ctx) => {
+      await ctx.db.patch("sessions", openId, { startedAt: morning + 2 * HOUR });
+    });
+
+    const day = await owner.query(api.sessions.listDay, {
+      startedFrom: Date.UTC(2026, 8, 11),
+      startedUntil: Date.UTC(2026, 8, 12),
+    });
+    expect(day.sessions).toHaveLength(2);
+    expect(day.personalRecords).toEqual([
+      expect.objectContaining({ exerciseName: "squat", weightLb: 205, kind: "both" }),
+    ]);
+
+    const calendar = await owner.query(api.sessions.calendar, {
+      startedFrom: monthStart,
+      startedUntil: monthEnd,
+    });
+    expect(calendar).toEqual({ truncated: false, startedAts: [morning, evening, later] });
+
+    const stranger = await other.query(api.sessions.calendar, {
+      startedFrom: monthStart,
+      startedUntil: monthEnd,
+    });
+    expect(stranger.startedAts).toEqual([morning + HOUR]);
+
+    await expect(
+      blocked.query(api.sessions.calendar, { startedFrom: monthStart, startedUntil: monthEnd }),
+    ).rejects.toThrow("You don't have access yet");
+    await expect(
+      owner.query(api.sessions.calendar, {
+        startedFrom: morning,
+        startedUntil: morning + 2 * HOUR,
+      }),
+    ).rejects.toThrow("Pick a single month");
+  });
+});

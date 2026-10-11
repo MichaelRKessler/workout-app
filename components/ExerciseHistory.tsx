@@ -2,6 +2,7 @@
 
 import { Button } from "@/components/Button";
 import { PageHeader } from "@/components/PageHeader";
+import { useBrowserTimeZone } from "@/components/useBrowserTimeZone";
 import { useWeightUnit } from "@/components/WeightUnit";
 import { TrendChart } from "@/components/workout/TrendChart";
 import { api } from "@/convex/_generated/api";
@@ -15,6 +16,7 @@ import { useMemo } from "react";
 
 export function ExerciseHistory({ exerciseId }: { exerciseId: string }) {
   const unit = useWeightUnit();
+  const timeZone = useBrowserTimeZone();
   const detail = useQuery(api.exercises.detail, { exerciseId });
   const { results, status, loadMore } = usePaginatedQuery(
     api.exercises.history,
@@ -90,7 +92,12 @@ export function ExerciseHistory({ exerciseId }: { exerciseId: string }) {
     <div className="px-5 pt-3 pb-[calc(32px+env(safe-area-inset-bottom))]">
       <PageHeader backHref="/history" backLabel="Back to history" title={detail.name}>
         <Records detail={detail} unit={unit} />
-        <TrendChart points={detail.trend} unit={detail.trendUnit} />
+        <TrendChart
+          points={detail.trend}
+          recordUnit={detail.trendUnit}
+          weightUnit={unit}
+          timeZone={timeZone}
+        />
         {detail.truncated ? (
           <p className="mt-2 text-sm text-subtle">Best of your latest 2,000 sets.</p>
         ) : null}
