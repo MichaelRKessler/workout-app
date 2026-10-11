@@ -503,3 +503,146 @@ describe("weekly summary", () => {
     expect(week.volumeLb).toBe(0);
   });
 });
+
+describe("finished workouts on one local day", () => {
+  test("stay separate in history, load together, and delete together for the owner only", async () => {
+    const t = testBackend();
+    const owner = await signIn(t, "Michael");
+    const other = await signIn(t, "Someone else");
+    const blocked = await signIn(t, "Stranger", {
+      email: "stranger.day@example.com",
+      allow: false,
+    });
+
+    const morning = Date.now() - 5 * 24 * HOUR;
+    const evening = morning + 6 * HOUR;
+    const window = { startedFrom: morning - HOUR, startedUntil: morning + 10 * HOUR };
+
+    const first = await owner.mutation(api.sessions.logPast, {
+      startedAt: morning,
+      note: "Morning session",
+      exercises: [
+        {
+          name: "squat",
+          sets: [
+            { reps: 5, weightLb: 200 },
+            { reps: 5, weightLb: 200 },
+          ],
+        },
+      ],
+    });
+    const second = await owner.mutation(api.sessions.logPast, {
+      startedAt: evening,
+      exercises: [
+        { name: "squat", sets: [{ reps: 3, weightLb: 220 }] },
+        { name: "bench press", sets: [{ reps: 8, weightLb: 135 }] },
+      ],
+    });
+    const previousDay = await owner.mutation(api.sessions.logPast, {
+      startedAt: morning - 24 * HOUR,
+      exercises: [{ name: "row", sets: [{ reps: 10, weightLb: 95 }] }],
+    });
+    const stranger = await other.mutation(api.sessions.logPast, {
+      startedAt: morning + HOUR,
+      exercises: [{ name: "deadlift", sets: [{ reps: 5, weightLb: 315 }] }],
+    });
+    const openId = await owner.mutation(api.sessions.start, {});
+    await owner.mutation(api.sets.log, {
+      sessionId: openId,
+      exerciseName: "squat",
+      reps: 5,
+      weightLb: 185,
+    });
+    await t.run(async (ctx) => {
+      await ctx.db.patch("sessions", openId, { startedAt: morning + 2 * HOUR });
+    });
+
+    const history = await owner.query(api.sessions.listHistory, {
+      paginationOpts: { numItems: 10, cursor: null },
+    });
+    expect(history.page.map((session) => session._id)).toEqual(
+      expect.arrayContaining([first.sessionId, second.sessionId, previousDay.sessionId]),
+    );
+    expect(history.page.map((session) => session._id)).not.toContain(openId);
+    expect(history.page.find((session) => session._id === first.sessionId)?.volumeLb).toBe(2000);
+    expect(history.page.find((session) => session._id === second.sessionId)?.volumeLb).toBe(1740);
+
+    const day = await owner.query(api.sessions.listDay, window);
+    expect(day.truncated).toBe(false);
+    expect(day.sessions.map((session) => session._id)).toEqual([first.sessionId, second.sessionId]);
+    expect(day.sessions.map((session) => session.note)).toEqual(["Morning session", null]);
+
+    await expect(blocked.query(api.sessions.listDay, window)).rejects.toThrow(
+      "You don't have access yet",
+    );
+    await expect(
+      owner.query(api.sessions.listDay, {
+        startedFrom: morning,
+        startedUntil: morning + 48 * HOUR,
+      }),
+    ).rejects.toThrow("Pick a single day");
+    await expect(
+      owner.mutation(api.sessions.removeDay, {
+        startedFrom: morning - 10 * 24 * HOUR,
+        startedUntil: morning - 10 * 24 * HOUR + 2 * HOUR,
+      }),
+    ).rejects.toThrow("No finished workouts on this day");
+
+    const otherUserId = await t.run(async (ctx) => {
+      const session = await ctx.db.get("sessions", stranger.sessionId);
+      return session?.userId ?? null;
+    });
+    await t.run(async (ctx) => {
+      const sets = await ctx.db
+        .query("sets")
+        .withIndex("by_session_and_exercise", (q) => q.eq("sessionId", second.sessionId))
+        .take(5);
+      const set = sets[0];
+      if (!set || !otherUserId) {
+        throw new Error("Expected a set to corrupt");
+      }
+      await ctx.db.patch("sets", set._id, { userId: otherUserId });
+    });
+    await expect(owner.mutation(api.sessions.removeDay, window)).rejects.toThrow("Workout not found");
+    expect(await owner.query(api.sessions.get, { sessionId: first.sessionId })).not.toBeNull();
+    expect(await owner.query(api.sessions.get, { sessionId: second.sessionId })).not.toBeNull();
+
+    await t.run(async (ctx) => {
+      const session = await ctx.db.get("sessions", second.sessionId);
+      const sets = await ctx.db
+        .query("sets")
+        .withIndex("by_session_and_exercise", (q) => q.eq("sessionId", second.sessionId))
+        .take(5);
+      if (!session) {
+        throw new Error("Expected the evening workout");
+      }
+      for (const set of sets) {
+        await ctx.db.patch("sets", set._id, { userId: session.userId });
+      }
+    });
+
+    const removed = await owner.mutation(api.sessions.removeDay, window);
+    expect(removed).toEqual({ workouts: 2, sets: 4 });
+    expect(await owner.query(api.sessions.get, { sessionId: first.sessionId })).toBeNull();
+    expect(await owner.query(api.sessions.get, { sessionId: second.sessionId })).toBeNull();
+    expect(await owner.query(api.sessions.get, { sessionId: previousDay.sessionId })).not.toBeNull();
+    expect((await owner.query(api.sessions.getOpen, {}))?._id).toBe(openId);
+    expect(await other.query(api.sessions.get, { sessionId: stranger.sessionId })).not.toBeNull();
+    const leftoverSets = await t.run(async (ctx) => {
+      const morningSets = await ctx.db
+        .query("sets")
+        .withIndex("by_session_and_exercise", (q) => q.eq("sessionId", first.sessionId))
+        .take(5);
+      const eveningSets = await ctx.db
+        .query("sets")
+        .withIndex("by_session_and_exercise", (q) => q.eq("sessionId", second.sessionId))
+        .take(5);
+      return morningSets.length + eveningSets.length;
+    });
+    expect(leftoverSets).toBe(0);
+
+    await expect(blocked.mutation(api.sessions.removeDay, window)).rejects.toThrow(
+      "You don't have access yet",
+    );
+  });
+});
