@@ -317,4 +317,40 @@ describe("allow list", () => {
     const listed = await admin.asUser.query(api.access.listAllowed, {});
     expect(listed.filter((entry) => entry.email === ADMIN_EMAIL)).toHaveLength(1);
   });
+
+  test("batch saves, undo, and keep going require the allow list", async () => {
+    const t = testBackend();
+    const allowed = await createUser(t, "friend@example.com", { allow: true });
+    const blocked = await createUser(t, "stranger@example.com");
+    const sessionId = await allowed.asUser.mutation(api.sessions.start, {});
+    const ids = await allowed.asUser.mutation(api.sets.logMany, {
+      sessionId,
+      exerciseName: "squat",
+      sets: [{ reps: 5, weightLb: 135 }],
+    });
+
+    await expect(
+      blocked.asUser.mutation(api.sets.logMany, {
+        sessionId,
+        exerciseName: "squat",
+        sets: [{ reps: 5, weightLb: 145 }],
+      }),
+    ).rejects.toThrow("You don't have access yet");
+    await expect(
+      blocked.asUser.mutation(api.sets.removeMany, { setIds: ids }),
+    ).rejects.toThrow("You don't have access yet");
+    await expect(
+      blocked.asUser.mutation(api.sessions.keepGoing, { sessionId }),
+    ).rejects.toThrow("You don't have access yet");
+    await expect(
+      blocked.asUser.mutation(api.sessions.complete, {
+        sessionId,
+        completedAt: Date.now(),
+      }),
+    ).rejects.toThrow("You don't have access yet");
+
+    const sets = await allowed.asUser.query(api.sets.listForSession, { sessionId });
+    expect(sets).toHaveLength(1);
+    expect((await allowed.asUser.query(api.sessions.getOpen, {}))?.resumedAt).toBeNull();
+  });
 });

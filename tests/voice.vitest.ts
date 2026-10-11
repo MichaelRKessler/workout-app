@@ -6,12 +6,10 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, test, vi } from "vitest";
 import { microphoneErrorMessage, preferredRecorderMimeType } from "../lib/voice/capture";
 import {
-  commitProposal,
   draftToProposal,
   proposalToSave,
   readVoiceResponse,
   reduceVoiceLog,
-  VoiceSaveError,
   type VoiceLogEvent,
 } from "../lib/voice/confirm";
 import { readVoiceAccess } from "../lib/voice/access";
@@ -511,12 +509,11 @@ describe("who can parse, and when a set is stored", () => {
       reduceVoiceLog({ status: "error", message: "x" }, { type: "dismiss" }).status,
     ).toBe("idle");
 
-    const remaining = { exerciseName: "bench press", sets: [{ reps: 10, weightLb: 135 }] };
     expect(
-      reduceVoiceLog({ status: "saving", proposal }, { type: "save-failed", proposal: remaining }),
-    ).toEqual({ status: "preview", proposal: remaining });
+      reduceVoiceLog({ status: "saving", proposal }, { type: "save-failed", proposal }),
+    ).toEqual({ status: "preview", proposal });
     expect(
-      reduceVoiceLog({ status: "idle" }, { type: "save-failed", proposal: remaining }).status,
+      reduceVoiceLog({ status: "idle" }, { type: "save-failed", proposal }).status,
     ).toBe("idle");
   });
 
@@ -553,29 +550,24 @@ describe("who can parse, and when a set is stored", () => {
     ).toBe("idle");
   });
 
-  test("confirm writes one set per parsed set, and a discarded preview writes none", async () => {
+  test("confirm keeps every parsed set in one list, and a discarded preview saves none", () => {
     const proposal = normalizeGeminiWorkout(benchThreeSets);
     const preview = reduceVoiceLog({ status: "parsing" }, { type: "parsed", proposal });
-    const saved: Array<{ exerciseName: string; reps: number; weightLb: number }> = [];
 
     expect(proposalToSave(preview, { type: "discard" })).toBeNull();
-    expect(saved).toEqual([]);
 
     const toSave = proposalToSave(preview, { type: "confirm", proposal });
-    if (!toSave) {
-      throw new Error("confirm should return the proposal");
-    }
-    await commitProposal(toSave, async (set) => {
-      saved.push(set);
+    expect(toSave).toEqual({
+      exerciseName: "bench press",
+      sets: [
+        { reps: 10, weightLb: 135 },
+        { reps: 10, weightLb: 135 },
+        { reps: 10, weightLb: 135 },
+      ],
     });
-    expect(saved).toEqual([
-      { exerciseName: "bench press", reps: 10, weightLb: 135 },
-      { exerciseName: "bench press", reps: 10, weightLb: 135 },
-      { exerciseName: "bench press", reps: 10, weightLb: 135 },
-    ]);
   });
 
-  test("an edit has to stay valid, and a failed later set does not pretend the rest saved", async () => {
+  test("an edit has to stay valid", () => {
     expect(
       draftToProposal({
         exerciseName: "squat",
@@ -597,24 +589,6 @@ describe("who can parse, and when a set is stored", () => {
         sets: [{ reps: "0", weight: "100" }],
       }),
     ).toBeNull();
-
-    const proposal = normalizeGeminiWorkout({
-      exerciseName: "squat",
-      sets: [
-        { reps: 5, weight: 100, unit: "kg" },
-        { reps: 5, weight: 100, unit: "kg" },
-      ],
-    });
-    let calls = 0;
-    await expect(
-      commitProposal(proposal, async () => {
-        calls += 1;
-        if (calls === 2) {
-          throw new Error("Workout not found");
-        }
-      }),
-    ).rejects.toBeInstanceOf(VoiceSaveError);
-    expect(calls).toBe(2);
   });
 });
 

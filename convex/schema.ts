@@ -15,14 +15,20 @@ export default defineSchema({
     status: v.union(v.literal("open"), v.literal("completed")),
     startedAt: v.number(),
     completedAt: v.optional(v.number()),
-  }).index("by_user_status_and_started", ["userId", "status", "startedAt"]),
+    // Set when someone answers "Still working out?" with Keep going.
+    // Older sessions omit it, which is valid.
+    resumedAt: v.optional(v.number()),
+  })
+    .index("by_user_status_and_started", ["userId", "status", "startedAt"])
+    .index("by_status", ["status"]),
   sets: defineTable({
     userId: v.id("users"),
     sessionId: v.id("sessions"),
     exerciseId: v.id("exercises"),
     reps: v.number(),
     weightLb: v.number(),
-    order: v.number(),
+    // Unused. Optional so sets saved before we stopped writing it still validate.
+    order: v.optional(v.number()),
     loggedAt: v.number(),
   }).index("by_session_and_exercise", ["sessionId", "exerciseId"]),
   allowedEmails: defineTable({

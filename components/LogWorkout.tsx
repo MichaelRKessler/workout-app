@@ -7,22 +7,22 @@ import { FinishSheet } from "@/components/workout/FinishSheet";
 import { HomeView } from "@/components/workout/HomeView";
 import { ListeningOverlay } from "@/components/workout/ListeningOverlay";
 import { ManualEntrySheet } from "@/components/workout/ManualEntrySheet";
+import { StaleWorkoutSheet } from "@/components/workout/StaleWorkoutSheet";
 import { blobToBase64, requestProposal } from "@/components/workout/requestProposal";
 import { useRecorder } from "@/components/workout/useRecorder";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { formatExerciseName } from "@/convex/lib/exerciseName";
+import { plannedCompletedAt, workoutLooksStale } from "@/convex/lib/sessionTiming";
 import { readableError } from "@/lib/errors";
 import { EXAMPLE_EXERCISES } from "@/lib/examples";
 import { formatDuration, pluralize } from "@/lib/format";
 import { groupSets, type SetLine } from "@/lib/groupSets";
 import {
-  commitProposal,
   draftToProposal,
   proposalToDraft,
   proposalToSave,
   reduceVoiceLog,
-  VoiceSaveError,
   type VoiceDraft,
 } from "@/lib/voice/confirm";
 import { useMutation, useQuery } from "convex/react";
@@ -47,9 +47,12 @@ export function LogWorkout() {
   );
   const startSession = useMutation(api.sessions.start);
   const completeSession = useMutation(api.sessions.complete);
+  const keepGoingSession = useMutation(api.sessions.keepGoing);
   const discardSession = useMutation(api.sessions.discard);
   const logSet = useMutation(api.sets.log);
+  const logSets = useMutation(api.sets.logMany);
   const removeSet = useMutation(api.sets.remove);
+  const removeSets = useMutation(api.sets.removeMany);
 
   const [voice, dispatch] = useReducer(reduceVoiceLog, { status: "idle" });
   const [source, setSource] = useState<"voice" | "text">("voice");
@@ -61,6 +64,8 @@ export function LogWorkout() {
   const [finishOpen, setFinishOpen] = useState(false);
   const [finishError, setFinishError] = useState<string | null>(null);
   const [ending, setEnding] = useState(false);
+  const [keeping, setKeeping] = useState(false);
+  const [now, setNow] = useState(0);
   const [toast, setToast] = useState<Toasted | null>(null);
   const [repeatingId, setRepeatingId] = useState<string | null>(null);
   const [removingId, setRemovingId] = useState<string | null>(null);
@@ -72,7 +77,12 @@ export function LogWorkout() {
   });
 
   useEffect(() => {
-    return () => parseAbortRef.current?.abort();
+    setNow(Date.now());
+    const timer = window.setInterval(() => setNow(Date.now()), 30_000);
+    return () => {
+      window.clearInterval(timer);
+      parseAbortRef.current?.abort();
+    };
   }, []);
 
   const sessionSets = useMemo(() => sets ?? [], [sets]);
@@ -121,9 +131,7 @@ export function LogWorkout() {
   async function undo(ids: Array<Id<"sets">>) {
     setToast(null);
     try {
-      for (const setId of ids) {
-        await removeSet({ setId });
-      }
+      await removeSets({ setIds: ids });
     } catch (error) {
       showToast({ tone: "error", message: readableError(error) });
     }
@@ -222,26 +230,17 @@ export function LogWorkout() {
     }
     dispatch({ type: "confirm", proposal: toSave });
     setSheetNotice(null);
-    const savedIds: Array<Id<"sets">> = [];
     try {
       const sessionId = await ensureSessionId();
-      await commitProposal(toSave, async (set) => {
-        savedIds.push(await logSet({ sessionId, ...set }));
+      const savedIds = await logSets({
+        sessionId,
+        exerciseName: toSave.exerciseName,
+        sets: toSave.sets,
       });
       dispatch({ type: "saved" });
       setDraft(null);
       showAdded(savedIds, toSave.exerciseName);
     } catch (error) {
-      if (error instanceof VoiceSaveError && error.savedCount > 0) {
-        const remaining = {
-          exerciseName: toSave.exerciseName,
-          sets: toSave.sets.slice(error.savedCount),
-        };
-        setDraft(proposalToDraft(remaining));
-        dispatch({ type: "save-failed", proposal: remaining });
-        setSheetNotice(error.message);
-        return;
-      }
       setDraft(proposalToDraft(toSave));
       dispatch({ type: "save-failed", proposal: toSave });
       setSheetNotice(readableError(error));
@@ -311,6 +310,22 @@ export function LogWorkout() {
     }
   }
 
+  async function keepWorkoutGoing() {
+    if (!openSession) {
+      return;
+    }
+    setKeeping(true);
+    setFinishError(null);
+    try {
+      await keepGoingSession({ sessionId: openSession._id });
+      setFinishOpen(false);
+    } catch (error) {
+      setFinishError(readableError(error));
+    } finally {
+      setKeeping(false);
+    }
+  }
+
   async function finishWorkout() {
     if (!openSession) {
       return;
@@ -350,6 +365,34 @@ export function LogWorkout() {
     );
   }
 
+  const clockNow = now > 0 ? now : null;
+  const stale =
+    openSession !== null &&
+    clockNow !== null &&
+    workoutLooksStale(
+      clockNow,
+      openSession.startedAt,
+      openSession.lastSetAt,
+      openSession.resumedAt,
+    );
+  const voiceOrManualOpen =
+    voice.status === "recording" ||
+    voice.status === "parsing" ||
+    voice.status === "preview" ||
+    voice.status === "saving" ||
+    manual !== null;
+  const showStale = stale && !voiceOrManualOpen;
+  const savedEnd =
+    openSession?.lastSetAt != null
+      ? plannedCompletedAt({
+          now: clockNow ?? Date.now(),
+          startedAt: openSession.startedAt,
+          lastSetAt: openSession.lastSetAt,
+        })
+      : (clockNow ?? Date.now());
+  const idleTrimmed =
+    openSession?.lastSetAt != null && (clockNow ?? Date.now()) - savedEnd >= 60_000;
+
   const activeToast: Toasted | null =
     voice.status === "error"
       ? {
@@ -372,11 +415,18 @@ export function LogWorkout() {
           repeatingId={repeatingId}
           removingId={removingId}
           ending={ending}
+          idleNote={
+            stale && clockNow !== null && openSession.lastSetAt !== null
+              ? `last set ${formatDuration(clockNow - openSession.lastSetAt)} ago`
+              : undefined
+          }
           onRepeat={(group) => void repeatSet(group)}
           onRemoveSet={(setId) => void deleteSet(setId)}
           onFinish={() => {
             setFinishError(null);
-            setFinishOpen(true);
+            if (!stale) {
+              setFinishOpen(true);
+            }
           }}
           onDiscard={() => void discardWorkout()}
           composer={{
@@ -447,13 +497,26 @@ export function LogWorkout() {
       ) : null}
 
       <FinishSheet
-        open={finishOpen}
-        summary={`${pluralize(groups.length, "exercise")} · ${pluralize(sessionSets.length, "set")} · ${formatDuration(Date.now() - (openSession?.startedAt ?? Date.now()))}`}
+        open={finishOpen && !showStale}
+        summary={`${pluralize(groups.length, "exercise")} · ${pluralize(sessionSets.length, "set")} · ${formatDuration(savedEnd - (openSession?.startedAt ?? savedEnd))}`}
+        note={idleTrimmed ? "Idle time after your last set isn't counted." : null}
         pending={ending}
         error={finishError}
         onCancel={() => setFinishOpen(false)}
         onFinish={() => void finishWorkout()}
       />
+
+      {openSession?.lastSetAt != null ? (
+        <StaleWorkoutSheet
+          open={showStale}
+          idleMs={Math.max(0, (clockNow ?? openSession.lastSetAt) - openSession.lastSetAt)}
+          finishing={ending}
+          keeping={keeping}
+          error={finishError}
+          onKeepGoing={() => void keepWorkoutGoing()}
+          onFinish={() => void finishWorkout()}
+        />
+      ) : null}
     </>
   );
 }

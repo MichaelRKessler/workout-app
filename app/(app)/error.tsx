@@ -1,6 +1,7 @@
 "use client";
 
 import { Button } from "@/components/Button";
+import { errorPageMessage } from "@/lib/errors";
 
 export default function AppError({
   error,
@@ -15,7 +16,7 @@ export default function AppError({
         Something went wrong
       </h1>
       <p role="alert" className="text-[15px] leading-normal text-muted">
-        {error.message}
+        {errorPageMessage(error)}
       </p>
       <Button size="lg" className="self-start" onClick={reset}>
         Try again
