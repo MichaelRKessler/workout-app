@@ -29,6 +29,7 @@ function SetTokens({ sets, newestSetId }: { sets: SetLine[]; newestSetId?: strin
           className={set._id === newestSetId ? "font-semibold text-foreground" : undefined}
         >
           {formatSetShort(set, unit)}
+          {set.pending ? <span className="ml-1 font-sans text-xs tracking-normal">· pending</span> : null}
         </span>
       ))}
     </span>
@@ -131,7 +132,10 @@ export function ExerciseRow({
             <li key={set._id} className="flex min-h-11 items-center justify-between gap-3 text-sm">
               <span>
                 <span className="text-subtle">Set {index + 1}</span>
-                <span className="ml-3 font-mono">{formatSetShort(set, unit)}</span>
+                <span className="ml-3 font-mono">
+                  {formatSetShort(set, unit)}
+                  {set.pending ? <span className="ml-1 font-sans text-xs tracking-normal">· pending</span> : null}
+                </span>
               </span>
               {onEditSet || onRemoveSet ? (
                 <span className="flex items-center">

@@ -11,6 +11,7 @@ import {
   pluralize,
   streakLabel,
 } from "@/lib/format";
+import { OFFLINE_VOICE_MESSAGE } from "@/lib/offline/messages";
 import Link from "next/link";
 
 export type LastWorkout = {
@@ -35,12 +36,14 @@ export function HomeView({
   lastWorkout,
   weekSummary,
   voiceBusy,
+  offline = false,
   onVoice,
   onManual,
 }: {
   lastWorkout: LastWorkout | null | undefined;
   weekSummary?: WeekSummary | null;
   voiceBusy: boolean;
+  offline?: boolean;
   onVoice: () => void;
   onManual: () => void;
 }) {
@@ -62,13 +65,15 @@ export function HomeView({
           Start a workout
         </h1>
         <p className="mt-2.5 max-w-[270px] text-[15px] leading-normal text-pretty text-muted">
-          Say your first set. The workout starts when you confirm it.
+          {offline
+            ? "Add the first set by hand. It stays on this phone until you reconnect."
+            : "Say your first set. The workout starts when you confirm it."}
         </p>
 
         <button
           type="button"
           onClick={onVoice}
-          disabled={voiceBusy}
+          disabled={voiceBusy || offline}
           aria-label="Log a set by voice"
           className="mt-11 flex size-[136px] items-center justify-center rounded-full border border-line transition active:scale-[0.98] disabled:opacity-70"
         >
@@ -76,7 +81,9 @@ export function HomeView({
             <MicIcon className="size-10" strokeWidth={1.6} />
           </span>
         </button>
-        <p className="mt-4 text-sm text-subtle">“Bench press, 3 sets of 10 at 135”</p>
+        <p className="mt-4 text-sm text-subtle">
+          {offline ? OFFLINE_VOICE_MESSAGE : "“Bench press, 3 sets of 10 at 135”"}
+        </p>
 
         <button
           type="button"

@@ -37,6 +37,7 @@ export function ActiveWorkout({
   onFinish,
   onDiscard,
   idleNote,
+  emptyMessage,
   composer,
 }: {
   startedAt: number;
@@ -54,6 +55,7 @@ export function ActiveWorkout({
   onFinish: () => void;
   onDiscard: () => void;
   idleNote?: string;
+  emptyMessage?: string;
   composer: ComponentProps<typeof Composer>;
 }) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -101,7 +103,7 @@ export function ActiveWorkout({
           <p className="py-10 text-center text-[15px] text-muted">Loading sets…</p>
         ) : empty ? (
           <p className="mx-auto max-w-[280px] py-12 text-center text-[15px] leading-normal text-pretty text-muted">
-            No sets yet. Tap the mic and say one, or type it below.
+            {emptyMessage ?? "No sets yet. Tap the mic and say one, or type it below."}
           </p>
         ) : (
           <ul aria-label="Sets in this workout" className="flex flex-col">

@@ -8,6 +8,9 @@ export type SetLine = {
   distanceM: number | null;
   rpe: number | null;
   loggedAt: number;
+  /** Present on a set the phone has not finished syncing. */
+  pending?: boolean;
+  clientId?: string | null;
 };
 
 export function groupSets<T extends SetLine>(sets: T[]) {

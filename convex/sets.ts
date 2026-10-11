@@ -36,6 +36,7 @@ const setValidator = v.object({
   exerciseName: v.string(),
   ...measureValidator,
   loggedAt: v.number(),
+  clientId: v.union(v.string(), v.null()),
 });
 
 const setInput = v.object({
@@ -94,6 +95,7 @@ export const listForSession = authedQuery({
           exerciseName: exercise?.name ?? "Exercise",
           ...presentSet(set),
           loggedAt: set.loggedAt,
+          clientId: set.clientId ?? null,
         };
       }),
     );

@@ -1,18 +1,74 @@
 "use client";
 
 import { NoAccess } from "@/components/NoAccess";
+import { OfflineBanner, OfflineSyncProvider } from "@/components/OfflineSync";
+import { useConnectivity } from "@/components/useConnectivity";
 import { WeightUnitProvider } from "@/components/WeightUnit";
 import { BrandMark } from "@/components/icons";
 import { api } from "@/convex/_generated/api";
+import {
+  browserStore,
+  loadCachedAccess,
+  resumeOfflineWrites,
+  saveCachedAccess,
+  type CachedAccess,
+} from "@/lib/offline/storage";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import Link from "next/link";
-import { ReactNode, useEffect } from "react";
+import { ReactNode, useEffect, useState } from "react";
 
 export function AppShell({ children }: { children: ReactNode }) {
   const { isAuthenticated, isLoading } = useConvexAuth();
+  const { offline } = useConnectivity();
   const status = useQuery(api.access.myStatus, isAuthenticated ? {} : "skip");
+  const [cached, setCached] = useState<CachedAccess | null>(null);
+  const [cacheReady, setCacheReady] = useState(false);
 
-  if (isLoading || (isAuthenticated && status === undefined)) {
+  useEffect(() => {
+    setCached(loadCachedAccess(browserStore()));
+    setCacheReady(true);
+  }, []);
+
+  useEffect(() => {
+    if (!status) {
+      return;
+    }
+    const next: CachedAccess = {
+      email: status.email,
+      name: status.name,
+      allowed: status.allowed,
+      isAdmin: status.isAdmin,
+      request: status.request,
+    };
+    saveCachedAccess(browserStore(), next);
+    setCached(next);
+  }, [status]);
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      resumeOfflineWrites();
+    }
+  }, [isAuthenticated]);
+
+  const useCache =
+    offline &&
+    cacheReady &&
+    cached !== null &&
+    status === undefined &&
+    (isLoading || isAuthenticated);
+  const effective = status ?? (useCache ? cached : null);
+
+  if (!useCache && (isLoading || (isAuthenticated && status === undefined))) {
+    if (offline && isAuthenticated && cacheReady && !cached) {
+      return (
+        <main className="mx-auto flex min-h-dvh w-full max-w-lg flex-col justify-center gap-3 px-5">
+          <BrandMark className="size-8" />
+          <p className="text-[15px] leading-normal text-muted">
+            You&apos;re offline. Open Workout once with a connection before logging here.
+          </p>
+        </main>
+      );
+    }
     return (
       <main className="mx-auto flex min-h-dvh w-full max-w-lg items-center justify-center px-5">
         <p className="text-[15px] text-muted">Loading your workouts…</p>
@@ -20,13 +76,14 @@ export function AppShell({ children }: { children: ReactNode }) {
     );
   }
 
-  if (!isAuthenticated || status === undefined) {
+  if (!isAuthenticated || !effective) {
     return (
       <main className="mx-auto flex min-h-dvh w-full max-w-lg flex-col justify-center gap-6 px-5">
         <BrandMark className="size-8" />
         <h1 className="text-[30px] leading-tight font-semibold tracking-[-0.025em]">
           Sign in to log a workout.
         </h1>
+        {offline ? <p className="text-[15px] text-muted">Sign-in needs a connection.</p> : null}
         <Link
           href="/signin"
           className="inline-flex min-h-[52px] items-center justify-center rounded-full bg-inverse px-6 font-semibold text-inverse-ink"
@@ -37,18 +94,23 @@ export function AppShell({ children }: { children: ReactNode }) {
     );
   }
 
-  if (!status.allowed) {
+  if (!effective.allowed) {
     return (
       <main className="mx-auto min-h-dvh w-full max-w-lg">
-        <NoAccess status={status} />
+        <NoAccess status={effective} />
       </main>
     );
   }
 
   return (
     <main className="mx-auto min-h-dvh w-full max-w-lg">
-      <AdminSeed />
-      <WeightUnitProvider>{children}</WeightUnitProvider>
+      <OfflineSyncProvider email={effective.email}>
+        <WeightUnitProvider>
+          <OfflineBanner />
+          <AdminSeed />
+          {children}
+        </WeightUnitProvider>
+      </OfflineSyncProvider>
     </main>
   );
 }

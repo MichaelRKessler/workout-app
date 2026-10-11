@@ -13,6 +13,7 @@ export function Composer({
   onVoice,
   onManual,
   busy,
+  offline = false,
 }: {
   text: string;
   onTextChange: (value: string) => void;
@@ -21,12 +22,13 @@ export function Composer({
   onVoice: () => void;
   onManual: () => void;
   busy: boolean;
+  offline?: boolean;
 }) {
   const hasText = text.trim().length > 0;
 
   function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (hasText && !parsingText) {
+    if (hasText && !parsingText && !offline) {
       onSubmitText();
     }
   }
@@ -50,18 +52,18 @@ export function Composer({
             id="composer"
             value={text}
             onChange={(event) => onTextChange(event.target.value)}
-            placeholder="Type a set…"
+            placeholder={offline ? "Add a set by hand" : "Type a set…"}
             autoComplete="off"
             enterKeyHint="send"
             maxLength={MAX_WORKOUT_TEXT_LENGTH}
-            disabled={parsingText}
+            disabled={parsingText || offline}
             className="h-11 min-w-0 flex-1 bg-transparent px-1.5 text-base text-foreground outline-none placeholder:text-subtle disabled:opacity-60"
           />
         </div>
         {hasText || parsingText ? (
           <button
             type="submit"
-            disabled={parsingText}
+            disabled={parsingText || offline}
             aria-label={parsingText ? "Reading that" : "Send"}
             className="flex size-16 shrink-0 items-center justify-center rounded-full bg-inverse text-inverse-ink shadow-lift disabled:opacity-80"
           >
@@ -71,7 +73,7 @@ export function Composer({
           <button
             type="button"
             onClick={onVoice}
-            disabled={busy}
+            disabled={busy || offline}
             aria-label="Log a set by voice"
             className="flex size-16 shrink-0 items-center justify-center rounded-full bg-inverse text-inverse-ink shadow-lift disabled:opacity-60"
           >

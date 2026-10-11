@@ -1,13 +1,13 @@
 "use client";
 
 import { Button } from "@/components/Button";
+import { useOfflineLog } from "@/components/OfflineSync";
 import { PageHeader } from "@/components/PageHeader";
 import { Toast, type ToastMessage } from "@/components/Toast";
 import { DeleteWorkoutSheet } from "@/components/workout/DeleteWorkoutSheet";
 import { ExerciseRow } from "@/components/workout/ExerciseRow";
 import { ManualEntrySheet } from "@/components/workout/ManualEntrySheet";
 import { api } from "@/convex/_generated/api";
-import type { Id } from "@/convex/_generated/dataModel";
 import { formatExerciseName } from "@/convex/lib/exerciseName";
 import { readableError } from "@/lib/errors";
 import { EXAMPLE_EXERCISES } from "@/lib/examples";
@@ -20,6 +20,8 @@ import {
   pluralize,
 } from "@/lib/format";
 import { groupSets, type SetLine } from "@/lib/groupSets";
+import { QUEUED_SAVE_MESSAGE } from "@/lib/offline/messages";
+import { mergeVisibleSets } from "@/lib/offline/outbox";
 import { takeToast } from "@/lib/pendingToast";
 import { useMutation, useQuery } from "convex/react";
 import Link from "next/link";
@@ -32,10 +34,7 @@ export function SessionDetail({ sessionId }: { sessionId: string }) {
   const router = useRouter();
   const session = useQuery(api.sessions.get, { sessionId });
   const libraryQuery = useQuery(api.exercises.list);
-  const logSet = useMutation(api.sets.log);
-  const updateSet = useMutation(api.sets.update);
-  const removeSet = useMutation(api.sets.remove);
-  const removeSets = useMutation(api.sets.removeMany);
+  const log = useOfflineLog();
   const deleteWorkout = useMutation(api.sessions.remove);
   const setNote = useMutation(api.sessions.setNote);
   const unit = useWeightUnit();
@@ -54,7 +53,7 @@ export function SessionDetail({ sessionId }: { sessionId: string }) {
     | {
         key: number;
         mode: "edit";
-        setId: Id<"sets">;
+        setId: string;
         exerciseName: string;
         reps: number | null;
         weightLb: number;
@@ -65,7 +64,20 @@ export function SessionDetail({ sessionId }: { sessionId: string }) {
     | null
   >(null);
 
-  const groups = useMemo(() => groupSets(session?.sets ?? []), [session?.sets]);
+  const visibleSets = useMemo(
+    () =>
+      session
+        ? mergeVisibleSets(session.sets, log.outbox, { kind: "session", sessionId: session._id })
+        : [],
+    [log.outbox, session],
+  );
+  const groups = useMemo(() => groupSets(visibleSets), [visibleSets]);
+
+  useEffect(() => {
+    if (session?.sets) {
+      log.reconcile(session.sets);
+    }
+  }, [log, session]);
 
   useEffect(() => {
     const pending = takeToast();
@@ -94,12 +106,11 @@ export function SessionDetail({ sessionId }: { sessionId: string }) {
     setToast({ ...message, id: Date.now() });
   }
 
-  async function undo(ids: Array<Id<"sets">>) {
+  async function undo(ids: string[]) {
     setToast(null);
-    try {
-      await removeSets({ setIds: ids });
-    } catch (error) {
-      showToast({ tone: "error", message: readableError(error) });
+    const removed = await log.removeMany(ids);
+    if (removed.status === "rejected" && removed.error) {
+      showToast({ tone: "error", message: removed.error });
     }
   }
 
@@ -118,36 +129,56 @@ export function SessionDetail({ sessionId }: { sessionId: string }) {
     try {
       const measures = {
         weightLb: set.weightLb,
-        ...(set.reps !== undefined ? { reps: set.reps } : {}),
-        ...(set.durationSec !== undefined ? { durationSec: set.durationSec } : {}),
-        ...(set.distanceM !== undefined ? { distanceM: set.distanceM } : {}),
-        ...(set.rpe !== undefined ? { rpe: set.rpe } : {}),
+        reps: set.reps ?? null,
+        durationSec: set.durationSec ?? null,
+        distanceM: set.distanceM ?? null,
+        rpe: set.rpe ?? null,
       };
       if (manual?.mode === "edit") {
-        const personalRecord = await updateSet({ setId: manual.setId, ...measures });
+        const saved = await log.editSet({
+          setId: manual.setId,
+          clientId: visibleSets.find((item) => item._id === manual.setId)?.clientId,
+          ...measures,
+        });
+        if (saved.status === "rejected") {
+          return saved.error ?? "That set could not be saved";
+        }
         setManual(null);
-        if (personalRecord) {
-          showToast({ tone: "info", message: formatPersonalRecord(personalRecord, unit) });
+        if (saved.status === "queued") {
+          showToast({ tone: "info", message: QUEUED_SAVE_MESSAGE });
+        } else if (saved.personalRecords[0]) {
+          showToast({ tone: "info", message: formatPersonalRecord(saved.personalRecords[0], unit) });
         }
         return null;
       }
-      const saved = await logSet({
+      const saved = await log.saveSets({
+        placement: "completed",
         sessionId: session._id,
-        exerciseName: set.exerciseName,
-        ...measures,
+        sessionStartedAt: session.startedAt,
+        note: null,
+        sets: [{ exerciseName: set.exerciseName, ...measures }],
       });
+      if (saved.status === "rejected") {
+        return saved.error ?? "That set could not be saved";
+      }
       setManual(null);
+      if (saved.status === "queued") {
+        showToast({ tone: "info", message: QUEUED_SAVE_MESSAGE });
+        return null;
+      }
       const added = `Added 1 set · ${set.exerciseName}`;
+      const record = saved.personalRecords[0]
+        ? formatPersonalRecord(saved.personalRecords[0], unit)
+        : null;
       showToast({
         tone: "info",
-        message: saved.personalRecord
-          ? `${formatPersonalRecord(saved.personalRecord, unit)}. ${added}`
-          : added,
-        action: { label: "Undo", onClick: () => void undo([saved.setId]) },
+        message: record ? `${record}. ${added}` : added,
+        action: {
+          label: "Undo",
+          onClick: () => void undo(saved.setIds.length > 0 ? saved.setIds : saved.clientIds),
+        },
       });
       return null;
-    } catch (error) {
-      return readableError(error);
     } finally {
       setManualPending(false);
     }
@@ -170,12 +201,12 @@ export function SessionDetail({ sessionId }: { sessionId: string }) {
 
   async function deleteSet(setId: string) {
     setRemovingId(setId);
-    try {
-      await removeSet({ setId: setId as Id<"sets"> });
-    } catch (error) {
-      showToast({ tone: "error", message: readableError(error) });
-    } finally {
-      setRemovingId(null);
+    const removed = await log.removeMany([setId]);
+    setRemovingId(null);
+    if (removed.status === "rejected" && removed.error) {
+      showToast({ tone: "error", message: removed.error });
+    } else if (removed.status === "queued") {
+      showToast({ tone: "info", message: QUEUED_SAVE_MESSAGE });
     }
   }
 
@@ -198,7 +229,11 @@ export function SessionDetail({ sessionId }: { sessionId: string }) {
     return (
       <div className="px-5 pt-3">
         <PageHeader backHref="/history" backLabel="Back to history" title="Workout" />
-        <p className="mt-8 text-[15px] text-muted">Loading workout…</p>
+        <p className="mt-8 text-[15px] text-muted">
+          {log.offline
+            ? "You're offline. This workout will load when you reconnect."
+            : "Loading workout…"}
+        </p>
       </div>
     );
   }
@@ -221,7 +256,7 @@ export function SessionDetail({ sessionId }: { sessionId: string }) {
     formatTimeOfDay(session.startedAt),
     session.status === "open" ? "In progress" : length,
     pluralize(groups.length, "exercise"),
-    pluralize(session.sets.length, "set"),
+    pluralize(visibleSets.length, "set"),
   ]
     .filter((part) => part !== null && part !== undefined)
     .join(" · ");
@@ -308,7 +343,9 @@ export function SessionDetail({ sessionId }: { sessionId: string }) {
               key={group.exerciseId}
               name={group.name}
               sets={group.sets}
-              exerciseHref={`/exercises/${group.exerciseId}`}
+              exerciseHref={
+                group.exerciseId.startsWith("local:") ? undefined : `/exercises/${group.exerciseId}`
+              }
               expanded={finished && expandedId === group.exerciseId}
               onToggle={
                 finished
@@ -324,7 +361,7 @@ export function SessionDetail({ sessionId }: { sessionId: string }) {
                       setManual({
                         key: Date.now(),
                         mode: "edit",
-                        setId: set._id as Id<"sets">,
+                        setId: set._id,
                         exerciseName: set.exerciseName,
                         reps: set.reps,
                         weightLb: set.weightLb,
@@ -360,7 +397,7 @@ export function SessionDetail({ sessionId }: { sessionId: string }) {
           }
           library={library}
           truncatedLibrary={libraryQuery?.truncated}
-          sessionSets={session.sets}
+          sessionSets={visibleSets}
           excludeSessionId={session._id}
           pending={manualPending}
           onClose={() => setManual(null)}

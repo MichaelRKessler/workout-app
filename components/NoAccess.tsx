@@ -5,6 +5,7 @@ import { BrandMark } from "@/components/icons";
 import { InstallOffer } from "@/components/InstallOffer";
 import { api } from "@/convex/_generated/api";
 import { readableError } from "@/lib/errors";
+import { browserStore, clearOfflineStorage } from "@/lib/offline/storage";
 import { useAuthActions } from "@convex-dev/auth/react";
 import { useMutation } from "convex/react";
 import { FunctionReturnType } from "convex/server";
@@ -40,6 +41,7 @@ export function NoAccess({ status }: { status: AccessStatus }) {
 
   async function onSignOut() {
     setSigningOut(true);
+    clearOfflineStorage(browserStore());
     try {
       await signOut();
       router.replace("/signin");

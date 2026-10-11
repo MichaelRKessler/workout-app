@@ -55,6 +55,7 @@ const setDetailValidator = v.object({
   distanceM: v.union(v.number(), v.null()),
   rpe: v.union(v.number(), v.null()),
   loggedAt: v.number(),
+  clientId: v.union(v.string(), v.null()),
 });
 
 const sessionDetailValidator = v.object({
@@ -93,6 +94,7 @@ async function loadSessionSets(ctx: QueryCtx, sessionId: Id<"sessions">) {
     exerciseName: names.get(set.exerciseId) ?? "Exercise",
     ...presentSet(set),
     loggedAt: set.loggedAt,
+    clientId: set.clientId ?? null,
   }));
 }
 
