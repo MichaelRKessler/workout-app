@@ -13,6 +13,9 @@ import { Resvg } from "@resvg/resvg-js";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const svg = readFileSync(resolve(root, "public/icons/icon.svg"));
 
+// Matches the <rect> fill in icon.svg. Edge pixels are blended onto it.
+const BACKGROUND = [0x0e, 0x0f, 0x11];
+
 function pngChunk(type, data) {
   const length = Buffer.alloc(4);
   length.writeUInt32BE(data.length);
@@ -32,9 +35,11 @@ function rgbPng(width, height, rgba) {
       const source = (y * width + x) * 4;
       const dest = row + 1 + x * 3;
       const alpha = rgba[source + 3] / 255;
-      raw[dest] = Math.round(0x12 * (1 - alpha) + rgba[source] * alpha);
-      raw[dest + 1] = Math.round(0x11 * (1 - alpha) + rgba[source + 1] * alpha);
-      raw[dest + 2] = Math.round(0x0e * (1 - alpha) + rgba[source + 2] * alpha);
+      for (let channel = 0; channel < 3; channel += 1) {
+        raw[dest + channel] = Math.round(
+          BACKGROUND[channel] * (1 - alpha) + rgba[source + channel] * alpha,
+        );
+      }
     }
   }
   const ihdr = Buffer.alloc(13);

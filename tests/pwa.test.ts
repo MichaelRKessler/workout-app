@@ -58,16 +58,16 @@ test("icons are opaque PNGs with the glyph inside the maskable safe zone", () =>
     const [width, height] = (icon.sizes ?? "0x0").split("x").map(Number);
     assert.equal(image.width, width);
     assert.equal(image.height, height);
-    assert.deepEqual(pixel(image, 0, 0), [0x12, 0x11, 0x0e]);
-    assert.deepEqual(pixel(image, width - 1, height - 1), [0x12, 0x11, 0x0e]);
+    assert.deepEqual(pixel(image, 0, 0), [0x0e, 0x0f, 0x11]);
+    assert.deepEqual(pixel(image, width - 1, height - 1), [0x0e, 0x0f, 0x11]);
 
-    let lime = 0;
+    let glyph = 0;
     const limit = 0.4 * width;
     const center = width / 2;
     for (let y = 0; y < height; y += 1) {
       for (let x = 0; x < width; x += 1) {
         const [red, green, blue] = pixel(image, x, y);
-        const background = red === 0x12 && green === 0x11 && blue === 0x0e;
+        const background = red === 0x0e && green === 0x0f && blue === 0x11;
         if (background) {
           continue;
         }
@@ -76,12 +76,12 @@ test("icons are opaque PNGs with the glyph inside the maskable safe zone", () =>
           distance <= limit + 1,
           `${icon.src} paints outside the maskable safe zone`,
         );
-        if (red === 0xd6 && green === 0xf2 && blue === 0x5c) {
-          lime += 1;
+        if (red === 0xf7 && green === 0xf7 && blue === 0xf5) {
+          glyph += 1;
         }
       }
     }
-    assert.ok(lime > 0, `${icon.src} has no lime pixels`);
+    assert.ok(glyph > 0, `${icon.src} has no off-white glyph pixels`);
   }
 });
 
