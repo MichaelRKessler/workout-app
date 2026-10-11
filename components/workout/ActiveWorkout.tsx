@@ -30,6 +30,7 @@ export function ActiveWorkout({
   repeatingId,
   removingId,
   ending,
+  note,
   onRepeat,
   onEditSet,
   onRemoveSet,
@@ -46,6 +47,7 @@ export function ActiveWorkout({
   repeatingId: string | null;
   removingId: string | null;
   ending: boolean;
+  note?: string | null;
   onRepeat: (group: Group) => void;
   onEditSet: (set: SetLine) => void;
   onRemoveSet: (setId: string) => void;
@@ -78,6 +80,7 @@ export function ActiveWorkout({
                 {pluralize(groups.length, "exercise")} · {pluralize(setCount, "set")}
                 {idleNote ? <span className="text-subtle"> · {idleNote}</span> : null}
               </p>
+              {note ? <p className="mt-1 text-sm text-muted">{note}</p> : null}
             </div>
             <div className="flex items-center gap-2">
               <RestTimer setCount={setCount} loading={loadingSets} />

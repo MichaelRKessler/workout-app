@@ -1,13 +1,27 @@
 "use client";
 
+import { formatClock, formatDistance } from "@/convex/lib/measures";
 import { formatShortDate, formatVolumeLb, pluralize } from "@/lib/format";
+
+function trendAmount(value: number, unit: "lb" | "reps" | "m" | "sec"): string {
+  if (unit === "lb") {
+    return formatVolumeLb(value);
+  }
+  if (unit === "reps") {
+    return pluralize(value, "rep");
+  }
+  if (unit === "m") {
+    return formatDistance(value);
+  }
+  return formatClock(value);
+}
 
 export function TrendChart({
   points,
   unit,
 }: {
   points: Array<{ startedAt: number; value: number }>;
-  unit: "lb" | "reps";
+  unit: "lb" | "reps" | "m" | "sec";
 }) {
   if (points.length < 2) {
     return null;
@@ -31,7 +45,14 @@ export function TrendChart({
   if (!first || !last) {
     return null;
   }
-  const unitLabel = unit === "lb" ? "estimated one-rep max" : "most reps";
+  const unitLabel =
+    unit === "lb"
+      ? "estimated one-rep max"
+      : unit === "reps"
+        ? "most reps"
+        : unit === "m"
+          ? "farthest distance"
+          : "longest time";
   const label = `${unitLabel} from ${formatShortDate(first.startedAt)} to ${formatShortDate(last.startedAt)}, ${pluralize(points.length, "workout")}`;
 
   return (
@@ -55,9 +76,11 @@ export function TrendChart({
         ))}
       </svg>
       <figcaption className="mt-1 flex justify-between text-[12px] text-subtle">
-        <span>{unit === "lb" ? formatVolumeLb(min) : pluralize(min, "rep")}</span>
-        <span>{unit === "lb" ? "Est. 1RM" : "Most reps"}</span>
-        <span>{unit === "lb" ? formatVolumeLb(max) : pluralize(max, "rep")}</span>
+        <span>{trendAmount(min, unit)}</span>
+        <span>
+          {unit === "lb" ? "Est. 1RM" : unit === "reps" ? "Most reps" : unit === "m" ? "Farthest" : "Longest"}
+        </span>
+        <span>{trendAmount(max, unit)}</span>
       </figcaption>
     </figure>
   );

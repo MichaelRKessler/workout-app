@@ -1,15 +1,39 @@
 import { formatExerciseName } from "../../convex/lib/exerciseName";
-import { parseReps, parseWeightLb } from "../numbers";
+import {
+  formatClock,
+  formatDistance,
+  parseClock,
+  parseDistanceInput,
+  setKind,
+  type SetKind,
+} from "../../convex/lib/measures";
+import { formatWeightAmount, weightLbFromDisplay, type WeightUnit } from "../../convex/lib/units";
+import { parseReps } from "../numbers";
 import {
   MAX_VOICE_SETS,
   normalizeGeminiWorkout,
   type VoiceProposal,
+  type VoiceSet,
   VoiceParseError,
 } from "./proposal";
 
+export type DraftSet = {
+  kind: SetKind;
+  reps: string;
+  weight: string;
+  duration: string;
+  distance: string;
+  rpe: string;
+  /** Stored pounds behind the weight field, so an unedited kg display does not drift. */
+  weightLb: number | null;
+};
+
 export type VoiceDraft = {
-  exerciseName: string;
-  sets: Array<{ reps: string; weight: string }>;
+  note: string;
+  exercises: Array<{
+    exerciseName: string;
+    sets: DraftSet[];
+  }>;
 };
 
 export type VoiceLogState =
@@ -102,33 +126,88 @@ export function proposalToSave(
   return next.proposal;
 }
 
-export function proposalToDraft(proposal: VoiceProposal): VoiceDraft {
+export function proposalToDraft(proposal: VoiceProposal, unit: WeightUnit = "lb"): VoiceDraft {
   return {
-    exerciseName: proposal.exerciseName,
-    sets: proposal.sets.map((set) => ({
-      reps: String(set.reps),
-      weight: String(set.weightLb),
+    note: proposal.note ?? "",
+    exercises: proposal.exercises.map((exercise) => ({
+      exerciseName: exercise.exerciseName,
+      sets: exercise.sets.map((set) => ({
+        kind: setKind(set),
+        reps: set.reps === null ? "" : String(set.reps),
+        weight: formatWeightAmount(set.weightLb, unit),
+        duration: set.durationSec === null ? "" : formatClock(set.durationSec),
+        distance: set.distanceM === null ? "" : formatDistance(set.distanceM),
+        rpe: set.rpe === null ? "" : String(set.rpe),
+        weightLb: set.weightLb,
+      })),
     })),
   };
 }
 
-export function draftToProposal(draft: VoiceDraft): VoiceProposal | null {
-  const formatted = formatExerciseName(draft.exerciseName);
-  if (!formatted || draft.sets.length === 0 || draft.sets.length > MAX_VOICE_SETS) {
+export function draftToProposal(draft: VoiceDraft, unit: WeightUnit = "lb"): VoiceProposal | null {
+  if (draft.exercises.length === 0) {
     return null;
   }
-
-  const sets: VoiceProposal["sets"] = [];
-  for (const set of draft.sets) {
-    const reps = parseReps(set.reps);
-    const weightLb = parseWeightLb(set.weight);
-    if (reps === null || weightLb === null) {
+  const note = draft.note.trim().replace(/\s+/g, " ");
+  if (note.length > 500) {
+    return null;
+  }
+  const exercises: VoiceProposal["exercises"] = [];
+  let total = 0;
+  for (const exercise of draft.exercises) {
+    const formatted = formatExerciseName(exercise.exerciseName);
+    if (!formatted || exercise.sets.length === 0) {
       return null;
     }
-    sets.push({ reps, weightLb });
+    total += exercise.sets.length;
+    if (total > MAX_VOICE_SETS) {
+      return null;
+    }
+    const sets: VoiceSet[] = [];
+    for (const set of exercise.sets) {
+      const parsed = draftSetToVoice(set, unit);
+      if (!parsed) {
+        return null;
+      }
+      sets.push(parsed);
+    }
+    exercises.push({ exerciseName: formatted.name, sets });
   }
+  return { note: note.length > 0 ? note : null, exercises };
+}
 
-  return { exerciseName: formatted.name, sets };
+function draftSetToVoice(set: DraftSet, unit: WeightUnit): VoiceSet | null {
+  const weightLb = weightLbFromDisplay(set.weight, unit, set.weightLb);
+  if (weightLb === null) {
+    return null;
+  }
+  const rpe = set.rpe.trim().length === 0 ? null : Number(set.rpe.trim());
+  if (rpe !== null && (!Number.isInteger(rpe) || rpe < 1 || rpe > 10)) {
+    return null;
+  }
+  if (set.kind === "timed") {
+    const durationSec = parseClock(set.duration);
+    if (durationSec === null) {
+      return null;
+    }
+    return { reps: null, weightLb, durationSec, distanceM: null, rpe };
+  }
+  if (set.kind === "distance") {
+    const distanceM = parseDistanceInput(set.distance);
+    if (distanceM === null) {
+      return null;
+    }
+    const durationSec = set.duration.trim().length === 0 ? null : parseClock(set.duration);
+    if (set.duration.trim().length > 0 && durationSec === null) {
+      return null;
+    }
+    return { reps: null, weightLb, durationSec, distanceM, rpe };
+  }
+  const reps = parseReps(set.reps);
+  if (reps === null) {
+    return null;
+  }
+  return { reps, weightLb, durationSec: null, distanceM: null, rpe };
 }
 
 /**
@@ -143,19 +222,7 @@ export function readVoiceResponse(payload: unknown): VoiceProposal {
     );
   }
 
-  const sets = Array.isArray(payload.proposal.sets)
-    ? payload.proposal.sets.map((set) => {
-        if (!isRecord(set)) {
-          return set;
-        }
-        return { reps: set.reps, weight: set.weightLb, unit: "lb" };
-      })
-    : [];
-
-  return normalizeGeminiWorkout({
-    exerciseName: payload.proposal.exerciseName,
-    sets,
-  });
+  return normalizeGeminiWorkout(payload.proposal);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

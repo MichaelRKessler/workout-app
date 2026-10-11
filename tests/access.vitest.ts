@@ -102,6 +102,38 @@ describe("allow list", () => {
         weightLb: 100,
       }),
     ).rejects.toThrow("You don't have access yet");
+    await expect(blocked.asUser.query(api.users.preferences, {})).rejects.toThrow(
+      "You don't have access yet",
+    );
+    await expect(
+      blocked.asUser.mutation(api.users.setWeightUnit, { weightUnit: "kg" }),
+    ).rejects.toThrow("You don't have access yet");
+    await expect(
+      blocked.asUser.mutation(api.sets.logWorkout, {
+        sessionId,
+        exercises: [{ exerciseName: "squat", sets: [{ reps: 5, weightLb: 185 }] }],
+      }),
+    ).rejects.toThrow("You don't have access yet");
+    await expect(
+      blocked.asUser.query(api.exercises.browse, {
+        paginationOpts: { numItems: 10, cursor: null },
+      }),
+    ).rejects.toThrow("You don't have access yet");
+    await expect(
+      blocked.asUser.mutation(api.exercises.rename, {
+        exerciseId: logged.exerciseId,
+        name: "nope",
+      }),
+    ).rejects.toThrow("You don't have access yet");
+    await expect(
+      blocked.asUser.mutation(api.exercises.merge, {
+        fromId: logged.exerciseId,
+        intoId: logged.exerciseId,
+      }),
+    ).rejects.toThrow("You don't have access yet");
+    await expect(
+      blocked.asUser.mutation(api.sessions.setNote, { sessionId, note: "note" }),
+    ).rejects.toThrow("You don't have access yet");
   });
 
   test("the admin email is allowed without a row, in any case, and is the only admin", async () => {

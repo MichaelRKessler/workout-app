@@ -1,14 +1,25 @@
 import { formatExerciseName } from "../convex/lib/exerciseName";
+import { formatClock, formatDistance, setKind, type SetKind } from "../convex/lib/measures";
 
 export type PrefillSource = "session" | "previous" | "default";
 
 export type PrefillValues = {
+  kind: SetKind;
   reps: string;
   weight: string;
+  duration: string;
+  distance: string;
+  rpe: string;
   source: PrefillSource;
 };
 
-type SetNumbers = { reps: number; weightLb: number };
+type SetNumbers = {
+  reps?: number | null;
+  weightLb: number;
+  durationSec?: number | null;
+  distanceM?: number | null;
+  rpe?: number | null;
+};
 
 /**
  * Reps and weight for a new set. The open workout wins, then the previous
@@ -26,27 +37,40 @@ export function prefillValues(
     );
     const current = inSession[inSession.length - 1];
     if (current) {
-      return {
-        reps: String(current.reps),
-        weight: String(current.weightLb),
-        source: "session",
-      };
+      return valuesFromSet(current, "session");
     }
   }
 
   const previous = previousSets?.[previousSets.length - 1];
   if (previous) {
-    return {
-      reps: String(previous.reps),
-      weight: String(previous.weightLb),
-      source: "previous",
-    };
+    return valuesFromSet(previous, "previous");
   }
 
-  return { reps: "10", weight: "0", source: "default" };
+  return {
+    kind: "strength",
+    reps: "10",
+    weight: "0",
+    duration: "",
+    distance: "",
+    rpe: "",
+    source: "default",
+  };
 }
 
-export function previousSetsForName<T extends { reps: number; weightLb: number }>(
+function valuesFromSet(set: SetNumbers, source: PrefillSource): PrefillValues {
+  const kind = setKind(set);
+  return {
+    kind,
+    reps: set.reps ? String(set.reps) : "",
+    weight: String(set.weightLb),
+    duration: set.durationSec ? formatClock(set.durationSec) : "",
+    distance: set.distanceM ? formatDistance(set.distanceM) : "",
+    rpe: set.rpe ? String(set.rpe) : "",
+    source,
+  };
+}
+
+export function previousSetsForName<T extends { weightLb: number }>(
   exerciseName: string,
   previous: { normalizedName: string; sets: T[] } | null | undefined,
 ): T[] | null {

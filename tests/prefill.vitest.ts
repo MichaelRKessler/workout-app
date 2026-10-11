@@ -15,8 +15,12 @@ const previous = [
 describe("set form prefill", () => {
   test("the open workout's last set of that exercise wins", () => {
     expect(prefillValues("bench press", session, previous)).toEqual({
+      kind: "strength",
       reps: "6",
       weight: "155",
+      duration: "",
+      distance: "",
+      rpe: "",
       source: "session",
     });
     expect(prefillValues("  Bench   Press ", session, null).source).toBe("session");
@@ -24,16 +28,32 @@ describe("set form prefill", () => {
 
   test("otherwise the previous workout's last set is used, never a different exercise", () => {
     expect(prefillValues("deadlift", session, previous)).toEqual({
+      kind: "strength",
       reps: "6",
       weight: "145",
+      duration: "",
+      distance: "",
+      rpe: "",
       source: "previous",
     });
     expect(
       prefillValues("curl", [{ exerciseName: "squat", reps: 5, weightLb: 225 }], null),
-    ).toEqual({ reps: "10", weight: "0", source: "default" });
-    expect(prefillValues("curl", [], null)).toEqual({
+    ).toEqual({
+      kind: "strength",
       reps: "10",
       weight: "0",
+      duration: "",
+      distance: "",
+      rpe: "",
+      source: "default",
+    });
+    expect(prefillValues("curl", [], null)).toEqual({
+      kind: "strength",
+      reps: "10",
+      weight: "0",
+      duration: "",
+      distance: "",
+      rpe: "",
       source: "default",
     });
   });

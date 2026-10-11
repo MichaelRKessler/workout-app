@@ -7,42 +7,49 @@ import {
   personalRecordValidator,
   type PersonalRecord,
 } from "./lib/records";
+import { combineNotes, normalizeNote } from "./lib/measures";
 import {
   EXERCISE_RECORD_SCAN,
   MAX_SETS_PER_BATCH,
-  assertReps,
   assertSessionCanAcceptSets,
-  assertWeightLb,
   getOrCreateExercise,
   getOwnedSession,
   loadPreviousExerciseSets,
   loadRecentSetsForExercise,
+  normalizeSetInput,
+  presentSet,
+  recordPoint,
   requireWritableSession,
 } from "./lib/workouts";
+
+const measureValidator = {
+  reps: v.union(v.number(), v.null()),
+  weightLb: v.number(),
+  durationSec: v.union(v.number(), v.null()),
+  distanceM: v.union(v.number(), v.null()),
+  rpe: v.union(v.number(), v.null()),
+};
 
 const setValidator = v.object({
   _id: v.id("sets"),
   exerciseId: v.id("exercises"),
   exerciseName: v.string(),
-  reps: v.number(),
-  weightLb: v.number(),
+  ...measureValidator,
   loggedAt: v.number(),
 });
 
 const setInput = v.object({
-  reps: v.number(),
-  weightLb: v.number(),
+  reps: v.optional(v.number()),
+  weightLb: v.optional(v.number()),
+  durationSec: v.optional(v.number()),
+  distanceM: v.optional(v.number()),
+  rpe: v.optional(v.number()),
 });
 
 const previousExerciseValidator = v.object({
   exerciseName: v.string(),
   normalizedName: v.string(),
-  sets: v.array(
-    v.object({
-      reps: v.number(),
-      weightLb: v.number(),
-    }),
-  ),
+  sets: v.array(v.object(measureValidator)),
 });
 
 export const recentForExercise = authedQuery({
@@ -85,8 +92,7 @@ export const listForSession = authedQuery({
           _id: set._id,
           exerciseId: set.exerciseId,
           exerciseName: exercise?.name ?? "Exercise",
-          reps: set.reps,
-          weightLb: set.weightLb,
+          ...presentSet(set),
           loggedAt: set.loggedAt,
         };
       }),
@@ -97,6 +103,11 @@ export const listForSession = authedQuery({
 const loggedSetsValidator = v.object({
   setIds: v.array(v.id("sets")),
   personalRecord: v.union(personalRecordValidator, v.null()),
+});
+
+const loggedWorkoutValidator = v.object({
+  setIds: v.array(v.id("sets")),
+  personalRecords: v.array(personalRecordValidator),
 });
 
 async function performedAt(
@@ -133,14 +144,14 @@ async function recordForInserted(
   userId: Id<"users">,
   exerciseId: Id<"exercises">,
   exerciseName: string,
-  created: Array<{ reps: number; weightLb: number; _id: Id<"sets"> }>,
+  created: Array<{ _id: Id<"sets"> } & ReturnType<typeof recordPoint>>,
 ): Promise<PersonalRecord | null> {
   const recent = await loadRecentSetsForExercise(ctx, userId, exerciseId);
   const createdIds = new Set(created.map((set) => set._id));
   const previous = recent
     .filter((set) => !createdIds.has(set._id))
     .slice(0, EXERCISE_RECORD_SCAN)
-    .map((set) => ({ reps: set.reps, weightLb: set.weightLb }));
+    .map((set) => recordPoint(set));
   return personalRecordForBatch(exerciseName, created, previous);
 }
 
@@ -149,22 +160,26 @@ async function insertSets(
   userId: Id<"users">,
   session: { _id: Id<"sessions">; status: "open" | "completed"; startedAt: number },
   exerciseName: string,
-  sets: Array<{ reps: number; weightLb: number }>,
-): Promise<{ setIds: Array<Id<"sets">>; personalRecord: PersonalRecord | null }> {
+  sets: Array<{
+    reps?: number;
+    weightLb?: number;
+    durationSec?: number;
+    distanceM?: number;
+    rpe?: number;
+  }>,
+  loggedAtStart?: number,
+): Promise<{ setIds: Array<Id<"sets">>; personalRecord: PersonalRecord | null; nextLoggedAt: number }> {
   if (sets.length > MAX_SETS_PER_BATCH) {
     throw new Error(`Log up to ${MAX_SETS_PER_BATCH} sets at a time`);
   }
 
-  const validated = sets.map((set) => ({
-    reps: assertReps(set.reps),
-    weightLb: assertWeightLb(set.weightLb),
-  }));
+  const validated = sets.map((set) => normalizeSetInput(set));
   await assertSessionCanAcceptSets(ctx, session._id, validated.length);
   const exerciseId = await getOrCreateExercise(ctx, userId, exerciseName);
   const exercise = await ctx.db.get("exercises", exerciseId);
-  const loggedAt = await performedAt(ctx, session, validated.length);
+  const loggedAt = loggedAtStart ?? (await performedAt(ctx, session, validated.length));
 
-  const created: Array<{ _id: Id<"sets">; reps: number; weightLb: number }> = [];
+  const created: Array<{ _id: Id<"sets"> } & ReturnType<typeof recordPoint>> = [];
   for (let index = 0; index < validated.length; index += 1) {
     const set = validated[index];
     if (!set) {
@@ -176,11 +191,14 @@ async function insertSets(
       userId,
       sessionId: session._id,
       exerciseId,
-      reps: set.reps,
       weightLb: set.weightLb,
       loggedAt: loggedAt + index,
+      ...(set.reps !== undefined ? { reps: set.reps } : {}),
+      ...(set.durationSec !== undefined ? { durationSec: set.durationSec } : {}),
+      ...(set.distanceM !== undefined ? { distanceM: set.distanceM } : {}),
+      ...(set.rpe !== undefined ? { rpe: set.rpe } : {}),
     });
-    created.push({ _id: setId, reps: set.reps, weightLb: set.weightLb });
+    created.push({ _id: setId, ...recordPoint(set) });
   }
   return {
     setIds: created.map((set) => set._id),
@@ -191,6 +209,7 @@ async function insertSets(
       exercise?.name ?? exerciseName,
       created,
     ),
+    nextLoggedAt: loggedAt + validated.length,
   };
 }
 
@@ -198,8 +217,11 @@ export const log = authedMutation({
   args: {
     sessionId: v.id("sessions"),
     exerciseName: v.string(),
-    reps: v.number(),
-    weightLb: v.number(),
+    reps: v.optional(v.number()),
+    weightLb: v.optional(v.number()),
+    durationSec: v.optional(v.number()),
+    distanceM: v.optional(v.number()),
+    rpe: v.optional(v.number()),
   },
   returns: v.object({
     setId: v.id("sets"),
@@ -208,7 +230,13 @@ export const log = authedMutation({
   handler: async (ctx, args) => {
     const session = await requireWritableSession(ctx, ctx.userId, args.sessionId);
     const saved = await insertSets(ctx, ctx.userId, session, args.exerciseName, [
-      { reps: args.reps, weightLb: args.weightLb },
+      {
+        reps: args.reps,
+        weightLb: args.weightLb,
+        durationSec: args.durationSec,
+        distanceM: args.distanceM,
+        rpe: args.rpe,
+      },
     ]);
     const setId = saved.setIds[0];
     if (!setId) {
@@ -230,15 +258,76 @@ export const logMany = authedMutation({
       throw new Error("Add at least one set");
     }
     const session = await requireWritableSession(ctx, ctx.userId, args.sessionId);
-    return await insertSets(ctx, ctx.userId, session, args.exerciseName, args.sets);
+    const saved = await insertSets(ctx, ctx.userId, session, args.exerciseName, args.sets);
+    return { setIds: saved.setIds, personalRecord: saved.personalRecord };
+  },
+});
+
+/** One confirm writes every exercise, so a multi-exercise log cannot half-save. */
+export const logWorkout = authedMutation({
+  args: {
+    sessionId: v.id("sessions"),
+    note: v.optional(v.string()),
+    exercises: v.array(
+      v.object({
+        exerciseName: v.string(),
+        sets: v.array(setInput),
+      }),
+    ),
+  },
+  returns: loggedWorkoutValidator,
+  handler: async (ctx, args) => {
+    if (args.exercises.length === 0) {
+      throw new Error("Add at least one exercise");
+    }
+    const total = args.exercises.reduce((sum, exercise) => sum + exercise.sets.length, 0);
+    if (total === 0) {
+      throw new Error("Add at least one set");
+    }
+    if (total > MAX_SETS_PER_BATCH) {
+      throw new Error(`Log up to ${MAX_SETS_PER_BATCH} sets at a time`);
+    }
+    const note = normalizeNote(args.note);
+    const session = await requireWritableSession(ctx, ctx.userId, args.sessionId);
+    let loggedAt = await performedAt(ctx, session, total);
+    const setIds: Array<Id<"sets">> = [];
+    const personalRecords: PersonalRecord[] = [];
+    for (const exercise of args.exercises) {
+      if (exercise.sets.length === 0) {
+        throw new Error("Add at least one set");
+      }
+      const saved = await insertSets(
+        ctx,
+        ctx.userId,
+        session,
+        exercise.exerciseName,
+        exercise.sets,
+        loggedAt,
+      );
+      loggedAt = saved.nextLoggedAt;
+      setIds.push(...saved.setIds);
+      if (saved.personalRecord) {
+        personalRecords.push(saved.personalRecord);
+      }
+    }
+    if (note) {
+      const combined = combineNotes(session.note, note);
+      if (combined && combined !== session.note) {
+        await ctx.db.patch("sessions", session._id, { note: combined });
+      }
+    }
+    return { setIds, personalRecords };
   },
 });
 
 export const update = authedMutation({
   args: {
     setId: v.id("sets"),
-    reps: v.number(),
-    weightLb: v.number(),
+    reps: v.optional(v.number()),
+    weightLb: v.optional(v.number()),
+    durationSec: v.optional(v.number()),
+    distanceM: v.optional(v.number()),
+    rpe: v.optional(v.number()),
   },
   returns: v.union(personalRecordValidator, v.null()),
   handler: async (ctx, args) => {
@@ -247,20 +336,25 @@ export const update = authedMutation({
       throw new Error("Set not found");
     }
     await requireWritableSession(ctx, ctx.userId, set.sessionId);
-    const reps = assertReps(args.reps);
-    const weightLb = assertWeightLb(args.weightLb);
+    const normalized = normalizeSetInput(args);
     const exercise = await ctx.db.get("exercises", set.exerciseId);
     const recent = await loadRecentSetsForExercise(ctx, ctx.userId, set.exerciseId);
     const previous = recent
       .filter((item) => item._id !== set._id)
       .slice(0, EXERCISE_RECORD_SCAN)
-      .map((item) => ({ reps: item.reps, weightLb: item.weightLb }));
+      .map((item) => recordPoint(item));
     const personalRecord = personalRecordForBatch(
       exercise?.name ?? "Exercise",
-      [{ reps, weightLb }],
+      [recordPoint(normalized)],
       previous,
     );
-    await ctx.db.patch("sets", args.setId, { reps, weightLb });
+    await ctx.db.patch("sets", args.setId, {
+      weightLb: normalized.weightLb,
+      reps: normalized.reps,
+      durationSec: normalized.durationSec,
+      distanceM: normalized.distanceM,
+      rpe: normalized.rpe,
+    });
     return personalRecord;
   },
 });

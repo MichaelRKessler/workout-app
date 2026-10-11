@@ -18,6 +18,8 @@ export default defineSchema({
     // Set when someone answers "Still working out?" with Keep going.
     // Older sessions omit it, which is valid.
     resumedAt: v.optional(v.number()),
+    // Optional so workouts saved before notes existed still validate.
+    note: v.optional(v.string()),
   })
     .index("by_user_status_and_started", ["userId", "status", "startedAt"])
     .index("by_status", ["status"]),
@@ -25,8 +27,13 @@ export default defineSchema({
     userId: v.id("users"),
     sessionId: v.id("sessions"),
     exerciseId: v.id("exercises"),
-    reps: v.number(),
+    // Optional for timed and distance sets. Older sets always have it.
+    reps: v.optional(v.number()),
+    // Always pounds. Older sets are pounds and stay pounds.
     weightLb: v.number(),
+    durationSec: v.optional(v.number()),
+    distanceM: v.optional(v.number()),
+    rpe: v.optional(v.number()),
     // Unused. Optional so sets saved before we stopped writing it still validate.
     order: v.optional(v.number()),
     loggedAt: v.number(),
@@ -36,6 +43,10 @@ export default defineSchema({
     // that sorted by creation time: a workout logged today for last month
     // must sort by when the set was performed.
     .index("by_user_exercise_and_logged", ["userId", "exerciseId", "loggedAt"]),
+  preferences: defineTable({
+    userId: v.id("users"),
+    weightUnit: v.union(v.literal("lb"), v.literal("kg")),
+  }).index("by_user", ["userId"]),
   allowedEmails: defineTable({
     email: v.string(),
     createdAt: v.number(),

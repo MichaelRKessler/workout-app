@@ -1,6 +1,7 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { formatExerciseName, MAX_KNOWN_EXERCISE_NAMES } from "./exerciseName";
+import { normalizeStoredSet, type NormalizedSet } from "./measures";
 
 export const MAX_SETS_PER_SESSION = 500;
 
@@ -60,6 +61,46 @@ export function assertWeightLb(weightLb: number): number {
     throw new Error("Weight must be between 0 and 2000 lb");
   }
   return Math.round(weightLb * 100) / 100;
+}
+
+export function presentSet(set: {
+  reps?: number;
+  weightLb: number;
+  durationSec?: number;
+  distanceM?: number;
+  rpe?: number;
+}) {
+  return {
+    reps: set.reps ?? null,
+    weightLb: set.weightLb,
+    durationSec: set.durationSec ?? null,
+    distanceM: set.distanceM ?? null,
+    rpe: set.rpe ?? null,
+  };
+}
+
+export function recordPoint(set: {
+  reps?: number | null;
+  weightLb: number;
+  durationSec?: number | null;
+  distanceM?: number | null;
+}) {
+  return {
+    reps: set.reps ?? null,
+    weightLb: set.weightLb,
+    durationSec: set.durationSec ?? null,
+    distanceM: set.distanceM ?? null,
+  };
+}
+
+export function normalizeSetInput(input: {
+  reps?: number | null;
+  weightLb?: number | null;
+  durationSec?: number | null;
+  distanceM?: number | null;
+  rpe?: number | null;
+}): NormalizedSet {
+  return normalizeStoredSet(input);
 }
 
 export async function requireOpenSession(
@@ -126,10 +167,18 @@ export async function assertSessionCanAcceptSets(
 
 const VOICE_SESSION_SCAN = 20;
 
+export type PreviousSet = {
+  reps: number | null;
+  weightLb: number;
+  durationSec: number | null;
+  distanceM: number | null;
+  rpe: number | null;
+};
+
 export type PreviousExerciseSets = {
   exerciseName: string;
   normalizedName: string;
-  sets: Array<{ reps: number; weightLb: number }>;
+  sets: PreviousSet[];
 };
 
 /**
@@ -248,8 +297,11 @@ function previousSetsResult(
     exerciseName: exercise.name,
     normalizedName: exercise.normalizedName,
     sets: ordered.map((set) => ({
-      reps: set.reps,
+      reps: set.reps ?? null,
       weightLb: set.weightLb,
+      durationSec: set.durationSec ?? null,
+      distanceM: set.distanceM ?? null,
+      rpe: set.rpe ?? null,
     })),
   };
 }

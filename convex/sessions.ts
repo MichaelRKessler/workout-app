@@ -6,6 +6,7 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { internalMutation } from "./_generated/server";
 import { authedMutation, authedQuery } from "./lib/customFunctions";
 import { formatExerciseName } from "./lib/exerciseName";
+import { normalizeNote } from "./lib/measures";
 import {
   personalRecordForBatch,
   personalRecordValidator,
@@ -21,12 +22,14 @@ import { assertWeekRange, weekIndexFor, workoutStreak } from "./lib/week";
 import {
   EXERCISE_RECORD_SCAN,
   MAX_SETS_PER_SESSION,
-  assertReps,
-  assertWeightLb,
   getOrCreateExercise,
   getOwnedSession,
   loadRecentSetsForExercise,
+  normalizeSetInput,
+  presentSet,
+  recordPoint,
   requireOpenSession,
+  requireWritableSession,
 } from "./lib/workouts";
 
 const exerciseSummaryValidator = v.object({
@@ -46,8 +49,11 @@ const setDetailValidator = v.object({
   _id: v.id("sets"),
   exerciseId: v.id("exercises"),
   exerciseName: v.string(),
-  reps: v.number(),
+  reps: v.union(v.number(), v.null()),
   weightLb: v.number(),
+  durationSec: v.union(v.number(), v.null()),
+  distanceM: v.union(v.number(), v.null()),
+  rpe: v.union(v.number(), v.null()),
   loggedAt: v.number(),
 });
 
@@ -56,6 +62,7 @@ const sessionDetailValidator = v.object({
   status: v.union(v.literal("open"), v.literal("completed")),
   startedAt: v.number(),
   completedAt: v.union(v.number(), v.null()),
+  note: v.union(v.string(), v.null()),
   exercises: v.array(exerciseSummaryValidator),
   sets: v.array(setDetailValidator),
 });
@@ -84,8 +91,7 @@ async function loadSessionSets(ctx: QueryCtx, sessionId: Id<"sessions">) {
     _id: set._id,
     exerciseId: set.exerciseId,
     exerciseName: names.get(set.exerciseId) ?? "Exercise",
-    reps: set.reps,
-    weightLb: set.weightLb,
+    ...presentSet(set),
     loggedAt: set.loggedAt,
   }));
 }
@@ -140,6 +146,7 @@ export const getOpen = authedQuery({
       startedAt: v.number(),
       resumedAt: v.union(v.number(), v.null()),
       lastSetAt: v.union(v.number(), v.null()),
+      note: v.union(v.string(), v.null()),
     }),
     v.null(),
   ),
@@ -161,6 +168,7 @@ export const getOpen = authedQuery({
       startedAt: session.startedAt,
       resumedAt: session.resumedAt ?? null,
       lastSetAt: await newestLoggedAt(ctx, session._id),
+      note: session.note ?? null,
     };
   },
 });
@@ -193,6 +201,7 @@ export const complete = authedMutation({
   args: {
     sessionId: v.id("sessions"),
     completedAt: v.optional(v.number()),
+    note: v.optional(v.string()),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
@@ -208,10 +217,25 @@ export const complete = authedMutation({
       lastSetAt,
       explicit: args.completedAt,
     });
+    const note = args.note === undefined ? session.note : normalizeNote(args.note);
     await ctx.db.patch("sessions", session._id, {
       status: "completed",
       completedAt,
+      note,
     });
+    return null;
+  },
+});
+
+export const setNote = authedMutation({
+  args: {
+    sessionId: v.id("sessions"),
+    note: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const session = await requireWritableSession(ctx, ctx.userId, args.sessionId);
+    await ctx.db.patch("sessions", session._id, { note: normalizeNote(args.note) });
     return null;
   },
 });
@@ -290,8 +314,11 @@ const pastExerciseValidator = v.object({
   name: v.string(),
   sets: v.array(
     v.object({
-      reps: v.number(),
-      weightLb: v.number(),
+      reps: v.optional(v.number()),
+      weightLb: v.optional(v.number()),
+      durationSec: v.optional(v.number()),
+      distanceM: v.optional(v.number()),
+      rpe: v.optional(v.number()),
     }),
   ),
 });
@@ -304,6 +331,7 @@ const pastExerciseValidator = v.object({
 export const logPast = authedMutation({
   args: {
     startedAt: v.number(),
+    note: v.optional(v.string()),
     exercises: v.array(pastExerciseValidator),
   },
   returns: v.object({
@@ -328,10 +356,11 @@ export const logPast = authedMutation({
       throw new Error(`Log up to ${MAX_PAST_EXERCISES} exercises at a time`);
     }
 
+    const note = normalizeNote(args.note);
     let totalSets = 0;
     const validated: Array<{
       name: string;
-      sets: Array<{ reps: number; weightLb: number }>;
+      sets: ReturnType<typeof normalizeSetInput>[];
     }> = [];
     for (const exercise of args.exercises) {
       const formatted = formatExerciseName(exercise.name);
@@ -347,10 +376,7 @@ export const logPast = authedMutation({
       }
       validated.push({
         name: formatted.name,
-        sets: exercise.sets.map((set) => ({
-          reps: assertReps(set.reps),
-          weightLb: assertWeightLb(set.weightLb),
-        })),
+        sets: exercise.sets.map((set) => normalizeSetInput(set)),
       });
     }
 
@@ -360,6 +386,7 @@ export const logPast = authedMutation({
       status: "completed",
       startedAt,
       completedAt: startedAt,
+      ...(note ? { note } : {}),
     });
 
     let offset = 0;
@@ -367,24 +394,27 @@ export const logPast = authedMutation({
     for (const exercise of validated) {
       const exerciseId = await getOrCreateExercise(ctx, ctx.userId, exercise.name);
       const stored = await ctx.db.get("exercises", exerciseId);
-      const created: Array<{ reps: number; weightLb: number }> = [];
+      const created: Array<ReturnType<typeof recordPoint>> = [];
       for (const set of exercise.sets) {
         await ctx.db.insert("sets", {
           userId: ctx.userId,
           sessionId,
           exerciseId,
-          reps: set.reps,
           weightLb: set.weightLb,
           loggedAt: startedAt + offset,
+          ...(set.reps !== undefined ? { reps: set.reps } : {}),
+          ...(set.durationSec !== undefined ? { durationSec: set.durationSec } : {}),
+          ...(set.distanceM !== undefined ? { distanceM: set.distanceM } : {}),
+          ...(set.rpe !== undefined ? { rpe: set.rpe } : {}),
         });
         offset += 1;
-        created.push(set);
+        created.push(recordPoint(set));
       }
       const recent = await loadRecentSetsForExercise(ctx, ctx.userId, exerciseId);
       const previous = recent
         .filter((set) => set.sessionId !== sessionId)
         .slice(0, EXERCISE_RECORD_SCAN)
-        .map((set) => ({ reps: set.reps, weightLb: set.weightLb }));
+        .map((set) => recordPoint(set));
       const record = personalRecordForBatch(
         stored?.name ?? exercise.name,
         created,
@@ -547,6 +577,7 @@ export const get = authedQuery({
       status: session.status,
       startedAt: session.startedAt,
       completedAt: session.completedAt ?? null,
+      note: session.note ?? null,
       exercises: summarizeExercises(sets),
       sets,
     };

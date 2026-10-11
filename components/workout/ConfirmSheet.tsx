@@ -3,17 +3,19 @@
 import { Button } from "@/components/Button";
 import { CloseIcon, KeyboardIcon, MicIcon, PlusIcon, RetryIcon } from "@/components/icons";
 import { Sheet } from "@/components/Sheet";
+import { useWeightUnit } from "@/components/WeightUnit";
 import { ExerciseTile } from "@/components/workout/ExerciseRow";
 import { usePreviousExercise } from "@/components/workout/usePreviousExercise";
 import type { Id } from "@/convex/_generated/dataModel";
+import type { SetKind } from "@/convex/lib/measures";
 import { pluralize } from "@/lib/format";
-import type { VoiceDraft } from "@/lib/voice/confirm";
+import type { DraftSet, VoiceDraft } from "@/lib/voice/confirm";
 import { MAX_VOICE_SETS } from "@/lib/voice/proposal";
 
 const fieldClass =
   "h-12 w-full min-w-0 rounded-xl border border-line bg-background text-center font-mono text-lg font-medium text-foreground outline-none focus:border-foreground disabled:opacity-60";
 
-/** The parsed sets, editable, before anything is written. */
+/** The parsed exercises, each editable, before anything is written. */
 export function ConfirmSheet({
   open,
   draft,
@@ -37,38 +39,34 @@ export function ConfirmSheet({
   onConfirm: () => void;
   onRecordAgain: () => void;
 }) {
-  const history = usePreviousExercise(open && draft ? draft.exerciseName : "", excludeSessionId);
-
+  const unit = useWeightUnit();
   if (!draft) {
     return null;
   }
 
-  function updateSet(index: number, patch: Partial<VoiceDraft["sets"][number]>) {
+  const count = draft.exercises.reduce((sum, exercise) => sum + exercise.sets.length, 0);
+
+  function updateExercise(index: number, patch: Partial<VoiceDraft["exercises"][number]>) {
     if (!draft) {
       return;
     }
     onChange({
       ...draft,
-      sets: draft.sets.map((set, setIndex) => (setIndex === index ? { ...set, ...patch } : set)),
+      exercises: draft.exercises.map((exercise, exerciseIndex) =>
+        exerciseIndex === index ? { ...exercise, ...patch } : exercise,
+      ),
     });
   }
 
-  function removeSet(index: number) {
-    if (!draft || draft.sets.length <= 1) {
+  function removeExercise(index: number) {
+    if (!draft || draft.exercises.length <= 1) {
       return;
     }
-    onChange({ ...draft, sets: draft.sets.filter((_, setIndex) => setIndex !== index) });
+    onChange({
+      ...draft,
+      exercises: draft.exercises.filter((_, exerciseIndex) => exerciseIndex !== index),
+    });
   }
-
-  function addSet() {
-    if (!draft || draft.sets.length >= MAX_VOICE_SETS) {
-      return;
-    }
-    const last = draft.sets[draft.sets.length - 1] ?? { reps: "10", weight: "0" };
-    onChange({ ...draft, sets: [...draft.sets, { ...last }] });
-  }
-
-  const count = draft.sets.length;
 
   return (
     <Sheet open={open} onClose={onDiscard} labelledBy="confirm-title" dismissible={!saving}>
@@ -99,75 +97,36 @@ export function ConfirmSheet({
         )}
       </div>
 
-      <div className="mt-1.5 flex items-center gap-3">
-        <ExerciseTile name={draft.exerciseName} />
-        <label htmlFor="confirm-exercise" className="sr-only">
-          Exercise
-        </label>
-        <input
-          id="confirm-exercise"
-          value={draft.exerciseName}
-          onChange={(event) => onChange({ ...draft, exerciseName: event.target.value })}
-          disabled={saving}
-          autoComplete="off"
-          maxLength={80}
-          className="h-12 min-w-0 flex-1 border-0 border-b border-line bg-transparent p-0 text-[22px] font-semibold tracking-[-0.02em] text-foreground outline-none focus:border-foreground disabled:opacity-60"
-        />
-      </div>
-      {history.label ? <p className="mt-2 text-[13px] text-muted">{history.label}</p> : null}
-
-      <div className="mt-5 grid grid-cols-[28px_minmax(0,1fr)_minmax(0,1fr)_44px] items-center gap-x-2.5 gap-y-2">
-        <span className="text-[11px] font-medium tracking-[0.1em] text-subtle uppercase">Set</span>
-        <span className="text-center text-[11px] font-medium tracking-[0.1em] text-subtle uppercase">
-          Reps
-        </span>
-        <span className="text-center text-[11px] font-medium tracking-[0.1em] text-subtle uppercase">
-          Weight · lb
-        </span>
-        <span />
-        {draft.sets.map((set, index) => (
-          <div key={index} className="contents">
-            <span className="font-mono text-[15px] text-muted">{index + 1}</span>
-            <input
-              value={set.reps}
-              onChange={(event) => updateSet(index, { reps: event.target.value })}
-              inputMode="numeric"
-              autoComplete="off"
-              disabled={saving}
-              aria-label={`Set ${index + 1} reps`}
-              className={fieldClass}
-            />
-            <input
-              value={set.weight}
-              onChange={(event) => updateSet(index, { weight: event.target.value })}
-              inputMode="decimal"
-              autoComplete="off"
-              disabled={saving}
-              aria-label={`Set ${index + 1} weight in pounds`}
-              className={fieldClass}
-            />
-            <button
-              type="button"
-              onClick={() => removeSet(index)}
-              disabled={saving || count <= 1}
-              aria-label={`Remove set ${index + 1}`}
-              className="flex size-11 items-center justify-center rounded-full text-subtle hover:bg-fill-2 disabled:opacity-30"
-            >
-              <CloseIcon className="size-[18px]" strokeWidth={1.8} />
-            </button>
-          </div>
+      <div className="mt-3 flex flex-col gap-4">
+        {draft.exercises.map((exercise, index) => (
+          <ExerciseConfirmBlock
+            key={index}
+            exercise={exercise}
+            index={index}
+            unit={unit}
+            saving={saving}
+            canRemoveExercise={draft.exercises.length > 1}
+            totalSets={count}
+            excludeSessionId={excludeSessionId}
+            onChange={(next) => updateExercise(index, next)}
+            onRemove={() => removeExercise(index)}
+          />
         ))}
       </div>
 
-      <button
-        type="button"
-        onClick={addSet}
-        disabled={saving || count >= MAX_VOICE_SETS}
-        className="mt-1.5 flex min-h-11 items-center gap-2 self-start text-[15px] font-medium disabled:opacity-50"
-      >
-        <PlusIcon className="size-[18px]" strokeWidth={1.8} />
-        Add a set
-      </button>
+      <label htmlFor="confirm-note" className="mt-4 text-[11px] font-medium tracking-[0.1em] text-subtle uppercase">
+        Note
+      </label>
+      <textarea
+        id="confirm-note"
+        value={draft.note}
+        onChange={(event) => onChange({ ...draft, note: event.target.value })}
+        disabled={saving}
+        maxLength={500}
+        rows={2}
+        placeholder="Optional"
+        className="mt-2 w-full resize-none rounded-xl border border-line bg-background px-3 py-2 text-base text-foreground outline-none focus:border-foreground disabled:opacity-60"
+      />
 
       {notice ? (
         <p role="alert" className="mt-1.5 text-sm leading-5 text-danger">
@@ -175,7 +134,7 @@ export function ConfirmSheet({
         </p>
       ) : (
         <p className="mt-1.5 text-[13px] text-subtle">
-          Weights are in pounds, 0 is bodyweight. Nothing is saved until you add them.
+          Weights are in {unit}. 0 is bodyweight. Nothing is saved until you add them.
         </p>
       )}
 
@@ -183,10 +142,241 @@ export function ConfirmSheet({
         <Button variant="secondary" size="lg" className="flex-1" onClick={onDiscard} disabled={saving}>
           Discard
         </Button>
-        <Button size="lg" className="flex-[1.6]" onClick={onConfirm} disabled={saving}>
+        <Button size="lg" className="flex-[1.6]" onClick={onConfirm} disabled={saving || count === 0}>
           {saving ? "Saving…" : `Add ${pluralize(count, "set")}`}
         </Button>
       </div>
     </Sheet>
   );
+}
+
+function ExerciseConfirmBlock({
+  exercise,
+  index,
+  unit,
+  saving,
+  canRemoveExercise,
+  totalSets,
+  excludeSessionId,
+  onChange,
+  onRemove,
+}: {
+  exercise: VoiceDraft["exercises"][number];
+  index: number;
+  unit: "lb" | "kg";
+  saving: boolean;
+  canRemoveExercise: boolean;
+  totalSets: number;
+  excludeSessionId?: Id<"sessions">;
+  onChange: (exercise: VoiceDraft["exercises"][number]) => void;
+  onRemove: () => void;
+}) {
+  const history = usePreviousExercise(exercise.exerciseName, excludeSessionId);
+
+  function updateSet(setIndex: number, patch: Partial<DraftSet>) {
+    onChange({
+      ...exercise,
+      sets: exercise.sets.map((set, index) => (index === setIndex ? { ...set, ...patch } : set)),
+    });
+  }
+
+  function removeSet(setIndex: number) {
+    if (exercise.sets.length <= 1) {
+      return;
+    }
+    onChange({ ...exercise, sets: exercise.sets.filter((_, index) => index !== setIndex) });
+  }
+
+  function addSet() {
+    if (totalSets >= MAX_VOICE_SETS) {
+      return;
+    }
+    const last = exercise.sets[exercise.sets.length - 1] ?? blankSet();
+    onChange({ ...exercise, sets: [...exercise.sets, { ...last }] });
+  }
+
+  return (
+    <section className="rounded-2xl border border-line bg-background p-3">
+      <div className="flex items-center gap-3">
+        <ExerciseTile name={exercise.exerciseName} />
+        <label htmlFor={`confirm-exercise-${index}`} className="sr-only">
+          Exercise {index + 1}
+        </label>
+        <input
+          id={`confirm-exercise-${index}`}
+          value={exercise.exerciseName}
+          onChange={(event) => onChange({ ...exercise, exerciseName: event.target.value })}
+          disabled={saving}
+          autoComplete="off"
+          maxLength={80}
+          className="h-12 min-w-0 flex-1 border-0 border-b border-line bg-transparent p-0 text-[22px] font-semibold tracking-[-0.02em] text-foreground outline-none focus:border-foreground disabled:opacity-60"
+        />
+        {canRemoveExercise ? (
+          <button
+            type="button"
+            onClick={onRemove}
+            disabled={saving}
+            className="min-h-11 rounded-full px-2 text-sm font-medium text-danger hover:bg-fill-2 disabled:opacity-40"
+          >
+            Remove
+          </button>
+        ) : null}
+      </div>
+      {history.label ? <p className="mt-2 text-[13px] text-muted">{history.label}</p> : null}
+
+      <div className="mt-3 flex flex-col gap-3">
+        {exercise.sets.map((set, setIndex) => (
+          <div key={setIndex} className="flex flex-col gap-2">
+            <div className="flex items-center justify-between">
+              <span className="font-mono text-[15px] text-muted">Set {setIndex + 1}</span>
+              <button
+                type="button"
+                onClick={() => removeSet(setIndex)}
+                disabled={saving || exercise.sets.length <= 1}
+                aria-label={`Remove set ${setIndex + 1} of ${exercise.exerciseName}`}
+                className="flex size-11 items-center justify-center rounded-full text-subtle hover:bg-fill-2 disabled:opacity-30"
+              >
+                <CloseIcon className="size-[18px]" strokeWidth={1.8} />
+              </button>
+            </div>
+            <KindSwitch
+              kind={set.kind}
+              disabled={saving}
+              onChange={(kind) => updateSet(setIndex, { kind })}
+            />
+            <div className="grid grid-cols-2 gap-2">
+              {set.kind === "strength" ? (
+                <Field
+                  label="Reps"
+                  value={set.reps}
+                  inputMode="numeric"
+                  disabled={saving}
+                  onChange={(reps) => updateSet(setIndex, { reps })}
+                />
+              ) : null}
+              {set.kind !== "strength" ? (
+                <Field
+                  label={set.kind === "distance" ? "Distance" : "Time"}
+                  value={set.kind === "distance" ? set.distance : set.duration}
+                  inputMode="text"
+                  disabled={saving}
+                  onChange={(value) =>
+                    updateSet(setIndex, set.kind === "distance" ? { distance: value } : { duration: value })
+                  }
+                />
+              ) : null}
+              <Field
+                label={`Weight · ${unit}`}
+                value={set.weight}
+                inputMode="decimal"
+                disabled={saving}
+                onChange={(weight) => updateSet(setIndex, { weight, weightLb: null })}
+              />
+              {set.kind === "distance" ? (
+                <Field
+                  label="Time"
+                  value={set.duration}
+                  inputMode="text"
+                  disabled={saving}
+                  onChange={(duration) => updateSet(setIndex, { duration })}
+                />
+              ) : null}
+              <Field
+                label="RPE"
+                value={set.rpe}
+                inputMode="numeric"
+                disabled={saving}
+                onChange={(rpe) => updateSet(setIndex, { rpe })}
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <button
+        type="button"
+        onClick={addSet}
+        disabled={saving || totalSets >= MAX_VOICE_SETS}
+        className="mt-1.5 flex min-h-11 items-center gap-2 self-start text-[15px] font-medium disabled:opacity-50"
+      >
+        <PlusIcon className="size-[18px]" strokeWidth={1.8} />
+        Add a set
+      </button>
+    </section>
+  );
+}
+
+function KindSwitch({
+  kind,
+  disabled,
+  onChange,
+}: {
+  kind: SetKind;
+  disabled: boolean;
+  onChange: (kind: SetKind) => void;
+}) {
+  const options: Array<{ id: SetKind; label: string }> = [
+    { id: "strength", label: "Reps" },
+    { id: "timed", label: "Time" },
+    { id: "distance", label: "Distance" },
+  ];
+  return (
+    <div role="group" aria-label="How this set is measured" className="flex rounded-full border border-line p-0.5">
+      {options.map((option) => (
+        <button
+          key={option.id}
+          type="button"
+          aria-pressed={kind === option.id}
+          disabled={disabled}
+          onClick={() => onChange(option.id)}
+          className={`min-h-9 flex-1 rounded-full px-2 text-sm font-medium disabled:opacity-50 ${
+            kind === option.id ? "bg-inverse text-inverse-ink" : "text-muted"
+          }`}
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function Field({
+  label,
+  value,
+  inputMode,
+  disabled,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  inputMode: "numeric" | "decimal" | "text";
+  disabled: boolean;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="flex flex-col gap-1">
+      <span className="text-[11px] font-medium tracking-[0.1em] text-subtle uppercase">{label}</span>
+      <input
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        inputMode={inputMode}
+        autoComplete="off"
+        disabled={disabled}
+        aria-label={label}
+        className={fieldClass}
+      />
+    </label>
+  );
+}
+
+function blankSet(): DraftSet {
+  return {
+    kind: "strength",
+    reps: "10",
+    weight: "0",
+    duration: "",
+    distance: "",
+    rpe: "",
+    weightLb: 0,
+  };
 }

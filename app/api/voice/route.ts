@@ -3,6 +3,7 @@ import { convexAuthNextjsToken } from "@convex-dev/auth/nextjs/server";
 import { fetchQuery } from "convex/nextjs";
 import { NextResponse } from "next/server";
 import { api } from "@/convex/_generated/api";
+import type { WeightUnit } from "@/convex/lib/units";
 import { readVoiceAccess } from "@/lib/voice/access";
 import { readGeminiApiKey, readGeminiModel } from "@/lib/voice/env";
 import { handleVoiceParse } from "@/lib/voice/handleVoiceParse";
@@ -53,6 +54,14 @@ export async function POST(request: Request) {
     return await fetchQuery(api.exercises.namesForVoice, {}, { token });
   });
 
+  const weightUnit = await loadWeightUnit(voiceAccess, async () => {
+    if (!token || !process.env.NEXT_PUBLIC_CONVEX_URL) {
+      return "lb";
+    }
+    const preferences = await fetchQuery(api.users.preferences, {}, { token });
+    return preferences.weightUnit;
+  });
+
   const result = await handleVoiceParse({
     token,
     signedIn: voiceAccess.signedIn,
@@ -63,9 +72,25 @@ export async function POST(request: Request) {
     mimeType,
     text,
     knownExerciseNames,
+    weightUnit,
   });
 
   return NextResponse.json(result.body, { status: result.status });
+}
+
+async function loadWeightUnit(
+  access: { signedIn: boolean; allowed: boolean },
+  load: () => Promise<WeightUnit>,
+): Promise<WeightUnit> {
+  if (!access.signedIn || !access.allowed) {
+    return "lb";
+  }
+  try {
+    const unit = await load();
+    return unit === "kg" ? "kg" : "lb";
+  } catch {
+    return "lb";
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

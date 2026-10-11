@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import { setKind } from "./measures";
 
 /** Epley estimate: weight × (1 + reps / 30). Bodyweight has no estimate. */
 export function epleyOneRepMax(weightLb: number, reps: number): number | null {
@@ -15,21 +16,34 @@ export const personalRecordValidator = v.object({
     v.literal("epley"),
     v.literal("both"),
     v.literal("reps"),
+    v.literal("duration"),
+    v.literal("distance"),
   ),
-  reps: v.number(),
+  reps: v.union(v.number(), v.null()),
   weightLb: v.number(),
   epleyLb: v.union(v.number(), v.null()),
+  durationSec: v.union(v.number(), v.null()),
+  distanceM: v.union(v.number(), v.null()),
 });
+
+export type RecordKind = "weight" | "epley" | "both" | "reps" | "duration" | "distance";
 
 export type PersonalRecord = {
   exerciseName: string;
-  kind: "weight" | "epley" | "both" | "reps";
-  reps: number;
+  kind: RecordKind;
+  reps: number | null;
   weightLb: number;
   epleyLb: number | null;
+  durationSec: number | null;
+  distanceM: number | null;
 };
 
-type SetPoint = { reps: number; weightLb: number };
+type SetPoint = {
+  reps?: number | null;
+  weightLb: number;
+  durationSec?: number | null;
+  distanceM?: number | null;
+};
 
 /**
  * A set is a PR when it beats this exercise's previous best.
@@ -37,55 +51,157 @@ type SetPoint = { reps: number; weightLb: number };
  * Bodyweight sets (0 lb) can beat the most reps. The first set of either kind counts.
  * Ties do not.
  */
+function recordBase(
+  exerciseName: string,
+  kind: RecordKind,
+  set: SetPoint,
+  epleyLb: number | null,
+): PersonalRecord {
+  return {
+    exerciseName,
+    kind,
+    reps: set.reps ?? null,
+    weightLb: set.weightLb,
+    epleyLb,
+    durationSec: set.durationSec ?? null,
+    distanceM: set.distanceM ?? null,
+  };
+}
+
 export function personalRecordForSet(
   exerciseName: string,
   set: SetPoint,
   previous: SetPoint[],
 ): PersonalRecord | null {
-  if (set.weightLb <= 0) {
-    let bestReps = 0;
-    for (const earlier of previous) {
-      if (earlier.weightLb <= 0 && earlier.reps > bestReps) {
-        bestReps = earlier.reps;
+  const kind = setKind(set);
+  if (kind === "timed") {
+    return durationRecord(exerciseName, set, previous);
+  }
+  if (kind === "distance") {
+    return distanceRecord(exerciseName, set, previous);
+  }
+  return strengthRecord(exerciseName, set, previous);
+}
+
+function durationRecord(
+  exerciseName: string,
+  set: SetPoint,
+  previous: SetPoint[],
+): PersonalRecord | null {
+  const duration = set.durationSec ?? 0;
+  if (duration <= 0) {
+    return null;
+  }
+  let best = 0;
+  let bestWeight = -1;
+  for (const earlier of previous) {
+    if (setKind(earlier) !== "timed") {
+      continue;
+    }
+    const earlierDuration = earlier.durationSec ?? 0;
+    if (earlierDuration > best || (earlierDuration === best && earlier.weightLb > bestWeight)) {
+      best = earlierDuration;
+      bestWeight = earlier.weightLb;
+    }
+  }
+  const longer = duration > best;
+  const heavierTie = duration === best && best > 0 && set.weightLb > bestWeight;
+  if (!longer && !heavierTie) {
+    return null;
+  }
+  return recordBase(exerciseName, "duration", set, null);
+}
+
+function distanceRecord(
+  exerciseName: string,
+  set: SetPoint,
+  previous: SetPoint[],
+): PersonalRecord | null {
+  const distance = set.distanceM ?? 0;
+  if (distance <= 0) {
+    return null;
+  }
+  let bestDistance = 0;
+  let bestTime: number | null = null;
+  for (const earlier of previous) {
+    if (setKind(earlier) !== "distance") {
+      continue;
+    }
+    const earlierDistance = earlier.distanceM ?? 0;
+    if (earlierDistance > bestDistance) {
+      bestDistance = earlierDistance;
+      bestTime = earlier.durationSec ?? null;
+    } else if (earlierDistance === bestDistance && earlierDistance > 0) {
+      const time = earlier.durationSec ?? null;
+      if (time !== null && (bestTime === null || time < bestTime)) {
+        bestTime = time;
       }
     }
-    if (set.reps <= bestReps) {
+  }
+  if (distance > bestDistance) {
+    return recordBase(exerciseName, "distance", set, null);
+  }
+  const time = set.durationSec ?? null;
+  if (
+    distance === bestDistance &&
+    time !== null &&
+    bestTime !== null &&
+    time < bestTime
+  ) {
+    return recordBase(exerciseName, "distance", set, null);
+  }
+  return null;
+}
+
+function strengthRecord(
+  exerciseName: string,
+  set: SetPoint,
+  previous: SetPoint[],
+): PersonalRecord | null {
+  const reps = set.reps ?? 0;
+  if (reps < 1) {
+    return null;
+  }
+  const earlierSets = previous.filter((earlier) => setKind(earlier) === "strength");
+  if (set.weightLb <= 0) {
+    let bestReps = 0;
+    for (const earlier of earlierSets) {
+      const earlierReps = earlier.reps ?? 0;
+      if (earlier.weightLb <= 0 && earlierReps > bestReps) {
+        bestReps = earlierReps;
+      }
+    }
+    if (reps <= bestReps) {
       return null;
     }
-    return {
-      exerciseName,
-      kind: "reps",
-      reps: set.reps,
-      weightLb: 0,
-      epleyLb: null,
-    };
+    return recordBase(exerciseName, "reps", { ...set, reps, weightLb: 0 }, null);
   }
 
   let bestWeight = 0;
   let bestEpley = 0;
-  for (const earlier of previous) {
+  for (const earlier of earlierSets) {
+    const earlierReps = earlier.reps ?? 0;
     if (earlier.weightLb > bestWeight) {
       bestWeight = earlier.weightLb;
     }
-    const earlierEpley = epleyOneRepMax(earlier.weightLb, earlier.reps);
+    const earlierEpley = epleyOneRepMax(earlier.weightLb, earlierReps);
     if (earlierEpley !== null && earlierEpley > bestEpley) {
       bestEpley = earlierEpley;
     }
   }
 
-  const epleyLb = epleyOneRepMax(set.weightLb, set.reps);
+  const epleyLb = epleyOneRepMax(set.weightLb, reps);
   const beatWeight = set.weightLb > bestWeight;
   const beatEpley = epleyLb !== null && epleyLb > bestEpley;
   if (!beatWeight && !beatEpley) {
     return null;
   }
-  return {
+  return recordBase(
     exerciseName,
-    kind: beatWeight && beatEpley ? "both" : beatWeight ? "weight" : "epley",
-    reps: set.reps,
-    weightLb: set.weightLb,
+    beatWeight && beatEpley ? "both" : beatWeight ? "weight" : "epley",
+    { ...set, reps },
     epleyLb,
-  };
+  );
 }
 
 /** The last new record in a batch, judged in the order the sets were logged. */
@@ -94,14 +210,24 @@ export function personalRecordForBatch(
   created: SetPoint[],
   previous: SetPoint[],
 ): PersonalRecord | null {
-  const baseline = previous.map((set) => ({ reps: set.reps, weightLb: set.weightLb }));
+  const baseline = previous.map((set) => ({
+    reps: set.reps,
+    weightLb: set.weightLb,
+    durationSec: set.durationSec,
+    distanceM: set.distanceM,
+  }));
   let latest: PersonalRecord | null = null;
   for (const set of created) {
     const record = personalRecordForSet(exerciseName, set, baseline);
     if (record) {
       latest = record;
     }
-    baseline.push({ reps: set.reps, weightLb: set.weightLb });
+    baseline.push({
+      reps: set.reps,
+      weightLb: set.weightLb,
+      durationSec: set.durationSec,
+      distanceM: set.distanceM,
+    });
   }
   return latest;
 }
@@ -109,17 +235,21 @@ export function personalRecordForBatch(
 export type Effort = {
   setId: string;
   sessionId: string;
-  reps: number;
+  reps: number | null;
   weightLb: number;
   epleyLb: number | null;
+  durationSec: number | null;
+  distanceM: number | null;
   loggedAt: number;
 };
 
 type EffortSet = {
   _id: string;
   sessionId: string;
-  reps: number;
+  reps?: number | null;
   weightLb: number;
+  durationSec?: number | null;
+  distanceM?: number | null;
   loggedAt: number;
 };
 
@@ -127,9 +257,11 @@ function toEffort(set: EffortSet, epleyLb: number | null): Effort {
   return {
     setId: set._id,
     sessionId: set.sessionId,
-    reps: set.reps,
+    reps: set.reps ?? null,
     weightLb: set.weightLb,
     epleyLb,
+    durationSec: set.durationSec ?? null,
+    distanceM: set.distanceM ?? null,
     loggedAt: set.loggedAt,
   };
 }
@@ -142,17 +274,65 @@ export function summarizeEfforts(sets: EffortSet[]): {
   bestWeight: Effort | null;
   bestEpley: Effort | null;
   bestBodyweight: Effort | null;
+  bestDuration: Effort | null;
+  bestDistance: Effort | null;
 } {
   let bestWeight: Effort | null = null;
   let bestEpley: Effort | null = null;
   let bestBodyweight: Effort | null = null;
+  let bestDuration: Effort | null = null;
+  let bestDistance: Effort | null = null;
 
   for (const set of sets) {
+    const kind = setKind(set);
+    if (kind === "timed") {
+      const duration = set.durationSec ?? 0;
+      const current = bestDuration?.durationSec ?? 0;
+      const longer = bestDuration === null || duration > current;
+      const heavierTie =
+        bestDuration !== null &&
+        duration === current &&
+        set.weightLb > bestDuration.weightLb;
+      const earlierTie =
+        bestDuration !== null &&
+        duration === current &&
+        set.weightLb === bestDuration.weightLb &&
+        set.loggedAt < bestDuration.loggedAt;
+      if (longer || heavierTie || earlierTie) {
+        bestDuration = toEffort(set, null);
+      }
+      continue;
+    }
+    if (kind === "distance") {
+      const distance = set.distanceM ?? 0;
+      const current = bestDistance?.distanceM ?? 0;
+      const farther = bestDistance === null || distance > current;
+      const fasterTie =
+        bestDistance !== null &&
+        distance === current &&
+        set.durationSec != null &&
+        bestDistance.durationSec != null &&
+        set.durationSec < bestDistance.durationSec;
+      const earlierTie =
+        bestDistance !== null &&
+        distance === current &&
+        set.durationSec === bestDistance.durationSec &&
+        set.loggedAt < bestDistance.loggedAt;
+      if (farther || fasterTie || earlierTie) {
+        bestDistance = toEffort(set, null);
+      }
+      continue;
+    }
+
+    const reps = set.reps ?? 0;
+    if (reps < 1) {
+      continue;
+    }
     if (set.weightLb <= 0) {
-      const betterReps = bestBodyweight === null || set.reps > bestBodyweight.reps;
+      const betterReps = bestBodyweight === null || reps > (bestBodyweight.reps ?? 0);
       const earlierTie =
         bestBodyweight !== null &&
-        set.reps === bestBodyweight.reps &&
+        reps === bestBodyweight.reps &&
         set.loggedAt < bestBodyweight.loggedAt;
       if (betterReps || earlierTie) {
         bestBodyweight = toEffort(set, null);
@@ -160,15 +340,15 @@ export function summarizeEfforts(sets: EffortSet[]): {
       continue;
     }
 
-    const epleyLb = epleyOneRepMax(set.weightLb, set.reps);
+    const epleyLb = epleyOneRepMax(set.weightLb, reps);
     const effort = toEffort(set, epleyLb);
     if (bestWeight === null || set.weightLb > bestWeight.weightLb) {
       bestWeight = effort;
-    } else if (set.weightLb === bestWeight.weightLb && set.reps > bestWeight.reps) {
+    } else if (set.weightLb === bestWeight.weightLb && reps > (bestWeight.reps ?? 0)) {
       bestWeight = effort;
     } else if (
       set.weightLb === bestWeight.weightLb &&
-      set.reps === bestWeight.reps &&
+      reps === bestWeight.reps &&
       set.loggedAt < bestWeight.loggedAt
     ) {
       bestWeight = effort;
@@ -184,7 +364,7 @@ export function summarizeEfforts(sets: EffortSet[]): {
     }
   }
 
-  return { bestWeight, bestEpley, bestBodyweight };
+  return { bestWeight, bestEpley, bestBodyweight, bestDuration, bestDistance };
 }
 
 export type TrendPoint = {
@@ -198,14 +378,19 @@ export type TrendPoint = {
  * estimate in that workout. An exercise that has never used weight charts the
  * most reps instead.
  */
+export type TrendUnit = "lb" | "reps" | "m" | "sec";
+
 export function trendFromSets(
   sets: Array<EffortSet & { sessionStartedAt: number }>,
   maxPoints: number,
-): { unit: "lb" | "reps"; points: TrendPoint[] } {
-  const weighted = sets.some((set) => set.weightLb > 0);
+): { unit: TrendUnit; points: TrendPoint[] } {
+  const weighted = sets.some((set) => setKind(set) === "strength" && set.weightLb > 0);
+  const strength = sets.some((set) => setKind(set) === "strength" && (set.reps ?? 0) > 0);
+  const distance = sets.some((set) => setKind(set) === "distance");
+  const unit: TrendUnit = weighted ? "lb" : strength ? "reps" : distance ? "m" : "sec";
   const bySession = new Map<string, TrendPoint>();
   for (const set of sets) {
-    const value = weighted ? epleyOneRepMax(set.weightLb, set.reps) : set.reps;
+    const value = trendValue(set, unit);
     if (value === null) {
       continue;
     }
@@ -229,17 +414,36 @@ export function trendFromSets(
     return left.sessionId < right.sessionId ? -1 : 1;
   });
   return {
-    unit: weighted ? "lb" : "reps",
+    unit,
     points: points.slice(-maxPoints),
   };
 }
 
-/** Reps × weight. Bodyweight sets (0 lb) add nothing. */
-export function volumeLb(sets: Array<{ reps: number; weightLb: number }>): number {
+function trendValue(set: EffortSet, unit: TrendUnit): number | null {
+  if (unit === "lb") {
+    return setKind(set) === "strength" ? epleyOneRepMax(set.weightLb, set.reps ?? 0) : null;
+  }
+  if (unit === "reps") {
+    return setKind(set) === "strength" && (set.reps ?? 0) > 0 ? (set.reps ?? 0) : null;
+  }
+  if (unit === "m") {
+    return setKind(set) === "distance" ? (set.distanceM ?? null) : null;
+  }
+  return setKind(set) === "timed" ? (set.durationSec ?? null) : null;
+}
+
+/**
+ * Reps × weight, in pounds. Bodyweight, timed, and distance-only sets add
+ * nothing. A timed or distance set that also has reps still counts those reps.
+ */
+export function volumeLb(
+  sets: Array<{ reps?: number | null; weightLb: number }>,
+): number {
   let total = 0;
   for (const set of sets) {
-    if (set.weightLb > 0) {
-      total += set.reps * set.weightLb;
+    const reps = set.reps ?? 0;
+    if (reps > 0 && set.weightLb > 0) {
+      total += reps * set.weightLb;
     }
   }
   return Math.round(total * 100) / 100;

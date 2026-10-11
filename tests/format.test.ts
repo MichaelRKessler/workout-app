@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { formatWeightAmount, toPounds } from "../convex/lib/units.ts";
 import {
   describeSet,
   formatDuration,
@@ -19,6 +20,15 @@ test("set labels are compact in lists and spelled out for screen readers", () =>
   assert.equal(formatSetShort({ reps: 20, weightLb: 0 }), "20×BW");
   assert.equal(describeSet({ reps: 6, weightLb: 155 }), "6 reps at 155 lb");
   assert.equal(describeSet({ reps: 1, weightLb: 0 }), "1 rep, bodyweight");
+  assert.equal(formatSetShort({ reps: null, weightLb: 0, durationSec: 60 }), "1:00");
+  assert.equal(describeSet({ reps: null, weightLb: 0, durationSec: 60 }), "1 minute, bodyweight");
+  assert.equal(formatSetShort({ reps: null, weightLb: 0, distanceM: 2000 }), "2 km");
+  assert.equal(
+    formatSetShort({ reps: 5, weightLb: 220.46, rpe: 8 }, "kg"),
+    "5×100 RPE 8",
+  );
+  assert.equal(formatWeightAmount(toPounds(100, "kg"), "kg"), "100");
+  assert.equal(formatWeightAmount(toPounds(2.5, "kg"), "kg"), "2.5");
 });
 
 test("last time summarizes the previous workout", () => {
@@ -77,6 +87,7 @@ test("a past workout with no recorded length hides the duration", () => {
 test("volume, streaks, and personal records have stable labels", () => {
   assert.equal(formatVolumeLb(0), "0 lb");
   assert.equal(formatVolumeLb(9420.4), "9,420 lb");
+  assert.equal(formatVolumeLb(220.46 * 5, "kg"), "500 kg");
   assert.equal(streakLabel(0), "No streak yet");
   assert.equal(streakLabel(1), "1-week streak");
   assert.equal(streakLabel(4), "4-week streak");
@@ -99,5 +110,28 @@ test("volume, streaks, and personal records have stable labels", () => {
       epleyLb: null,
     }),
     "New PR · push-ups · 20 reps",
+  );
+  assert.equal(
+    formatPersonalRecord({
+      exerciseName: "plank",
+      kind: "duration",
+      reps: null,
+      weightLb: 0,
+      epleyLb: null,
+      durationSec: 90,
+    }),
+    "New PR · plank · 1:30",
+  );
+  assert.equal(
+    formatPersonalRecord({
+      exerciseName: "row",
+      kind: "distance",
+      reps: null,
+      weightLb: 0,
+      epleyLb: null,
+      distanceM: 2000,
+      durationSec: 480,
+    }),
+    "New PR · row · 2 km in 8:00",
   );
 });

@@ -2,8 +2,11 @@ export type SetLine = {
   _id: string;
   exerciseId: string;
   exerciseName: string;
-  reps: number;
+  reps: number | null;
   weightLb: number;
+  durationSec: number | null;
+  distanceM: number | null;
+  rpe: number | null;
   loggedAt: number;
 };
 

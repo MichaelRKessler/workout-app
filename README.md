@@ -1,12 +1,12 @@
 # Workout
 
-A mobile-friendly workout log. Sign in with Google, record sets, reps, and weight for any exercise, and open the history later. The home screen shows this week against last week. Each exercise has its own history, with your best set, an estimated one-rep max, and a trend. A finished workout can be corrected or deleted, and a workout you forgot can be logged for the day it happened.
+A mobile-friendly workout log. Sign in with Google, record sets for any exercise, and open the history later. A set can be reps and weight, a time (a plank), or a distance (a row), with an optional RPE. Weights are stored in pounds and shown in the unit you pick in Settings, pounds or kilograms. The home screen shows this week against last week. Each exercise has its own history, with your best set, an estimated one-rep max, and a trend. A finished workout can be corrected or deleted, and a workout you forgot can be logged for the day it happened. Settings also lists your exercises so you can rename one, or merge a duplicate into the name you want to keep.
 
-Voice comes first. Tap the mic and say a set, for example “bench press, three sets of ten at 135” or “push-ups 20”. The app shows the exercise, sets, reps, and weight so you can edit them. Nothing is written until you confirm, and the first confirmed set starts the workout. During a workout you can also type a set in the bar at the bottom (“squat 3x5 225”), tap `+` for the manual form, or tap `+` on an exercise to log its last set again. Each add shows an Undo.
+Voice comes first. Tap the mic and say one or more exercises, for example “bench press, three sets of ten at 135, then rows, three sets of eight at 95” or “plank 60 seconds”. The app shows each exercise as its own block so you can edit the sets. Nothing is written until you confirm, and confirming saves every exercise in one step. The first confirmed set starts the workout. During a workout you can also type a set in the bar at the bottom (“squat 3x5 225”), tap `+` for the manual form, or tap `+` on an exercise to log its last set again. Each add shows an Undo. A workout can carry a short note.
 
 Push-ups and bench press show up as examples when you have not saved them yet. They are not a fixed exercise list. Type any name to add it. Exercise icons come from words in the name (barbell, dumbbell, kettlebell, bodyweight, cable or machine), with a neutral icon when nothing matches.
 
-Settings sit behind the avatar in the top right: dark mode, installing the app, and signing out. The theme is saved in a `theme` cookie on that device, so the server renders the right one on the first paint.
+Settings sit behind the avatar in the top right: weight unit, the exercise list, dark mode, installing the app, and signing out. The weight unit is saved with your account. The theme is saved in a `theme` cookie on that device, so the server renders the right one on the first paint.
 
 ## Run it locally
 

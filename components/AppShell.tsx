@@ -1,6 +1,7 @@
 "use client";
 
 import { NoAccess } from "@/components/NoAccess";
+import { WeightUnitProvider } from "@/components/WeightUnit";
 import { BrandMark } from "@/components/icons";
 import { api } from "@/convex/_generated/api";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
@@ -47,7 +48,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   return (
     <main className="mx-auto min-h-dvh w-full max-w-lg">
       <AdminSeed />
-      {children}
+      <WeightUnitProvider>{children}</WeightUnitProvider>
     </main>
   );
 }
