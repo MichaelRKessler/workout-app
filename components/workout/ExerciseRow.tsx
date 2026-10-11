@@ -1,5 +1,6 @@
 "use client";
 
+import { useWeightUnit } from "@/components/WeightUnit";
 import { ExerciseGlyph, PlusIcon, Spinner } from "@/components/icons";
 import { exerciseIconKind } from "@/lib/exerciseIcon";
 import { describeSet, formatSetShort } from "@/lib/format";
@@ -19,6 +20,7 @@ export function ExerciseTile({ name }: { name: string }) {
 }
 
 function SetTokens({ sets, newestSetId }: { sets: SetLine[]; newestSetId?: string }) {
+  const unit = useWeightUnit();
   return (
     <span className="flex flex-wrap gap-x-3 gap-y-0.5 font-mono text-sm text-muted">
       {sets.map((set) => (
@@ -26,7 +28,7 @@ function SetTokens({ sets, newestSetId }: { sets: SetLine[]; newestSetId?: strin
           key={set._id}
           className={set._id === newestSetId ? "font-semibold text-foreground" : undefined}
         >
-          {formatSetShort(set)}
+          {formatSetShort(set, unit)}
         </span>
       ))}
     </span>
@@ -63,6 +65,7 @@ export function ExerciseRow({
   exerciseHref?: string;
 }) {
   const detailId = useId();
+  const unit = useWeightUnit();
   const last = sets[sets.length - 1];
   const nameNode = exerciseHref ? (
     <Link href={exerciseHref} className="truncate text-base font-semibold tracking-[-0.01em] hover:underline">
@@ -115,7 +118,7 @@ export function ExerciseRow({
             type="button"
             onClick={onRepeat}
             disabled={repeating}
-            aria-label={`Log another set of ${name}, ${describeSet(last)}`}
+            aria-label={`Log another set of ${name}, ${describeSet(last, unit)}`}
             className="flex size-11 shrink-0 items-center justify-center rounded-full border border-line bg-surface text-foreground hover:bg-fill-2 disabled:opacity-60"
           >
             {repeating ? <Spinner className="size-4" /> : <PlusIcon className="size-[18px]" />}
@@ -128,7 +131,7 @@ export function ExerciseRow({
             <li key={set._id} className="flex min-h-11 items-center justify-between gap-3 text-sm">
               <span>
                 <span className="text-subtle">Set {index + 1}</span>
-                <span className="ml-3 font-mono">{formatSetShort(set)}</span>
+                <span className="ml-3 font-mono">{formatSetShort(set, unit)}</span>
               </span>
               {onEditSet || onRemoveSet ? (
                 <span className="flex items-center">

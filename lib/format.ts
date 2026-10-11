@@ -1,50 +1,137 @@
-export function formatWeightLb(weightLb: number): string {
+import {
+  formatClock,
+  formatDistance,
+  setKind,
+} from "../convex/lib/measures.ts";
+import { formatWeightAmount, LB_PER_KG, type WeightUnit } from "../convex/lib/units.ts";
+
+type DisplaySet = {
+  reps?: number | null;
+  weightLb: number;
+  durationSec?: number | null;
+  distanceM?: number | null;
+  rpe?: number | null;
+};
+
+export function formatWeightLb(weightLb: number, unit: WeightUnit = "lb"): string {
   if (weightLb === 0) {
     return "bodyweight";
   }
-  const rounded = Math.round(weightLb * 100) / 100;
-  return `${rounded} lb`;
+  return `${formatWeightAmount(weightLb, unit)} ${unit}`;
 }
 
-/** Compact set label for lists: "10×135", or "20×BW" for bodyweight. */
-export function formatSetShort(set: { reps: number; weightLb: number }): string {
-  if (set.weightLb === 0) {
-    return `${set.reps}×BW`;
+/** Compact set label for lists: "10×135", "1:00", "2 km", or "20×BW". */
+export function formatSetShort(set: DisplaySet, unit: WeightUnit = "lb"): string {
+  const kind = setKind(set);
+  let label: string;
+  if (kind === "timed") {
+    label = formatClock(set.durationSec ?? 0);
+    if (set.weightLb > 0) {
+      label += ` @ ${formatWeightAmount(set.weightLb, unit)}`;
+    }
+  } else if (kind === "distance") {
+    label = formatDistance(set.distanceM ?? 0);
+    if (set.durationSec) {
+      label += ` in ${formatClock(set.durationSec)}`;
+    }
+    if (set.weightLb > 0) {
+      label += ` @ ${formatWeightAmount(set.weightLb, unit)}`;
+    }
+  } else if (set.weightLb === 0) {
+    label = `${set.reps ?? 0}×BW`;
+  } else {
+    label = `${set.reps ?? 0}×${formatWeightAmount(set.weightLb, unit)}`;
   }
-  return `${set.reps}×${Math.round(set.weightLb * 100) / 100}`;
+  if (set.rpe) {
+    label += ` RPE ${set.rpe}`;
+  }
+  return label;
 }
 
 /**
  * Previous-workout summary. Uniform work reads "Last time: 3×10 @ 135".
  * Mixed sets fall back to the compact list labels.
  */
-export function formatLastTime(
-  sets: Array<{ reps: number; weightLb: number }>,
-): string | null {
+export function formatLastTime(sets: DisplaySet[], unit: WeightUnit = "lb"): string | null {
   const first = sets[0];
   if (!first) {
     return null;
   }
   const uniform = sets.every(
-    (set) => set.reps === first.reps && set.weightLb === first.weightLb,
+    (set) =>
+      (set.reps ?? null) === (first.reps ?? null) &&
+      set.weightLb === first.weightLb &&
+      (set.durationSec ?? null) === (first.durationSec ?? null) &&
+      (set.distanceM ?? null) === (first.distanceM ?? null),
   );
-  if (uniform) {
+  if (uniform && setKind(first) === "strength") {
     if (first.weightLb === 0) {
-      return `Last time: ${sets.length}×${first.reps} bodyweight`;
+      return `Last time: ${sets.length}×${first.reps ?? 0} bodyweight`;
     }
-    const load = Math.round(first.weightLb * 100) / 100;
-    return `Last time: ${sets.length}×${first.reps} @ ${load}`;
+    const load = formatWeightAmount(first.weightLb, unit);
+    return `Last time: ${sets.length}×${first.reps ?? 0} @ ${load}`;
   }
-  return `Last time: ${sets.map((set) => formatSetShort(set)).join(", ")}`;
+  if (uniform) {
+    return `Last time: ${sets.length}×${formatSetShort(first, unit)}`;
+  }
+  return `Last time: ${sets.map((set) => formatSetShort(set, unit)).join(", ")}`;
 }
 
 /** Spoken-style set label for screen readers and buttons. */
-export function describeSet(set: { reps: number; weightLb: number }): string {
-  const reps = `${set.reps} ${set.reps === 1 ? "rep" : "reps"}`;
-  if (set.weightLb === 0) {
-    return `${reps}, bodyweight`;
+export function describeSet(set: DisplaySet, unit: WeightUnit = "lb"): string {
+  const kind = setKind(set);
+  let label: string;
+  if (kind === "timed") {
+    label = describeDuration(set.durationSec ?? 0);
+    label += set.weightLb > 0 ? ` at ${formatWeightLb(set.weightLb, unit)}` : ", bodyweight";
+  } else if (kind === "distance") {
+    label = describeDistance(set.distanceM ?? 0);
+    if (set.durationSec) {
+      label += ` in ${describeDuration(set.durationSec)}`;
+    }
+    if (set.weightLb > 0) {
+      label += ` at ${formatWeightLb(set.weightLb, unit)}`;
+    }
+  } else {
+    const reps = set.reps ?? 0;
+    const repsLabel = `${reps} ${reps === 1 ? "rep" : "reps"}`;
+    label =
+      set.weightLb === 0
+        ? `${repsLabel}, bodyweight`
+        : `${repsLabel} at ${formatWeightLb(set.weightLb, unit)}`;
   }
-  return `${reps} at ${formatWeightLb(set.weightLb)}`;
+  if (set.rpe) {
+    label += `, RPE ${set.rpe}`;
+  }
+  return label;
+}
+
+function describeDuration(totalSeconds: number): string {
+  const whole = Math.max(0, Math.round(totalSeconds));
+  if (whole < 60) {
+    return `${whole} ${whole === 1 ? "second" : "seconds"}`;
+  }
+  const minutes = Math.floor(whole / 60);
+  const seconds = whole % 60;
+  const minuteLabel = `${minutes} ${minutes === 1 ? "minute" : "minutes"}`;
+  if (seconds === 0) {
+    return minuteLabel;
+  }
+  return `${minuteLabel} ${seconds} ${seconds === 1 ? "second" : "seconds"}`;
+}
+
+function describeDistance(meters: number): string {
+  const label = formatDistance(meters);
+  if (label.endsWith(" km")) {
+    const amount = label.slice(0, -3);
+    return `${amount} ${amount === "1" ? "kilometer" : "kilometers"}`;
+  }
+  if (label.endsWith(" mi")) {
+    const amount = label.slice(0, -3);
+    return `${amount} ${amount === "1" ? "mile" : "miles"}`;
+  }
+  const amount = label.slice(0, -2);
+  return `${amount} ${amount === "1" ? "meter" : "meters"}`;
 }
 
 /** Stopwatch time: "4:05", or "1:02:05" past an hour. */
@@ -86,12 +173,13 @@ export function pluralize(count: number, singular: string, plural = `${singular}
   return `${count} ${count === 1 ? singular : plural}`;
 }
 
-/** "9,420 lb". Bodyweight volume is 0 lb. */
-export function formatVolumeLb(volumeLb: number): string {
-  const rounded = Math.round(volumeLb);
+/** "9,420 lb", or the same volume in kilograms when that is the display unit. */
+export function formatVolumeLb(volumeLb: number, unit: WeightUnit = "lb"): string {
+  const amount = unit === "kg" ? volumeLb / LB_PER_KG : volumeLb;
+  const rounded = Math.round(amount);
   const digits = String(Math.abs(rounded));
   const withCommas = digits.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-  return `${rounded < 0 ? "-" : ""}${withCommas} lb`;
+  return `${rounded < 0 ? "-" : ""}${withCommas} ${unit}`;
 }
 
 export function streakLabel(weeks: number): string {
@@ -104,19 +192,34 @@ export function streakLabel(weeks: number): string {
   return `${weeks}-week streak`;
 }
 
-export function formatPersonalRecord(record: {
-  exerciseName: string;
-  kind: "weight" | "epley" | "both" | "reps";
-  reps: number;
-  weightLb: number;
-  epleyLb: number | null;
-}): string {
-  if (record.kind === "reps") {
-    return `New PR · ${record.exerciseName} · ${pluralize(record.reps, "rep")}`;
+export function formatPersonalRecord(
+  record: {
+    exerciseName: string;
+    kind: "weight" | "epley" | "both" | "reps" | "duration" | "distance";
+    reps: number | null;
+    weightLb: number;
+    epleyLb: number | null;
+    durationSec?: number | null;
+    distanceM?: number | null;
+  },
+  unit: WeightUnit = "lb",
+): string {
+  if (record.kind === "duration") {
+    const time = formatClock(record.durationSec ?? 0);
+    const load = record.weightLb > 0 ? ` at ${formatWeightLb(record.weightLb, unit)}` : "";
+    return `New PR · ${record.exerciseName} · ${time}${load}`;
   }
-  const load = formatWeightLb(record.weightLb);
+  if (record.kind === "distance") {
+    const distance = formatDistance(record.distanceM ?? 0);
+    const time = record.durationSec ? ` in ${formatClock(record.durationSec)}` : "";
+    return `New PR · ${record.exerciseName} · ${distance}${time}`;
+  }
+  if (record.kind === "reps") {
+    return `New PR · ${record.exerciseName} · ${pluralize(record.reps ?? 0, "rep")}`;
+  }
+  const load = formatWeightLb(record.weightLb, unit);
   const estimate =
-    record.epleyLb === null ? null : `est. 1RM ${formatWeightLb(record.epleyLb)}`;
+    record.epleyLb === null ? null : `est. 1RM ${formatWeightLb(record.epleyLb, unit)}`;
   if (record.kind === "epley" && estimate) {
     return `New PR · ${record.exerciseName} · ${estimate}`;
   }
@@ -129,18 +232,21 @@ export function formatPersonalRecord(record: {
 export function formatPersonalRecords(
   records: Array<{
     exerciseName: string;
-    kind: "weight" | "epley" | "both" | "reps";
-    reps: number;
+    kind: "weight" | "epley" | "both" | "reps" | "duration" | "distance";
+    reps: number | null;
     weightLb: number;
     epleyLb: number | null;
+    durationSec?: number | null;
+    distanceM?: number | null;
   }>,
+  unit: WeightUnit = "lb",
 ): string | null {
   const first = records[0];
   if (!first) {
     return null;
   }
   if (records.length === 1) {
-    return formatPersonalRecord(first);
+    return formatPersonalRecord(first, unit);
   }
   return `New PRs · ${records.map((record) => record.exerciseName).join(", ")}`;
 }

@@ -3,6 +3,7 @@
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { formatExerciseName } from "@/convex/lib/exerciseName";
+import { useWeightUnit } from "@/components/WeightUnit";
 import { formatLastTime } from "@/lib/format";
 import { previousSetsForName } from "@/lib/prefill";
 import { useQuery } from "convex/react";
@@ -11,6 +12,7 @@ export function usePreviousExercise(
   exerciseName: string,
   excludeSessionId?: Id<"sessions">,
 ) {
+  const unit = useWeightUnit();
   const formatted = formatExerciseName(exerciseName);
   const previous = useQuery(
     api.sets.recentForExercise,
@@ -36,6 +38,6 @@ export function usePreviousExercise(
   return {
     loading: false,
     sets,
-    label: formatLastTime(sets ?? []),
+    label: formatLastTime(sets ?? [], unit),
   };
 }

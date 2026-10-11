@@ -1,5 +1,6 @@
 "use client";
 
+import { useWeightUnit } from "@/components/WeightUnit";
 import { BrandMark, ChevronRightIcon, KeyboardIcon, MicIcon } from "@/components/icons";
 import { TopActions } from "@/components/TopActions";
 import {
@@ -128,6 +129,7 @@ export function HomeView({
 }
 
 function WeeklySummary({ summary }: { summary: WeekSummary }) {
+  const unit = useWeightUnit();
   return (
     <section aria-label="This week" className="mb-3 rounded-[18px] border border-line bg-surface p-4">
       <div className="flex items-baseline justify-between gap-3">
@@ -136,11 +138,11 @@ function WeeklySummary({ summary }: { summary: WeekSummary }) {
       </div>
       <p className="mt-2 text-[15px] font-medium">
         {pluralize(summary.workouts, "workout")} · {pluralize(summary.sets, "set")} ·{" "}
-        {formatVolumeLb(summary.volumeLb)}
+        {formatVolumeLb(summary.volumeLb, unit)}
       </p>
       <p className="mt-0.5 text-[13px] text-muted">
         Last week · {pluralize(summary.previousWorkouts, "workout")} ·{" "}
-        {pluralize(summary.previousSets, "set")} · {formatVolumeLb(summary.previousVolumeLb)}
+        {pluralize(summary.previousSets, "set")} · {formatVolumeLb(summary.previousVolumeLb, unit)}
       </p>
     </section>
   );

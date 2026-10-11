@@ -1,10 +1,12 @@
 import { knownExercisePrompt } from "./knownExercises";
 import { GEMINI_FLASH_MODEL, GEMINI_GENERATE_CONTENT_URL } from "./model";
+import type { WeightUnit } from "../../convex/lib/units";
 import {
   geminiAudioMimeType,
   MAX_WORKOUT_TEXT_LENGTH,
   normalizeGeminiWorkout,
   VoiceParseError,
+  weightUnitPrompt,
   WORKOUT_PARSE_PROMPT,
   WORKOUT_RESPONSE_SCHEMA,
   WORKOUT_TEXT_PROMPT,
@@ -19,6 +21,7 @@ export async function parseWorkoutAudio(options: {
   mimeType: string;
   model?: string;
   knownExerciseNames?: readonly string[];
+  weightUnit?: WeightUnit;
   fetchImpl?: typeof fetch;
 }): Promise<VoiceProposal> {
   const apiKey = requireApiKey(options.apiKey);
@@ -42,10 +45,11 @@ export async function parseWorkoutAudio(options: {
     apiKey,
     model: options.model,
     fetchImpl: options.fetchImpl,
-    parts: promptParts(WORKOUT_PARSE_PROMPT, options.knownExerciseNames, [
+    parts: promptParts(WORKOUT_PARSE_PROMPT, options.knownExerciseNames, options.weightUnit, [
       { inlineData: { mimeType, data: audioBase64 } },
     ]),
     subject: "recording",
+    weightUnit: options.weightUnit,
     logContext: { mimeType },
   });
 }
@@ -56,6 +60,7 @@ export async function parseWorkoutText(options: {
   text: string;
   model?: string;
   knownExerciseNames?: readonly string[];
+  weightUnit?: WeightUnit;
   fetchImpl?: typeof fetch;
 }): Promise<VoiceProposal> {
   const apiKey = requireApiKey(options.apiKey);
@@ -78,8 +83,11 @@ export async function parseWorkoutText(options: {
     apiKey,
     model: options.model,
     fetchImpl: options.fetchImpl,
-    parts: promptParts(WORKOUT_TEXT_PROMPT, options.knownExerciseNames, [{ text }]),
+    parts: promptParts(WORKOUT_TEXT_PROMPT, options.knownExerciseNames, options.weightUnit, [
+      { text },
+    ]),
     subject: "note",
+    weightUnit: options.weightUnit,
     logContext: {},
   });
 }
@@ -87,9 +95,13 @@ export async function parseWorkoutText(options: {
 function promptParts(
   instructions: string,
   knownExerciseNames: readonly string[] | undefined,
+  weightUnit: WeightUnit | undefined,
   rest: Array<Record<string, unknown>>,
 ): Array<Record<string, unknown>> {
-  const parts: Array<Record<string, unknown>> = [{ text: instructions }];
+  const parts: Array<Record<string, unknown>> = [
+    { text: instructions },
+    { text: weightUnitPrompt(weightUnit ?? "lb") },
+  ];
   const known = knownExercisePrompt(knownExerciseNames ?? []);
   if (known) {
     parts.push({ text: known });
@@ -136,6 +148,7 @@ async function requestWorkout(options: {
   fetchImpl: typeof fetch | undefined;
   parts: Array<Record<string, unknown>>;
   subject: Subject;
+  weightUnit: WeightUnit | undefined;
   logContext: Record<string, string>;
 }): Promise<VoiceProposal> {
   const messages = MESSAGES[options.subject];
@@ -199,7 +212,7 @@ async function requestWorkout(options: {
     throw new VoiceParseError(messages.invalid, "invalid");
   }
 
-  return normalizeGeminiWorkout(structured, options.subject);
+  return normalizeGeminiWorkout(structured, options.subject, options.weightUnit ?? "lb");
 }
 
 function normalizeBase64(value: string): string {

@@ -16,7 +16,8 @@ import { formatExerciseName } from "@/convex/lib/exerciseName";
 import { plannedCompletedAt, workoutLooksStale } from "@/convex/lib/sessionTiming";
 import { readableError } from "@/lib/errors";
 import { EXAMPLE_EXERCISES } from "@/lib/examples";
-import { formatDuration, formatPersonalRecord, pluralize } from "@/lib/format";
+import { useWeightUnit } from "@/components/WeightUnit";
+import { formatDuration, formatPersonalRecord, formatPersonalRecords, pluralize } from "@/lib/format";
 import { localWeekFirstDay, weekRange } from "@/convex/lib/week";
 import { groupSets, type SetLine } from "@/lib/groupSets";
 import {
@@ -51,11 +52,12 @@ export function LogWorkout() {
   const keepGoingSession = useMutation(api.sessions.keepGoing);
   const discardSession = useMutation(api.sessions.discard);
   const logSet = useMutation(api.sets.log);
-  const logSets = useMutation(api.sets.logMany);
+  const logWorkout = useMutation(api.sets.logWorkout);
   const updateSet = useMutation(api.sets.update);
   const removeSet = useMutation(api.sets.remove);
   const removeSets = useMutation(api.sets.removeMany);
 
+  const unit = useWeightUnit();
   const [voice, dispatch] = useReducer(reduceVoiceLog, { status: "idle" });
   const [source, setSource] = useState<"voice" | "text">("voice");
   const [draft, setDraft] = useState<VoiceDraft | null>(null);
@@ -68,11 +70,15 @@ export function LogWorkout() {
         mode: "edit";
         setId: Id<"sets">;
         exerciseName: string;
-        reps: number;
+        reps: number | null;
         weightLb: number;
+        durationSec: number | null;
+        distanceM: number | null;
+        rpe: number | null;
       }
     | null
   >(null);
+  const [finishNote, setFinishNote] = useState("");
   const [manualPending, setManualPending] = useState(false);
   const [finishOpen, setFinishOpen] = useState(false);
   const [finishError, setFinishError] = useState<string | null>(null);
@@ -151,7 +157,7 @@ export function LogWorkout() {
     const added = `Added ${pluralize(ids.length, "set")} · ${exerciseName}`;
     showToast({
       tone: "info",
-      message: personalRecord ? `${formatPersonalRecord(personalRecord)}. ${added}` : added,
+      message: personalRecord ? `${formatPersonalRecord(personalRecord, unit)}. ${added}` : added,
       action: { label: "Undo", onClick: () => void undo(ids) },
     });
   }
@@ -231,7 +237,7 @@ export function LogWorkout() {
       if (controller.signal.aborted) {
         return false;
       }
-      setDraft(proposalToDraft(proposal));
+      setDraft(proposalToDraft(proposal, unit));
       setSheetNotice(null);
       dispatch({ type: "parsed", proposal });
       return true;
@@ -247,9 +253,9 @@ export function LogWorkout() {
     if (voice.status !== "preview" || !draft) {
       return;
     }
-    const edited = draftToProposal(draft);
+    const edited = draftToProposal(draft, unit);
     if (!edited) {
-      setSheetNotice("Check the exercise, reps, and weight. Nothing was saved.");
+      setSheetNotice("Check each exercise and its sets. Nothing was saved.");
       return;
     }
     const toSave = proposalToSave(voice, { type: "confirm", proposal: edited });
@@ -260,16 +266,32 @@ export function LogWorkout() {
     setSheetNotice(null);
     try {
       const sessionId = await ensureSessionId();
-      const saved = await logSets({
+      const saved = await logWorkout({
         sessionId,
-        exerciseName: toSave.exerciseName,
-        sets: toSave.sets,
+        ...(toSave.note ? { note: toSave.note } : {}),
+        exercises: toSave.exercises.map((exercise) => ({
+          exerciseName: exercise.exerciseName,
+          sets: exercise.sets.map((set) => ({
+            weightLb: set.weightLb,
+            ...(set.reps !== null ? { reps: set.reps } : {}),
+            ...(set.durationSec !== null ? { durationSec: set.durationSec } : {}),
+            ...(set.distanceM !== null ? { distanceM: set.distanceM } : {}),
+            ...(set.rpe !== null ? { rpe: set.rpe } : {}),
+          })),
+        })),
       });
       dispatch({ type: "saved" });
       setDraft(null);
-      showAdded(saved.setIds, toSave.exerciseName, saved.personalRecord);
+      const names = toSave.exercises.map((exercise) => exercise.exerciseName).join(", ");
+      const record = formatPersonalRecords(saved.personalRecords, unit);
+      const added = `Added ${pluralize(saved.setIds.length, "set")} · ${names}`;
+      showToast({
+        tone: "info",
+        message: record ? `${record}. ${added}` : added,
+        action: { label: "Undo", onClick: () => void undo(saved.setIds) },
+      });
     } catch (error) {
-      setDraft(proposalToDraft(toSave));
+      setDraft(proposalToDraft(toSave, unit));
       dispatch({ type: "save-failed", proposal: toSave });
       setSheetNotice(readableError(error));
     }
@@ -300,28 +322,41 @@ export function LogWorkout() {
       dispatch({ type: "dismiss" });
     }
     setToast(null);
-    setManual({
-      key: Date.now(),
-      mode: "edit",
-      setId: set._id as Id<"sets">,
-      exerciseName: set.exerciseName,
-      reps: set.reps,
-      weightLb: set.weightLb,
-    });
+      setManual({
+        key: Date.now(),
+        mode: "edit",
+        setId: set._id as Id<"sets">,
+        exerciseName: set.exerciseName,
+        reps: set.reps,
+        weightLb: set.weightLb,
+        durationSec: set.durationSec,
+        distanceM: set.distanceM,
+        rpe: set.rpe,
+      });
   }
 
-  async function addManual(set: { exerciseName: string; reps: number; weightLb: number }) {
+  async function addManual(set: {
+    exerciseName: string;
+    reps?: number;
+    weightLb: number;
+    durationSec?: number;
+    distanceM?: number;
+    rpe?: number;
+  }) {
     setManualPending(true);
     try {
       if (manual?.mode === "edit") {
         const personalRecord = await updateSet({
           setId: manual.setId,
-          reps: set.reps,
           weightLb: set.weightLb,
+          ...(set.reps !== undefined ? { reps: set.reps } : {}),
+          ...(set.durationSec !== undefined ? { durationSec: set.durationSec } : {}),
+          ...(set.distanceM !== undefined ? { distanceM: set.distanceM } : {}),
+          ...(set.rpe !== undefined ? { rpe: set.rpe } : {}),
         });
         setManual(null);
         if (personalRecord) {
-          showToast({ tone: "info", message: formatPersonalRecord(personalRecord) });
+          showToast({ tone: "info", message: formatPersonalRecord(personalRecord, unit) });
         }
         return null;
       }
@@ -347,8 +382,11 @@ export function LogWorkout() {
       const saved = await logSet({
         sessionId: openSession._id,
         exerciseName: group.name,
-        reps: last.reps,
         weightLb: last.weightLb,
+        ...(last.reps !== null ? { reps: last.reps } : {}),
+        ...(last.durationSec !== null ? { durationSec: last.durationSec } : {}),
+        ...(last.distanceM !== null ? { distanceM: last.distanceM } : {}),
+        ...(last.rpe !== null ? { rpe: last.rpe } : {}),
       });
       showAdded([saved.setId], group.name, saved.personalRecord);
     } catch (error) {
@@ -392,7 +430,10 @@ export function LogWorkout() {
     setEnding(true);
     setFinishError(null);
     try {
-      await completeSession({ sessionId: openSession._id });
+      await completeSession({
+        sessionId: openSession._id,
+        ...(finishOpen ? { note: finishNote } : {}),
+      });
       setFinishOpen(false);
       showToast({ tone: "info", message: "Workout saved to History." });
     } catch (error) {
@@ -474,6 +515,7 @@ export function LogWorkout() {
           repeatingId={repeatingId}
           removingId={removingId}
           ending={ending}
+          note={openSession.note}
           idleNote={
             stale && clockNow !== null && openSession.lastSetAt !== null
               ? `last set ${formatDuration(clockNow - openSession.lastSetAt)} ago`
@@ -485,6 +527,7 @@ export function LogWorkout() {
           onFinish={() => {
             setFinishError(null);
             if (!stale) {
+              setFinishNote(openSession.note ?? "");
               setFinishOpen(true);
             }
           }}
@@ -551,9 +594,19 @@ export function LogWorkout() {
           open
           mode={manual.mode}
           initialExercise={manual.exerciseName}
-          initialReps={manual.mode === "edit" ? manual.reps : undefined}
-          initialWeight={manual.mode === "edit" ? manual.weightLb : undefined}
+          initialSet={
+            manual.mode === "edit"
+              ? {
+                  reps: manual.reps,
+                  weightLb: manual.weightLb,
+                  durationSec: manual.durationSec,
+                  distanceM: manual.distanceM,
+                  rpe: manual.rpe,
+                }
+              : undefined
+          }
           library={library}
+          truncatedLibrary={exercises.truncated}
           sessionSets={sessionSets}
           excludeSessionId={openSession?._id}
           pending={manualPending}
@@ -568,6 +621,8 @@ export function LogWorkout() {
         note={idleTrimmed ? "Idle time after your last set isn't counted." : null}
         pending={ending}
         error={finishError}
+        workoutNote={finishNote}
+        onWorkoutNoteChange={setFinishNote}
         onCancel={() => setFinishOpen(false)}
         onFinish={() => void finishWorkout()}
       />

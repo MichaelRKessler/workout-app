@@ -3,18 +3,51 @@
 import { Button } from "@/components/Button";
 import { CloseIcon, MinusIcon, PlusIcon, SearchIcon } from "@/components/icons";
 import { Sheet } from "@/components/Sheet";
+import { useWeightUnit } from "@/components/WeightUnit";
 import { usePreviousExercise } from "@/components/workout/usePreviousExercise";
 import type { Id } from "@/convex/_generated/dataModel";
 import { formatExerciseName } from "@/convex/lib/exerciseName";
+import {
+  formatClock,
+  parseClock,
+  parseDistanceInput,
+  setKind,
+  type SetKind,
+} from "@/convex/lib/measures";
+import {
+  formatWeightAmount,
+  maxDisplayWeight,
+  parseDisplayWeight,
+  WEIGHT_STEP,
+  weightLbFromDisplay,
+  type WeightUnit,
+} from "@/convex/lib/units";
 import type { SetLine } from "@/lib/groupSets";
-import { parseReps, parseWeightLb } from "@/lib/numbers";
+import { parseReps } from "@/lib/numbers";
 import { prefillValues, type PrefillSource } from "@/lib/prefill";
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 
 const MAX_CHIPS = 12;
-const WEIGHT_STEP = 5;
 
-type FormValues = { reps: string; weight: string; source: PrefillSource | "edit" };
+type LoggedSet = {
+  exerciseName: string;
+  reps?: number;
+  weightLb: number;
+  durationSec?: number;
+  distanceM?: number;
+  rpe?: number;
+};
+
+type FormValues = {
+  kind: SetKind;
+  reps: string;
+  weight: string;
+  duration: string;
+  distance: string;
+  rpe: string;
+  source: PrefillSource | "edit";
+  weightLb: number | null;
+};
 
 function step(value: string, delta: number, min: number, max: number, parse: (value: string) => number | null) {
   const current = parse(value) ?? min;
@@ -22,43 +55,90 @@ function step(value: string, delta: number, min: number, max: number, parse: (va
   return String(next);
 }
 
+function showPrefill(
+  values: ReturnType<typeof prefillValues>,
+  unit: WeightUnit,
+): FormValues {
+  const pounds = Number(values.weight);
+  return {
+    kind: values.kind,
+    reps: values.reps,
+    weight: Number.isFinite(pounds) ? formatWeightAmount(pounds, unit) : values.weight,
+    duration: values.duration,
+    distance: values.distance,
+    rpe: values.rpe,
+    source: values.source,
+    weightLb: Number.isFinite(pounds) ? pounds : null,
+  };
+}
+
 export function ManualEntrySheet({
   open,
   mode,
   initialExercise,
-  initialReps,
-  initialWeight,
+  initialSet,
   library,
   sessionSets,
   excludeSessionId,
   pending,
+  truncatedLibrary = false,
   onClose,
   onAdd,
 }: {
   open: boolean;
   mode: "add" | "edit";
   initialExercise: string;
-  initialReps?: number;
-  initialWeight?: number;
+  initialSet?: {
+    reps: number | null;
+    weightLb: number;
+    durationSec: number | null;
+    distanceM: number | null;
+    rpe: number | null;
+  };
   /** Exercise names to offer, most relevant first. */
   library: string[];
   sessionSets: SetLine[];
   excludeSessionId?: Id<"sessions">;
   pending: boolean;
+  truncatedLibrary?: boolean;
   onClose: () => void;
-  onAdd: (set: { exerciseName: string; reps: number; weightLb: number }) => Promise<string | null>;
+  onAdd: (set: LoggedSet) => Promise<string | null>;
 }) {
+  const unit = useWeightUnit();
   const editing = mode === "edit";
   const [exerciseName, setExerciseName] = useState(initialExercise);
   const [pickedName, setPickedName] = useState(initialExercise);
   const [dirty, setDirty] = useState(editing);
   const [values, setValues] = useState<FormValues>(() =>
-    editing
-      ? { reps: String(initialReps ?? 10), weight: String(initialWeight ?? 0), source: "edit" }
-      : prefillValues(initialExercise, sessionSets, null),
+    editing && initialSet
+      ? {
+          kind: setKind(initialSet),
+          reps: initialSet.reps ? String(initialSet.reps) : "",
+          weight: formatWeightAmount(initialSet.weightLb, unit),
+          duration: initialSet.durationSec ? formatClock(initialSet.durationSec) : "",
+          distance: initialSet.distanceM ? String(initialSet.distanceM) : "",
+          rpe: initialSet.rpe ? String(initialSet.rpe) : "",
+          source: "edit",
+          weightLb: initialSet.weightLb,
+        }
+      : showPrefill(prefillValues(initialExercise, sessionSets, null), unit),
   );
   const [error, setError] = useState<string | null>(null);
+  const seenUnit = useRef(unit);
   const history = usePreviousExercise(editing ? initialExercise : exerciseName, excludeSessionId);
+
+  useEffect(() => {
+    if (seenUnit.current === unit) {
+      return;
+    }
+    seenUnit.current = unit;
+    setValues((current) => {
+      if (current.weightLb === null) {
+        return current;
+      }
+      return { ...current, weight: formatWeightAmount(current.weightLb, unit) };
+    });
+  }, [unit]);
 
   useEffect(() => {
     if (editing || dirty || history.loading) {
@@ -69,12 +149,11 @@ export function ManualEntrySheet({
     if (!typed || !picked || typed.normalizedName !== picked.normalizedName) {
       return;
     }
-    setValues(prefillValues(exerciseName, sessionSets, history.sets));
-  }, [dirty, editing, exerciseName, history.loading, history.sets, pickedName, sessionSets]);
+    setValues(showPrefill(prefillValues(exerciseName, sessionSets, history.sets), unit));
+  }, [dirty, editing, exerciseName, history.loading, history.sets, pickedName, sessionSets, unit]);
 
   const formatted = formatExerciseName(exerciseName);
   const query = formatted?.normalizedName ?? "";
-  // Filter while typing a new name; once the field holds a known exercise, show them all again.
   const known = library.some((name) => formatExerciseName(name)?.normalizedName === query);
   const chips = library
     .filter((name) => {
@@ -89,7 +168,7 @@ export function ManualEntrySheet({
     setExerciseName(name);
     setPickedName(name);
     setDirty(false);
-    setValues(prefillValues(name, sessionSets, null));
+    setValues(showPrefill(prefillValues(name, sessionSets, null), unit));
     setError(null);
   }
 
@@ -99,22 +178,60 @@ export function ManualEntrySheet({
       setError("Enter an exercise name up to 80 characters.");
       return;
     }
-    const reps = parseReps(values.reps);
-    if (reps === null) {
-      setError("Reps must be a whole number from 1 to 999.");
-      return;
-    }
-    const weightLb = parseWeightLb(values.weight);
+    const weightLb = weightLbFromDisplay(values.weight, unit, values.weightLb);
     if (weightLb === null) {
-      setError("Weight must be 0 to 2000 lb, with up to two decimal places.");
+      setError(
+        `Weight must be 0 to ${maxDisplayWeight(unit)} ${unit}, with up to two decimal places.`,
+      );
       return;
     }
+    const rpeText = values.rpe.trim();
+    const rpe = rpeText.length === 0 ? undefined : Number(rpeText);
+    if (rpe !== undefined && (!Number.isInteger(rpe) || rpe < 1 || rpe > 10)) {
+      setError("RPE must be a whole number from 1 to 10, or blank.");
+      return;
+    }
+
+    const logged: LoggedSet = { exerciseName: formatted.name, weightLb, ...(rpe ? { rpe } : {}) };
+    if (values.kind === "timed") {
+      const durationSec = parseClock(values.duration);
+      if (durationSec === null) {
+        setError("Time must be from 1 second to 24 hours, like 90 or 1:30.");
+        return;
+      }
+      logged.durationSec = durationSec;
+    } else if (values.kind === "distance") {
+      const distanceM = parseDistanceInput(values.distance);
+      if (distanceM === null) {
+        setError("Distance must be from 1 meter to 200 kilometers, like 400, 2 km, or 3 mi.");
+        return;
+      }
+      logged.distanceM = distanceM;
+      if (values.duration.trim().length > 0) {
+        const durationSec = parseClock(values.duration);
+        if (durationSec === null) {
+          setError("Time must be from 1 second to 24 hours, like 90 or 7:30.");
+          return;
+        }
+        logged.durationSec = durationSec;
+      }
+    } else {
+      const reps = parseReps(values.reps);
+      if (reps === null) {
+        setError("Reps must be a whole number from 1 to 999.");
+        return;
+      }
+      logged.reps = reps;
+    }
+
     setError(null);
-    const failure = await onAdd({ exerciseName: formatted.name, reps, weightLb });
+    const failure = await onAdd(logged);
     if (failure) {
       setError(failure);
     }
   }
+
+  const weightStep = WEIGHT_STEP[unit];
 
   return (
     <Sheet open={open} onClose={onClose} labelledBy="manual-title" dismissible={!pending}>
@@ -182,44 +299,130 @@ export function ManualEntrySheet({
             })}
           </div>
         ) : null}
+        {!editing && truncatedLibrary ? (
+          <p className="mt-2 text-[13px] text-subtle">
+            Showing 200 exercises. The rest are in Settings, under Exercises.
+          </p>
+        ) : null}
 
-        <div className="mt-5 grid grid-cols-2 gap-3">
-          <Stepper
-            id="manual-reps"
-            label="Reps"
-            value={values.reps}
-            inputMode="numeric"
-            decreaseLabel="Fewer reps"
-            increaseLabel="More reps"
-            onChange={(reps) => {
-              setDirty(true);
-              setValues({ ...values, reps, source: editing ? "edit" : values.source });
-            }}
-            onStep={(delta) => {
-              setDirty(true);
-              setValues({ ...values, reps: step(values.reps, delta, 1, 999, parseReps) });
-            }}
-          />
+        <div role="group" aria-label="How this set is measured" className="mt-4 flex rounded-full border border-line p-0.5">
+          {(
+            [
+              ["strength", "Reps"],
+              ["timed", "Time"],
+              ["distance", "Distance"],
+            ] as const
+          ).map(([kind, label]) => (
+            <button
+              key={kind}
+              type="button"
+              aria-pressed={values.kind === kind}
+              onClick={() => {
+                setDirty(true);
+                setValues({ ...values, kind });
+              }}
+              className={`min-h-11 flex-1 rounded-full text-sm font-medium ${
+                values.kind === kind ? "bg-inverse text-inverse-ink" : "text-muted"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        <div className="mt-4 grid grid-cols-2 gap-3">
+          {values.kind === "strength" ? (
+            <Stepper
+              id="manual-reps"
+              label="Reps"
+              value={values.reps}
+              inputMode="numeric"
+              decreaseLabel="Fewer reps"
+              increaseLabel="More reps"
+              onChange={(reps) => {
+                setDirty(true);
+                setValues({ ...values, reps });
+              }}
+              onStep={(delta) => {
+                setDirty(true);
+                setValues({ ...values, reps: step(values.reps, delta, 1, 999, parseReps) });
+              }}
+            />
+          ) : (
+            <label className="flex flex-col gap-1.5 rounded-2xl border border-line bg-background p-3">
+              <span className="text-[11px] font-medium tracking-[0.1em] text-subtle uppercase">
+                {values.kind === "timed" ? "Time" : "Distance"}
+              </span>
+              <input
+                value={values.kind === "timed" ? values.duration : values.distance}
+                onChange={(event) => {
+                  setDirty(true);
+                  setValues(
+                    values.kind === "timed"
+                      ? { ...values, duration: event.target.value }
+                      : { ...values, distance: event.target.value },
+                  );
+                }}
+                inputMode="text"
+                placeholder={values.kind === "timed" ? "1:30" : "2 km"}
+                className="h-11 bg-transparent text-center font-mono text-[28px] font-medium tracking-[-0.03em] outline-none"
+              />
+            </label>
+          )}
           <Stepper
             id="manual-weight"
-            label="Weight · lb"
+            label={`Weight · ${unit}`}
             value={values.weight}
             inputMode="decimal"
-            decreaseLabel={`${WEIGHT_STEP} lb less`}
-            increaseLabel={`${WEIGHT_STEP} lb more`}
-            stepSize={WEIGHT_STEP}
+            decreaseLabel={`${weightStep} ${unit} less`}
+            increaseLabel={`${weightStep} ${unit} more`}
+            stepSize={weightStep}
             onChange={(weight) => {
               setDirty(true);
-              setValues({ ...values, weight });
+              setValues({ ...values, weight, weightLb: null });
             }}
             onStep={(delta) => {
               setDirty(true);
               setValues({
                 ...values,
-                weight: step(values.weight, delta, 0, 2000, parseWeightLb),
+                weightLb: null,
+                weight: step(values.weight, delta, 0, maxDisplayWeight(unit), (value) =>
+                  parseDisplayWeight(value, unit),
+                ),
               });
             }}
           />
+          {values.kind === "distance" ? (
+            <label className="col-span-2 flex flex-col gap-1.5 rounded-2xl border border-line bg-background p-3">
+              <span className="text-[11px] font-medium tracking-[0.1em] text-subtle uppercase">
+                Time, optional
+              </span>
+              <input
+                value={values.duration}
+                onChange={(event) => {
+                  setDirty(true);
+                  setValues({ ...values, duration: event.target.value });
+                }}
+                inputMode="text"
+                placeholder="7:30"
+                className="h-11 bg-transparent text-center font-mono text-2xl font-medium outline-none"
+              />
+            </label>
+          ) : null}
+          <label className="col-span-2 flex items-center justify-between gap-3 rounded-2xl border border-line bg-background px-3 py-2">
+            <span className="text-[11px] font-medium tracking-[0.1em] text-subtle uppercase">RPE</span>
+            <input
+              value={values.rpe}
+              onChange={(event) => {
+                setDirty(true);
+                setValues({ ...values, rpe: event.target.value });
+              }}
+              inputMode="numeric"
+              placeholder="Optional, 1–10"
+              aria-label="RPE"
+              className="h-11 w-40 bg-transparent text-right font-mono text-lg outline-none"
+            />
+          </label>
         </div>
 
         {error ? (
@@ -231,7 +434,7 @@ export function ManualEntrySheet({
             {history.label ? <span className="text-muted">{history.label}. </span> : null}
             {values.source === "session" ? "Filled in from your last set. " : null}
             {editing ? "This set stays where it is. " : null}
-            Use 0 for bodyweight.
+            Use 0 for bodyweight. Weights are in {unit}.
           </p>
         )}
 

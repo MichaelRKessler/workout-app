@@ -11,6 +11,7 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { formatExerciseName } from "@/convex/lib/exerciseName";
 import { readableError } from "@/lib/errors";
 import { EXAMPLE_EXERCISES } from "@/lib/examples";
+import { useWeightUnit } from "@/components/WeightUnit";
 import {
   formatLongDate,
   formatPersonalRecord,
@@ -36,6 +37,8 @@ export function SessionDetail({ sessionId }: { sessionId: string }) {
   const removeSet = useMutation(api.sets.remove);
   const removeSets = useMutation(api.sets.removeMany);
   const deleteWorkout = useMutation(api.sessions.remove);
+  const setNote = useMutation(api.sessions.setNote);
+  const unit = useWeightUnit();
 
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [removingId, setRemovingId] = useState<string | null>(null);
@@ -44,6 +47,8 @@ export function SessionDetail({ sessionId }: { sessionId: string }) {
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [toast, setToast] = useState<Toasted | null>(null);
+  const [noteDraft, setNoteDraft] = useState<string | null>(null);
+  const [savingNote, setSavingNote] = useState(false);
   const [manual, setManual] = useState<
     | { key: number; mode: "add"; exerciseName: string }
     | {
@@ -51,8 +56,11 @@ export function SessionDetail({ sessionId }: { sessionId: string }) {
         mode: "edit";
         setId: Id<"sets">;
         exerciseName: string;
-        reps: number;
+        reps: number | null;
         weightLb: number;
+        durationSec: number | null;
+        distanceM: number | null;
+        rpe: number | null;
       }
     | null
   >(null);
@@ -95,36 +103,45 @@ export function SessionDetail({ sessionId }: { sessionId: string }) {
     }
   }
 
-  async function addManual(set: { exerciseName: string; reps: number; weightLb: number }) {
+  async function addManual(set: {
+    exerciseName: string;
+    reps?: number;
+    weightLb: number;
+    durationSec?: number;
+    distanceM?: number;
+    rpe?: number;
+  }) {
     if (!session) {
       return "Workout not found";
     }
     setManualPending(true);
     try {
+      const measures = {
+        weightLb: set.weightLb,
+        ...(set.reps !== undefined ? { reps: set.reps } : {}),
+        ...(set.durationSec !== undefined ? { durationSec: set.durationSec } : {}),
+        ...(set.distanceM !== undefined ? { distanceM: set.distanceM } : {}),
+        ...(set.rpe !== undefined ? { rpe: set.rpe } : {}),
+      };
       if (manual?.mode === "edit") {
-        const personalRecord = await updateSet({
-          setId: manual.setId,
-          reps: set.reps,
-          weightLb: set.weightLb,
-        });
+        const personalRecord = await updateSet({ setId: manual.setId, ...measures });
         setManual(null);
         if (personalRecord) {
-          showToast({ tone: "info", message: formatPersonalRecord(personalRecord) });
+          showToast({ tone: "info", message: formatPersonalRecord(personalRecord, unit) });
         }
         return null;
       }
       const saved = await logSet({
         sessionId: session._id,
         exerciseName: set.exerciseName,
-        reps: set.reps,
-        weightLb: set.weightLb,
+        ...measures,
       });
       setManual(null);
       const added = `Added 1 set · ${set.exerciseName}`;
       showToast({
         tone: "info",
         message: saved.personalRecord
-          ? `${formatPersonalRecord(saved.personalRecord)}. ${added}`
+          ? `${formatPersonalRecord(saved.personalRecord, unit)}. ${added}`
           : added,
         action: { label: "Undo", onClick: () => void undo([saved.setId]) },
       });
@@ -133,6 +150,21 @@ export function SessionDetail({ sessionId }: { sessionId: string }) {
       return readableError(error);
     } finally {
       setManualPending(false);
+    }
+  }
+
+  async function saveNote() {
+    if (!session) {
+      return;
+    }
+    setSavingNote(true);
+    try {
+      await setNote({ sessionId: session._id, note: noteDraft ?? session.note ?? "" });
+      setNoteDraft(null);
+    } catch (error) {
+      showToast({ tone: "error", message: readableError(error) });
+    } finally {
+      setSavingNote(false);
     }
   }
 
@@ -205,6 +237,33 @@ export function SessionDetail({ sessionId }: { sessionId: string }) {
         <p className="mt-1.5 text-[15px] text-muted" suppressHydrationWarning>
           {meta}
         </p>
+        {finished ? (
+          <label className="mt-4 block">
+            <span className="text-[11px] font-medium tracking-[0.1em] text-subtle uppercase">
+              Note
+            </span>
+            <textarea
+              value={noteDraft ?? session.note ?? ""}
+              onChange={(event) => setNoteDraft(event.target.value)}
+              maxLength={500}
+              rows={3}
+              placeholder="Optional. How the workout felt."
+              className="mt-2 w-full resize-none rounded-xl border border-line bg-background px-3 py-2 text-[15px] outline-none focus:border-foreground"
+            />
+            {noteDraft !== null ? (
+              <Button
+                variant="secondary"
+                className="mt-2"
+                disabled={savingNote}
+                onClick={() => void saveNote()}
+              >
+                {savingNote ? "Saving…" : "Save note"}
+              </Button>
+            ) : null}
+          </label>
+        ) : session.note ? (
+          <p className="mt-3 text-[15px] leading-normal text-muted">{session.note}</p>
+        ) : null}
       </PageHeader>
 
       {session.status === "open" ? (
@@ -269,6 +328,9 @@ export function SessionDetail({ sessionId }: { sessionId: string }) {
                         exerciseName: set.exerciseName,
                         reps: set.reps,
                         weightLb: set.weightLb,
+                        durationSec: set.durationSec,
+                        distanceM: set.distanceM,
+                        rpe: set.rpe,
                       })
                   : undefined
               }
@@ -285,9 +347,19 @@ export function SessionDetail({ sessionId }: { sessionId: string }) {
           open
           mode={manual.mode}
           initialExercise={manual.exerciseName}
-          initialReps={manual.mode === "edit" ? manual.reps : undefined}
-          initialWeight={manual.mode === "edit" ? manual.weightLb : undefined}
+          initialSet={
+            manual.mode === "edit"
+              ? {
+                  reps: manual.reps,
+                  weightLb: manual.weightLb,
+                  durationSec: manual.durationSec,
+                  distanceM: manual.distanceM,
+                  rpe: manual.rpe,
+                }
+              : undefined
+          }
           library={library}
+          truncatedLibrary={libraryQuery?.truncated}
           sessionSets={session.sets}
           excludeSessionId={session._id}
           pending={manualPending}

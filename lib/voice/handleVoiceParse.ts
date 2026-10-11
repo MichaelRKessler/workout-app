@@ -1,3 +1,4 @@
+import type { WeightUnit } from "../../convex/lib/units";
 import { parseWorkoutAudio, parseWorkoutText } from "./parseWorkout";
 import { voiceErrorStatus, type VoiceProposal } from "./proposal";
 
@@ -22,6 +23,7 @@ export async function handleVoiceParse(input: {
   mimeType: string;
   text?: string;
   knownExerciseNames?: readonly string[];
+  weightUnit?: WeightUnit;
   fetchImpl?: typeof fetch;
 }): Promise<VoiceParseResult> {
   if (!input.token || !input.signedIn) {
@@ -55,6 +57,7 @@ export async function handleVoiceParse(input: {
           model: input.model,
           text: input.text ?? "",
           knownExerciseNames: input.knownExerciseNames,
+          weightUnit: input.weightUnit,
           fetchImpl: input.fetchImpl,
         })
       : await parseWorkoutAudio({
@@ -63,6 +66,7 @@ export async function handleVoiceParse(input: {
           audioBase64: input.audioBase64,
           mimeType: input.mimeType,
           knownExerciseNames: input.knownExerciseNames,
+          weightUnit: input.weightUnit,
           fetchImpl: input.fetchImpl,
         });
     return { status: 200, body: { proposal, persisted: false } };

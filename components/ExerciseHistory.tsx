@@ -2,15 +2,18 @@
 
 import { Button } from "@/components/Button";
 import { PageHeader } from "@/components/PageHeader";
+import { useWeightUnit } from "@/components/WeightUnit";
 import { TrendChart } from "@/components/workout/TrendChart";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import { formatSetShort, formatShortDate, formatVolumeLb, pluralize } from "@/lib/format";
+import { formatClock, formatDistance } from "@/convex/lib/measures";
+import { formatSetShort, formatShortDate, formatVolumeLb, formatWeightLb, pluralize } from "@/lib/format";
 import { usePaginatedQuery, useQuery } from "convex/react";
 import Link from "next/link";
 import { useMemo } from "react";
 
 export function ExerciseHistory({ exerciseId }: { exerciseId: string }) {
+  const unit = useWeightUnit();
   const detail = useQuery(api.exercises.detail, { exerciseId });
   const { results, status, loadMore } = usePaginatedQuery(
     api.exercises.history,
@@ -73,15 +76,19 @@ export function ExerciseHistory({ exerciseId }: { exerciseId: string }) {
   }
 
   const highlight = new Set<Id<"sets">>(
-    [detail.bestWeight?.setId, detail.bestEpley?.setId, detail.bestBodyweight?.setId].filter(
-      (id): id is Id<"sets"> => id !== undefined,
-    ),
+    [
+      detail.bestWeight?.setId,
+      detail.bestEpley?.setId,
+      detail.bestBodyweight?.setId,
+      detail.bestDuration?.setId,
+      detail.bestDistance?.setId,
+    ].filter((id): id is Id<"sets"> => id !== undefined),
   );
 
   return (
     <div className="px-5 pt-3 pb-[calc(32px+env(safe-area-inset-bottom))]">
       <PageHeader backHref="/history" backLabel="Back to history" title={detail.name}>
-        <Records detail={detail} />
+        <Records detail={detail} unit={unit} />
         <TrendChart points={detail.trend} unit={detail.trendUnit} />
         {detail.truncated ? (
           <p className="mt-2 text-[13px] text-subtle">Best of your latest 2,000 sets.</p>
@@ -104,7 +111,7 @@ export function ExerciseHistory({ exerciseId }: { exerciseId: string }) {
               <p className="mt-1 font-mono text-sm text-muted">
                 {workout.sets.map((set) => (
                   <span key={set._id} className="mr-3 inline-flex items-center gap-1.5">
-                    {formatSetShort(set)}
+                    {formatSetShort(set, unit)}
                     {highlight.has(set._id) ? (
                       <span className="font-sans text-[11px] font-semibold tracking-[0.08em] text-accent uppercase">
                         PR
@@ -132,38 +139,55 @@ export function ExerciseHistory({ exerciseId }: { exerciseId: string }) {
 
 function Records({
   detail,
+  unit,
 }: {
   detail: {
-    bestWeight: { setId: string; reps: number; weightLb: number; epleyLb: number | null } | null;
-    bestEpley: { setId: string; reps: number; weightLb: number; epleyLb: number | null } | null;
-    bestBodyweight: { reps: number } | null;
+    bestWeight: { setId: string; reps: number | null; weightLb: number; epleyLb: number | null } | null;
+    bestEpley: { setId: string; reps: number | null; weightLb: number; epleyLb: number | null } | null;
+    bestBodyweight: { reps: number | null } | null;
+    bestDuration: { durationSec: number | null; weightLb: number } | null;
+    bestDistance: { distanceM: number | null; durationSec: number | null } | null;
   };
+  unit: "lb" | "kg";
 }) {
   const sameEffort = detail.bestWeight && detail.bestEpley && detail.bestWeight.setId === detail.bestEpley.setId;
+  const hasStrength = Boolean(detail.bestWeight || detail.bestEpley || detail.bestBodyweight);
   return (
     <div className="mt-3 flex flex-col gap-1 text-[15px] text-muted">
       {detail.bestWeight ? (
         <p>
-          <SectionInline>Heaviest</SectionInline> {formatSetShort(detail.bestWeight)}
+          <SectionInline>Heaviest</SectionInline> {formatSetShort(detail.bestWeight, unit)}
           {sameEffort && detail.bestEpley?.epleyLb != null
-            ? ` · est. 1RM ${formatVolumeLb(detail.bestEpley.epleyLb)}`
+            ? ` · est. 1RM ${formatVolumeLb(detail.bestEpley.epleyLb, unit)}`
             : ""}
         </p>
       ) : null}
       {detail.bestEpley && !sameEffort && detail.bestEpley.epleyLb !== null ? (
         <p>
-          <SectionInline>Best est. 1RM</SectionInline> {formatVolumeLb(detail.bestEpley.epleyLb)} ·{" "}
-          {formatSetShort(detail.bestEpley)}
+          <SectionInline>Best est. 1RM</SectionInline> {formatVolumeLb(detail.bestEpley.epleyLb, unit)} ·{" "}
+          {formatSetShort(detail.bestEpley, unit)}
         </p>
       ) : null}
-      {detail.bestBodyweight ? (
+      {detail.bestBodyweight?.reps ? (
         <p>
           <SectionInline>Most reps</SectionInline> {pluralize(detail.bestBodyweight.reps, "rep")} · bodyweight
         </p>
       ) : null}
-      {!detail.bestWeight && !detail.bestEpley && !detail.bestBodyweight ? (
-        <p>No sets yet.</p>
+      {detail.bestDuration?.durationSec ? (
+        <p>
+          <SectionInline>Longest</SectionInline> {formatClock(detail.bestDuration.durationSec)}
+          {detail.bestDuration.weightLb > 0
+            ? ` at ${formatWeightLb(detail.bestDuration.weightLb, unit)}`
+            : ""}
+        </p>
       ) : null}
+      {detail.bestDistance?.distanceM ? (
+        <p>
+          <SectionInline>Farthest</SectionInline> {formatDistance(detail.bestDistance.distanceM)}
+          {detail.bestDistance.durationSec ? ` in ${formatClock(detail.bestDistance.durationSec)}` : ""}
+        </p>
+      ) : null}
+      {!hasStrength && !detail.bestDuration && !detail.bestDistance ? <p>No sets yet.</p> : null}
     </div>
   );
 }

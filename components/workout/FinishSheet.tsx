@@ -9,6 +9,8 @@ export function FinishSheet({
   note,
   pending,
   error,
+  workoutNote,
+  onWorkoutNoteChange,
   onCancel,
   onFinish,
 }: {
@@ -17,6 +19,8 @@ export function FinishSheet({
   note?: string | null;
   pending: boolean;
   error: string | null;
+  workoutNote?: string;
+  onWorkoutNoteChange?: (note: string) => void;
   onCancel: () => void;
   onFinish: () => void;
 }) {
@@ -27,6 +31,21 @@ export function FinishSheet({
       </h2>
       <p className="mt-1.5 text-[15px] text-muted">{summary}. It moves to History.</p>
       {note ? <p className="mt-2 text-[15px] leading-normal text-muted">{note}</p> : null}
+      {onWorkoutNoteChange ? (
+        <label className="mt-4 block">
+          <span className="text-[11px] font-medium tracking-[0.1em] text-subtle uppercase">
+            Note
+          </span>
+          <textarea
+            value={workoutNote ?? ""}
+            onChange={(event) => onWorkoutNoteChange(event.target.value)}
+            maxLength={500}
+            rows={3}
+            placeholder="Optional. How the workout felt."
+            className="mt-2 w-full resize-none rounded-xl border border-line bg-background px-3 py-2 text-[15px] outline-none focus:border-foreground"
+          />
+        </label>
+      ) : null}
       {error ? (
         <p role="alert" className="mt-3 text-sm leading-5 text-danger">
           {error}

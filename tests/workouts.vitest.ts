@@ -639,9 +639,9 @@ describe("previous workout and editing a set", () => {
       exerciseName: "bench press",
       normalizedName: "bench press",
       sets: [
-        { reps: 10, weightLb: 135 },
-        { reps: 10, weightLb: 135 },
-        { reps: 8, weightLb: 145 },
+        { reps: 10, weightLb: 135, durationSec: null, distanceM: null, rpe: null },
+        { reps: 10, weightLb: 135, durationSec: null, distanceM: null, rpe: null },
+        { reps: 8, weightLb: 145, durationSec: null, distanceM: null, rpe: null },
       ],
     });
     expect(
@@ -651,10 +651,10 @@ describe("previous workout and editing a set", () => {
           excludeSessionId: second,
         })
       )?.sets,
-    ).toEqual([{ reps: 5, weightLb: 225 }]);
+    ).toEqual([{ reps: 5, weightLb: 225, durationSec: null, distanceM: null, rpe: null }]);
     expect(
       (await asUser.query(api.sets.recentForExercise, { exerciseName: "squat" }))?.sets,
-    ).toEqual([{ reps: 3, weightLb: 245 }]);
+    ).toEqual([{ reps: 3, weightLb: 245, durationSec: null, distanceM: null, rpe: null }]);
     expect(await asUser.query(api.sets.recentForExercise, { exerciseName: "   " })).toBeNull();
     expect(await asUser.query(api.sets.recentForExercise, { exerciseName: "curl" })).toBeNull();
 
@@ -689,9 +689,9 @@ describe("previous workout and editing a set", () => {
         })
       )?.sets,
     ).toEqual([
-      { reps: 10, weightLb: 135 },
-      { reps: 10, weightLb: 135 },
-      { reps: 8, weightLb: 145 },
+      { reps: 10, weightLb: 135, durationSec: null, distanceM: null, rpe: null },
+      { reps: 10, weightLb: 135, durationSec: null, distanceM: null, rpe: null },
+      { reps: 8, weightLb: 145, durationSec: null, distanceM: null, rpe: null },
     ]);
 
     const otherSession = await other.mutation(api.sessions.start, {});
@@ -703,7 +703,7 @@ describe("previous workout and editing a set", () => {
     });
     expect(
       (await other.query(api.sets.recentForExercise, { exerciseName: "bench press" }))?.sets,
-    ).toEqual([{ reps: 12, weightLb: 95 }]);
+    ).toEqual([{ reps: 12, weightLb: 95, durationSec: null, distanceM: null, rpe: null }]);
     expect(
       (
         await asUser.query(api.sets.recentForExercise, {
@@ -711,7 +711,7 @@ describe("previous workout and editing a set", () => {
           excludeSessionId: second,
         })
       )?.sets[0],
-    ).toEqual({ reps: 10, weightLb: 135 });
+    ).toEqual({ reps: 10, weightLb: 135, durationSec: null, distanceM: null, rpe: null });
 
     await expect(
       t.query(api.sets.recentForExercise, { exerciseName: "bench press" }),
@@ -764,7 +764,7 @@ describe("previous workout and editing a set", () => {
           excludeSessionId: second,
         })
       )?.sets,
-    ).toEqual([{ reps: 10, weightLb: 135 }]);
+    ).toEqual([{ reps: 10, weightLb: 135, durationSec: null, distanceM: null, rpe: null }]);
   });
 
   test("editing reps and weight leaves the set where it was logged", async () => {

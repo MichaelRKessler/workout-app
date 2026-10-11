@@ -76,7 +76,67 @@ describe("best efforts and volume", () => {
     expect(volumeLb([
       { reps: 10, weightLb: 100 },
       { reps: 20, weightLb: 0 },
-    ])).toBe(1000);
+      { weightLb: 0, durationSec: 60 },
+      { reps: 5, weightLb: 50, distanceM: 2000 },
+    ])).toBe(1250);
+  });
+
+  test("timed and distance records stay separate from lifting", () => {
+    expect(
+      personalRecordForSet("plank", { weightLb: 0, durationSec: 60 }, []),
+    ).toMatchObject({ kind: "duration", durationSec: 60 });
+    expect(
+      personalRecordForSet("plank", { weightLb: 0, durationSec: 45 }, [
+        { weightLb: 0, durationSec: 60 },
+      ]),
+    ).toBeNull();
+    expect(
+      personalRecordForSet("plank", { weightLb: 20, durationSec: 60 }, [
+        { weightLb: 0, durationSec: 60 },
+      ]),
+    ).toMatchObject({ kind: "duration" });
+    expect(
+      personalRecordForSet("row", { weightLb: 0, distanceM: 2000 }, []),
+    ).toMatchObject({ kind: "distance" });
+    expect(
+      personalRecordForSet("row", { weightLb: 0, distanceM: 2000, durationSec: 400 }, [
+        { weightLb: 0, distanceM: 2000, durationSec: 500 },
+      ]),
+    ).toMatchObject({ kind: "distance" });
+    expect(
+      personalRecordForSet("row", { weightLb: 0, distanceM: 2000, durationSec: 400 }, [
+        { weightLb: 0, distanceM: 2000 },
+      ]),
+    ).toBeNull();
+    expect(
+      personalRecordForSet("bench press", { reps: 5, weightLb: 135 }, [
+        { weightLb: 0, durationSec: 600 },
+      ]),
+    ).toMatchObject({ kind: "both" });
+
+    const distanceTrend = trendFromSets(
+      [
+        {
+          _id: "a",
+          sessionId: "old",
+          weightLb: 0,
+          distanceM: 1000,
+          loggedAt: 1,
+          sessionStartedAt: 1,
+        },
+        {
+          _id: "b",
+          sessionId: "new",
+          weightLb: 0,
+          distanceM: 2000,
+          loggedAt: 2,
+          sessionStartedAt: 2,
+        },
+      ],
+      10,
+    );
+    expect(distanceTrend.unit).toBe("m");
+    expect(distanceTrend.points.map((point) => point.value)).toEqual([1000, 2000]);
   });
 
   test("the trend is one point per workout, oldest first", () => {

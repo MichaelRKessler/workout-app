@@ -1,14 +1,15 @@
 import { paginationOptsValidator, paginationResultValidator } from "convex/server";
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
-import type { QueryCtx } from "./_generated/server";
-import { authedQuery } from "./lib/customFunctions";
-import { MAX_KNOWN_EXERCISE_NAMES } from "./lib/exerciseName";
+import type { MutationCtx, QueryCtx } from "./_generated/server";
+import { authedMutation, authedQuery } from "./lib/customFunctions";
+import { formatExerciseName, MAX_KNOWN_EXERCISE_NAMES } from "./lib/exerciseName";
 import { summarizeEfforts, trendFromSets } from "./lib/records";
 import {
   EXERCISE_RECORD_SCAN,
   loadRecentSetsForExercise,
   loadVoiceExerciseNames,
+  presentSet,
 } from "./lib/workouts";
 
 const TREND_SESSIONS = 48;
@@ -16,23 +17,28 @@ const TREND_SESSIONS = 48;
 const effortValidator = v.object({
   setId: v.id("sets"),
   sessionId: v.id("sessions"),
-  reps: v.number(),
+  reps: v.union(v.number(), v.null()),
   weightLb: v.number(),
   epleyLb: v.union(v.number(), v.null()),
+  durationSec: v.union(v.number(), v.null()),
+  distanceM: v.union(v.number(), v.null()),
   loggedAt: v.number(),
 });
 
 const historySetValidator = v.object({
   _id: v.id("sets"),
-  reps: v.number(),
+  reps: v.union(v.number(), v.null()),
   weightLb: v.number(),
+  durationSec: v.union(v.number(), v.null()),
+  distanceM: v.union(v.number(), v.null()),
+  rpe: v.union(v.number(), v.null()),
   loggedAt: v.number(),
   sessionId: v.id("sessions"),
   sessionStartedAt: v.number(),
 });
 
 async function ownedExercise(
-  ctx: QueryCtx,
+  ctx: QueryCtx | MutationCtx,
   userId: Id<"users">,
   rawId: string,
 ) {
@@ -90,7 +96,14 @@ export const detail = authedQuery({
       bestWeight: v.union(effortValidator, v.null()),
       bestEpley: v.union(effortValidator, v.null()),
       bestBodyweight: v.union(effortValidator, v.null()),
-      trendUnit: v.union(v.literal("lb"), v.literal("reps")),
+      bestDuration: v.union(effortValidator, v.null()),
+      bestDistance: v.union(effortValidator, v.null()),
+      trendUnit: v.union(
+        v.literal("lb"),
+        v.literal("reps"),
+        v.literal("m"),
+        v.literal("sec"),
+      ),
       trend: v.array(
         v.object({
           sessionId: v.id("sessions"),
@@ -144,6 +157,8 @@ export const detail = authedQuery({
           sessionId: set.sessionId,
           reps: set.reps,
           weightLb: set.weightLb,
+          durationSec: set.durationSec,
+          distanceM: set.distanceM,
           loggedAt: set.loggedAt,
           sessionStartedAt,
         },
@@ -161,6 +176,8 @@ export const detail = authedQuery({
         reps: value.reps,
         weightLb: value.weightLb,
         epleyLb: value.epleyLb,
+        durationSec: value.durationSec,
+        distanceM: value.distanceM,
         loggedAt: value.loggedAt,
       };
     }
@@ -171,6 +188,8 @@ export const detail = authedQuery({
       bestWeight: effort(efforts.bestWeight),
       bestEpley: effort(efforts.bestEpley),
       bestBodyweight: effort(efforts.bestBodyweight),
+      bestDuration: effort(efforts.bestDuration),
+      bestDistance: effort(efforts.bestDistance),
       trendUnit: trend.unit,
       trend: trend.points.map((point) => ({
         sessionId: point.sessionId as Id<"sessions">,
@@ -218,8 +237,7 @@ export const history = authedQuery({
       ...result,
       page: result.page.map((set) => ({
         _id: set._id,
-        reps: set.reps,
-        weightLb: set.weightLb,
+        ...presentSet(set),
         loggedAt: set.loggedAt,
         sessionId: set.sessionId,
         sessionStartedAt: startedAt.get(set.sessionId) ?? set.loggedAt,
@@ -235,5 +253,167 @@ export const namesForVoice = authedQuery({
   handler: async (ctx) => {
     const names = await loadVoiceExerciseNames(ctx, ctx.userId);
     return names.slice(0, MAX_KNOWN_EXERCISE_NAMES);
+  },
+});
+
+const SET_COUNT_CAP = 100;
+/** One mutation moves every set. Above this, it fails without writing. */
+const MERGE_SET_LIMIT = 2000;
+
+const libraryItemValidator = v.object({
+  _id: v.id("exercises"),
+  name: v.string(),
+  setCount: v.number(),
+  setCountCapped: v.boolean(),
+});
+
+async function countSets(
+  ctx: QueryCtx | MutationCtx,
+  userId: Id<"users">,
+  exerciseId: Id<"exercises">,
+) {
+  const rows = await ctx.db
+    .query("sets")
+    .withIndex("by_user_exercise_and_logged", (q) =>
+      q.eq("userId", userId).eq("exerciseId", exerciseId),
+    )
+    .take(SET_COUNT_CAP + 1);
+  return {
+    setCount: Math.min(rows.length, SET_COUNT_CAP),
+    setCountCapped: rows.length > SET_COUNT_CAP,
+  };
+}
+
+/** Every exercise, with a set count. Pages follow the name index. */
+export const browse = authedQuery({
+  args: { paginationOpts: paginationOptsValidator },
+  returns: paginationResultValidator(libraryItemValidator),
+  handler: async (ctx, args) => {
+    const result = await ctx.db
+      .query("exercises")
+      .withIndex("by_user_and_normalized_name", (q) => q.eq("userId", ctx.userId))
+      .paginate(args.paginationOpts);
+
+    const page = await Promise.all(
+      result.page.map(async (exercise) => {
+        const counts = await countSets(ctx, ctx.userId, exercise._id);
+        return {
+          _id: exercise._id,
+          name: exercise.name,
+          setCount: counts.setCount,
+          setCountCapped: counts.setCountCapped,
+        };
+      }),
+    );
+    return { ...result, page };
+  },
+});
+
+const renameResult = v.union(
+  v.object({
+    status: v.literal("renamed"),
+    name: v.string(),
+  }),
+  v.object({
+    status: v.literal("conflict"),
+    intoId: v.id("exercises"),
+    intoName: v.string(),
+    fromName: v.string(),
+    setCount: v.number(),
+    setCountCapped: v.boolean(),
+  }),
+);
+
+export const rename = authedMutation({
+  args: {
+    exerciseId: v.id("exercises"),
+    name: v.string(),
+  },
+  returns: renameResult,
+  handler: async (ctx, args) => {
+    const exercise = await ctx.db.get("exercises", args.exerciseId);
+    if (!exercise || exercise.userId !== ctx.userId) {
+      throw new Error("Exercise not found");
+    }
+    const formatted = formatExerciseName(args.name);
+    if (!formatted) {
+      throw new Error("Exercise name must be 1 to 80 characters");
+    }
+    const existing = await ctx.db
+      .query("exercises")
+      .withIndex("by_user_and_normalized_name", (q) =>
+        q.eq("userId", ctx.userId).eq("normalizedName", formatted.normalizedName),
+      )
+      .unique();
+    if (existing && existing._id !== exercise._id) {
+      if (existing.userId !== ctx.userId) {
+        throw new Error("Exercise not found");
+      }
+      const counts = await countSets(ctx, ctx.userId, exercise._id);
+      return {
+        status: "conflict" as const,
+        intoId: existing._id,
+        intoName: existing.name,
+        fromName: exercise.name,
+        setCount: counts.setCount,
+        setCountCapped: counts.setCountCapped,
+      };
+    }
+    await ctx.db.patch("exercises", exercise._id, {
+      name: formatted.name,
+      normalizedName: formatted.normalizedName,
+    });
+    return { status: "renamed" as const, name: formatted.name };
+  },
+});
+
+export const merge = authedMutation({
+  args: {
+    fromId: v.id("exercises"),
+    intoId: v.id("exercises"),
+  },
+  returns: v.object({
+    moved: v.number(),
+    name: v.string(),
+  }),
+  handler: async (ctx, args) => {
+    if (args.fromId === args.intoId) {
+      throw new Error("Choose two different exercises");
+    }
+    const from = await ctx.db.get("exercises", args.fromId);
+    const into = await ctx.db.get("exercises", args.intoId);
+    if (!from || from.userId !== ctx.userId || !into || into.userId !== ctx.userId) {
+      throw new Error("Exercise not found");
+    }
+
+    let moved = 0;
+    const seen = new Set<string>();
+    while (moved <= MERGE_SET_LIMIT) {
+      const page = await ctx.db
+        .query("sets")
+        .withIndex("by_user_exercise_and_logged", (q) =>
+          q.eq("userId", ctx.userId).eq("exerciseId", from._id),
+        )
+        .take(50);
+      if (page.length === 0) {
+        break;
+      }
+      if (moved + page.length > MERGE_SET_LIMIT) {
+        throw new Error(`This exercise has more than ${MERGE_SET_LIMIT} sets to merge`);
+      }
+      for (const set of page) {
+        if (set.userId !== ctx.userId) {
+          throw new Error("Exercise not found");
+        }
+        if (seen.has(set._id)) {
+          throw new Error("Could not move every set. Nothing was merged");
+        }
+        seen.add(set._id);
+        await ctx.db.patch("sets", set._id, { exerciseId: into._id });
+        moved += 1;
+      }
+    }
+    await ctx.db.delete("exercises", from._id);
+    return { moved, name: into.name };
   },
 });

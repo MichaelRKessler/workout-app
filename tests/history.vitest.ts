@@ -235,7 +235,7 @@ describe("logging a past workout", () => {
 
     expect(
       (await asUser.query(api.sets.recentForExercise, { exerciseName: "bench press" }))?.sets,
-    ).toEqual([{ reps: 5, weightLb: 185 }]);
+    ).toEqual([{ reps: 5, weightLb: 185, durationSec: null, distanceM: null, rpe: null }]);
   });
 
   test("rejects a future time, an empty workout, and callers without access", async () => {

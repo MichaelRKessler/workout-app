@@ -4,9 +4,12 @@ import { AccessSettings } from "@/components/AccessSettings";
 import { InstallOffer } from "@/components/InstallOffer";
 import { PageHeader, SectionLabel } from "@/components/PageHeader";
 import { useTheme } from "@/components/useTheme";
+import { useWeightUnit } from "@/components/WeightUnit";
 import { api } from "@/convex/_generated/api";
+import type { WeightUnit } from "@/convex/lib/units";
 import { useAuthActions } from "@convex-dev/auth/react";
-import { useQuery } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
@@ -15,11 +18,26 @@ export function SettingsScreen() {
   const { signOut } = useAuthActions();
   const router = useRouter();
   const { theme, setTheme } = useTheme();
+  const unit = useWeightUnit();
+  const setWeightUnit = useMutation(api.users.setWeightUnit);
   const [signingOut, setSigningOut] = useState(false);
+  const [savingUnit, setSavingUnit] = useState(false);
 
   const name = viewer?.name || viewer?.email || "Signed in";
   const initial = (viewer?.name || viewer?.email || "").trim().charAt(0).toUpperCase();
   const dark = theme === "dark";
+
+  async function chooseUnit(next: WeightUnit) {
+    if (next === unit || savingUnit) {
+      return;
+    }
+    setSavingUnit(true);
+    try {
+      await setWeightUnit({ weightUnit: next });
+    } finally {
+      setSavingUnit(false);
+    }
+  }
 
   async function onSignOut() {
     setSigningOut(true);
@@ -36,6 +54,46 @@ export function SettingsScreen() {
       <PageHeader backHref="/" title="Settings" />
 
       <AccessSettings />
+
+      <section aria-labelledby="settings-units" className="mt-7">
+        <SectionLabel id="settings-units">Weight</SectionLabel>
+        <div className="overflow-hidden rounded-[18px] border border-line bg-surface">
+          <div className="flex min-h-14 items-center justify-between gap-4 px-4 py-3">
+            <span className="text-[15px] font-medium">Unit</span>
+            <div role="group" aria-label="Weight unit" className="flex rounded-full border border-line p-0.5">
+              {(["lb", "kg"] as const).map((choice) => (
+                <button
+                  key={choice}
+                  type="button"
+                  aria-pressed={unit === choice}
+                  disabled={savingUnit}
+                  onClick={() => void chooseUnit(choice)}
+                  className={`min-h-11 min-w-14 rounded-full px-4 text-sm font-medium ${
+                    unit === choice ? "bg-inverse text-inverse-ink" : "text-muted"
+                  }`}
+                >
+                  {choice}
+                </button>
+              ))}
+            </div>
+          </div>
+          <p className="border-t border-line px-4 py-3 text-[13px] leading-normal text-muted">
+            Shown in this unit. Saved weights stay in pounds, so a workout logged in pounds still
+            means pounds if you switch to kilograms.
+          </p>
+        </div>
+      </section>
+
+      <section aria-labelledby="settings-exercises" className="mt-7">
+        <SectionLabel id="settings-exercises">Library</SectionLabel>
+        <Link
+          href="/exercises"
+          className="flex min-h-14 items-center justify-between rounded-[18px] border border-line bg-surface px-4 text-[15px] font-medium hover:bg-fill-2"
+        >
+          Exercises
+          <span className="text-sm font-normal text-muted">Rename or combine</span>
+        </Link>
+      </section>
 
       <section aria-labelledby="settings-appearance" className="mt-7">
         <SectionLabel id="settings-appearance">Appearance</SectionLabel>
