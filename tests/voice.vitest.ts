@@ -14,6 +14,7 @@ import {
   VoiceSaveError,
   type VoiceLogEvent,
 } from "../lib/voice/confirm";
+import { readVoiceAccess } from "../lib/voice/access";
 import { readGeminiApiKey, readGeminiModel } from "../lib/voice/env";
 import { handleVoiceParse } from "../lib/voice/handleVoiceParse";
 import { GEMINI_FLASH_MODEL } from "../lib/voice/model";
@@ -354,6 +355,7 @@ describe("who can parse, and when a set is stored", () => {
     const result = await handleVoiceParse({
       token: null,
       signedIn: false,
+      allowed: false,
       apiKey: undefined,
       audioBase64: "AAAA",
       mimeType: "audio/webm",
@@ -363,11 +365,47 @@ describe("who can parse, and when a set is stored", () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
+  test("the voice route rejects a signed-in user who is not allow-listed", async () => {
+    const fetchImpl = vi.fn<typeof fetch>();
+    const blocked = readVoiceAccess({
+      token: "session-token",
+      status: { allowed: false },
+    });
+    const result = await handleVoiceParse({
+      token: "session-token",
+      signedIn: blocked.signedIn,
+      allowed: blocked.allowed,
+      apiKey: "test-gemini-key",
+      audioBase64: "AAAA",
+      mimeType: "audio/webm",
+      text: "bench press 3x10 135",
+      fetchImpl,
+    });
+    expect(blocked).toEqual({ signedIn: true, allowed: false });
+    expect(result.status).toBe(403);
+    expect(result.body).toEqual({ error: "You don't have access yet." });
+    expect(fetchImpl).not.toHaveBeenCalled();
+
+    expect(readVoiceAccess({ token: null, status: { allowed: true } })).toEqual({
+      signedIn: false,
+      allowed: false,
+    });
+    expect(readVoiceAccess({ token: "session-token", status: null })).toEqual({
+      signedIn: false,
+      allowed: false,
+    });
+    expect(readVoiceAccess({ token: "session-token", status: { allowed: true } })).toEqual({
+      signedIn: true,
+      allowed: true,
+    });
+  });
+
   test("a signed-in request with no key explains that and does not call Gemini", async () => {
     const fetchImpl = vi.fn<typeof fetch>();
     const result = await handleVoiceParse({
       token: "session-token",
       signedIn: true,
+      allowed: true,
       apiKey: undefined,
       audioBase64: "AAAA",
       mimeType: "audio/webm",
@@ -392,6 +430,7 @@ describe("who can parse, and when a set is stored", () => {
     const result = await handleVoiceParse({
       token: "session-token",
       signedIn: true,
+      allowed: true,
       apiKey: "test-gemini-key",
       audioBase64: "AAAA",
       mimeType: "audio/webm",
@@ -421,6 +460,7 @@ describe("who can parse, and when a set is stored", () => {
     const typed = await handleVoiceParse({
       token: "session-token",
       signedIn: true,
+      allowed: true,
       apiKey: "test-gemini-key",
       audioBase64: "",
       mimeType: "",
@@ -433,6 +473,7 @@ describe("who can parse, and when a set is stored", () => {
     const blank = await handleVoiceParse({
       token: "session-token",
       signedIn: true,
+      allowed: true,
       apiKey: "test-gemini-key",
       audioBase64: "",
       mimeType: "",
@@ -445,6 +486,7 @@ describe("who can parse, and when a set is stored", () => {
     const signedOut = await handleVoiceParse({
       token: null,
       signedIn: false,
+      allowed: false,
       apiKey: "test-gemini-key",
       audioBase64: "",
       mimeType: "",

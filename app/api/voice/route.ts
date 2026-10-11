@@ -3,6 +3,7 @@ import { convexAuthNextjsToken } from "@convex-dev/auth/nextjs/server";
 import { fetchQuery } from "convex/nextjs";
 import { NextResponse } from "next/server";
 import { api } from "@/convex/_generated/api";
+import { readVoiceAccess } from "@/lib/voice/access";
 import { readGeminiApiKey, readGeminiModel } from "@/lib/voice/env";
 import { handleVoiceParse } from "@/lib/voice/handleVoiceParse";
 
@@ -10,15 +11,16 @@ export const runtime = "nodejs";
 
 export async function POST(request: Request) {
   const token = await convexAuthNextjsToken();
-  let signedIn = false;
+  let status: { allowed: boolean } | null = null;
   if (token && process.env.NEXT_PUBLIC_CONVEX_URL) {
     try {
-      await fetchQuery(api.users.viewer, {}, { token });
-      signedIn = true;
+      const access = await fetchQuery(api.access.myStatus, {}, { token });
+      status = { allowed: access.allowed };
     } catch {
-      signedIn = false;
+      status = null;
     }
   }
+  const voiceAccess = readVoiceAccess({ token, status });
 
   let payload: unknown;
   try {
@@ -43,7 +45,8 @@ export async function POST(request: Request) {
 
   const result = await handleVoiceParse({
     token,
-    signedIn,
+    signedIn: voiceAccess.signedIn,
+    allowed: voiceAccess.allowed,
     apiKey: readGeminiApiKey(),
     model: readGeminiModel(),
     audioBase64,

@@ -1,5 +1,6 @@
 "use client";
 
+import { AccessSettings } from "@/components/AccessSettings";
 import { InstallOffer } from "@/components/InstallOffer";
 import { PageHeader, SectionLabel } from "@/components/PageHeader";
 import { useTheme } from "@/components/useTheme";
@@ -33,6 +34,8 @@ export function SettingsScreen() {
   return (
     <div className="px-5 pt-3 pb-[calc(32px+env(safe-area-inset-bottom))]">
       <PageHeader backHref="/" title="Settings" />
+
+      <AccessSettings />
 
       <section aria-labelledby="settings-appearance" className="mt-7">
         <SectionLabel id="settings-appearance">Appearance</SectionLabel>

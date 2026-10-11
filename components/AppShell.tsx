@@ -1,14 +1,17 @@
 "use client";
 
+import { NoAccess } from "@/components/NoAccess";
 import { BrandMark } from "@/components/icons";
-import { useConvexAuth } from "convex/react";
+import { api } from "@/convex/_generated/api";
+import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import Link from "next/link";
-import { ReactNode } from "react";
+import { ReactNode, useEffect } from "react";
 
 export function AppShell({ children }: { children: ReactNode }) {
   const { isAuthenticated, isLoading } = useConvexAuth();
+  const status = useQuery(api.access.myStatus, isAuthenticated ? {} : "skip");
 
-  if (isLoading) {
+  if (isLoading || (isAuthenticated && status === undefined)) {
     return (
       <main className="mx-auto flex min-h-dvh w-full max-w-lg items-center justify-center px-5">
         <p className="text-[15px] text-muted">Loading your workouts…</p>
@@ -16,7 +19,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     );
   }
 
-  if (!isAuthenticated) {
+  if (!isAuthenticated || status === undefined) {
     return (
       <main className="mx-auto flex min-h-dvh w-full max-w-lg flex-col justify-center gap-6 px-5">
         <BrandMark className="size-8" />
@@ -33,5 +36,33 @@ export function AppShell({ children }: { children: ReactNode }) {
     );
   }
 
-  return <main className="mx-auto min-h-dvh w-full max-w-lg">{children}</main>;
+  if (!status.allowed) {
+    return (
+      <main className="mx-auto min-h-dvh w-full max-w-lg">
+        <NoAccess status={status} />
+      </main>
+    );
+  }
+
+  return (
+    <main className="mx-auto min-h-dvh w-full max-w-lg">
+      <AdminSeed />
+      {children}
+    </main>
+  );
+}
+
+/** Inserts the admin allow-list row once the admin is in the app. */
+function AdminSeed() {
+  const status = useQuery(api.access.myStatus);
+  const ensureAdmin = useMutation(api.access.ensureAdmin);
+
+  useEffect(() => {
+    if (!status?.isAdmin) {
+      return;
+    }
+    void ensureAdmin({}).catch(() => undefined);
+  }, [ensureAdmin, status?.isAdmin]);
+
+  return null;
 }
