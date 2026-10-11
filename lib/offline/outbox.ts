@@ -65,12 +65,29 @@ export type PendingAction = {
   echoed: boolean;
 };
 
+/** A weigh-in waiting on the phone. Null fields were left blank. */
+export type PendingBody = {
+  clientId: string;
+  loggedAt: number;
+  weightLb: number | null;
+  bodyFatPct: number | null;
+  waistCm: number | null;
+  chestCm: number | null;
+  armCm: number | null;
+  hipsCm: number | null;
+  thighCm: number | null;
+  note: string | null;
+  syncError: string | null;
+  echoed: boolean;
+};
+
 export type Outbox = {
   openSessionClientId: string | null;
   sets: PendingSet[];
   edits: PendingEdit[];
   deletes: PendingDelete[];
   actions: PendingAction[];
+  body: PendingBody[];
 };
 
 export type SyncBatch = {
@@ -78,6 +95,7 @@ export type SyncBatch = {
   edits: PendingEdit[];
   deletes: PendingDelete[];
   actions: PendingAction[];
+  body: PendingBody[];
 };
 
 export type SetSyncResult = {
@@ -110,11 +128,19 @@ export type ActionSyncResult = {
   message: string | null;
 };
 
+export type BodySyncResult = {
+  clientId: string;
+  status: "applied" | "rejected";
+  entryId: string | null;
+  message: string | null;
+};
+
 export type SyncResult = {
   sets: SetSyncResult[];
   edits: EditSyncResult[];
   deletes: DeleteSyncResult[];
   actions: ActionSyncResult[];
+  body: BodySyncResult[];
 };
 
 export type WorkoutView =
@@ -128,6 +154,7 @@ export function emptyOutbox(): Outbox {
     edits: [],
     deletes: [],
     actions: [],
+    body: [],
   };
 }
 
@@ -296,10 +323,33 @@ export function queueAction(
   };
 }
 
+export function enqueueBody(
+  outbox: Outbox,
+  entry: Omit<PendingBody, "syncError" | "echoed">,
+): Outbox {
+  const without = outbox.body.filter((item) => item.clientId !== entry.clientId);
+  return {
+    ...outbox,
+    body: [...without, { ...entry, syncError: null, echoed: false }],
+  };
+}
+
+export function removePendingBody(outbox: Outbox, clientId: string): Outbox {
+  return {
+    ...outbox,
+    body: outbox.body.filter((item) => item.clientId !== clientId),
+  };
+}
+
 export function nextBatch(outbox: Outbox, limit = OFFLINE_BATCH_LIMIT): SyncBatch {
-  const batch: SyncBatch = { sets: [], edits: [], deletes: [], actions: [] };
+  const batch: SyncBatch = { sets: [], edits: [], deletes: [], actions: [], body: [] };
   const remaining = () =>
-    limit - (batch.sets.length + batch.edits.length + batch.deletes.length + batch.actions.length);
+    limit -
+    (batch.sets.length +
+      batch.edits.length +
+      batch.deletes.length +
+      batch.actions.length +
+      batch.body.length);
 
   for (const set of outbox.sets) {
     if (remaining() <= 0) {
@@ -337,12 +387,26 @@ export function nextBatch(outbox: Outbox, limit = OFFLINE_BATCH_LIMIT): SyncBatc
     }
     batch.actions.push(action);
   }
+  for (const entry of outbox.body) {
+    if (remaining() <= 0) {
+      return batch;
+    }
+    if (entry.syncError || entry.echoed) {
+      continue;
+    }
+    batch.body.push(entry);
+  }
   return batch;
 }
 
 export function batchHasWork(batch: SyncBatch): boolean {
   return (
-    batch.sets.length + batch.edits.length + batch.deletes.length + batch.actions.length > 0
+    batch.sets.length +
+      batch.edits.length +
+      batch.deletes.length +
+      batch.actions.length +
+      batch.body.length >
+    0
   );
 }
 
@@ -461,8 +525,20 @@ export function applySyncResult(
     };
   });
 
+  const bodyResults = result.body ?? [];
+  const body = outbox.body.flatMap((entry) => {
+    const item = bodyResults.find((row) => row.clientId === entry.clientId);
+    if (!item) {
+      return [entry];
+    }
+    if (item.status === "rejected") {
+      return [{ ...entry, syncError: item.message ?? "That entry could not be saved" }];
+    }
+    return [];
+  });
+
   return {
-    outbox: { openSessionClientId, sets, edits, deletes, actions },
+    outbox: { openSessionClientId, sets, edits, deletes, actions, body },
     personalRecords,
   };
 }
@@ -630,6 +706,11 @@ export function pendingChangeCount(outbox: Outbox): number {
       count += 1;
     }
   }
+  for (const entry of outbox.body) {
+    if (!entry.echoed) {
+      count += 1;
+    }
+  }
   return count;
 }
 
@@ -668,6 +749,11 @@ export function firstSyncError(outbox: Outbox): string | null {
   for (const action of outbox.actions) {
     if (action.syncError) {
       return action.syncError;
+    }
+  }
+  for (const entry of outbox.body) {
+    if (entry.syncError) {
+      return entry.syncError;
     }
   }
   return null;
@@ -740,6 +826,7 @@ export function parseOutbox(value: unknown): Outbox {
     edits: parseList(value.edits, parsePendingEdit),
     deletes: parseList(value.deletes, parsePendingDelete),
     actions: parseList(value.actions, parsePendingAction),
+    body: parseList(value.body, parsePendingBody),
   };
 }
 
@@ -847,6 +934,27 @@ function parsePendingDelete(value: unknown): PendingDelete | null {
   return {
     deleteId: value.deleteId,
     setId: value.setId,
+    syncError: typeof value.syncError === "string" ? value.syncError : null,
+    echoed: value.echoed === true,
+  };
+}
+
+function parsePendingBody(value: unknown): PendingBody | null {
+  if (!isRecord(value) || typeof value.clientId !== "string" || typeof value.loggedAt !== "number") {
+    return null;
+  }
+  const numberOrNull = (field: unknown): number | null => (typeof field === "number" ? field : null);
+  return {
+    clientId: value.clientId,
+    loggedAt: value.loggedAt,
+    weightLb: numberOrNull(value.weightLb),
+    bodyFatPct: numberOrNull(value.bodyFatPct),
+    waistCm: numberOrNull(value.waistCm),
+    chestCm: numberOrNull(value.chestCm),
+    armCm: numberOrNull(value.armCm),
+    hipsCm: numberOrNull(value.hipsCm),
+    thighCm: numberOrNull(value.thighCm),
+    note: typeof value.note === "string" ? value.note : null,
     syncError: typeof value.syncError === "string" ? value.syncError : null,
     echoed: value.echoed === true,
   };

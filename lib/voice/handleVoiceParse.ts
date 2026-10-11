@@ -1,12 +1,16 @@
+import type { LengthUnit } from "../../convex/lib/bodyMeasures";
 import type { WeightUnit } from "../../convex/lib/units";
+import { parseBodyAudio, parseBodyText } from "./parseBody";
 import { parseWorkoutAudio, parseWorkoutText } from "./parseWorkout";
+import type { BodyProposal } from "./bodyProposal";
 import { voiceErrorStatus, type VoiceProposal } from "./proposal";
 
 export type VoiceParseResult = {
   status: number;
   body:
     | { error: string }
-    | { proposal: VoiceProposal; persisted: false };
+    | { proposal: VoiceProposal; persisted: false }
+    | { proposal: BodyProposal; persisted: false };
 };
 
 /**
@@ -24,6 +28,8 @@ export async function handleVoiceParse(input: {
   text?: string;
   knownExerciseNames?: readonly string[];
   weightUnit?: WeightUnit;
+  lengthUnit?: LengthUnit;
+  kind?: "workout" | "body";
   fetchImpl?: typeof fetch;
 }): Promise<VoiceParseResult> {
   if (!input.token || !input.signedIn) {
@@ -51,6 +57,27 @@ export async function handleVoiceParse(input: {
   }
 
   try {
+    if (input.kind === "body") {
+      const proposal = typed
+        ? await parseBodyText({
+            apiKey: input.apiKey,
+            model: input.model,
+            text: input.text ?? "",
+            weightUnit: input.weightUnit,
+            lengthUnit: input.lengthUnit,
+            fetchImpl: input.fetchImpl,
+          })
+        : await parseBodyAudio({
+            apiKey: input.apiKey,
+            model: input.model,
+            audioBase64: input.audioBase64,
+            mimeType: input.mimeType,
+            weightUnit: input.weightUnit,
+            lengthUnit: input.lengthUnit,
+            fetchImpl: input.fetchImpl,
+          });
+      return { status: 200, body: { proposal, persisted: false } };
+    }
     const proposal = typed
       ? await parseWorkoutText({
           apiKey: input.apiKey,

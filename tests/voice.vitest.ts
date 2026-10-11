@@ -697,6 +697,98 @@ describe("who can parse, and when a set is stored", () => {
   });
 });
 
+describe("body measurements by voice", () => {
+  const weight232 = {
+    weight: 232,
+    weightUnit: "lb",
+    bodyFatPct: 0,
+    waist: 0,
+    chest: 0,
+    arm: 0,
+    hips: 0,
+    thigh: 0,
+    lengthUnit: "in",
+    dayOffset: 0,
+    note: "",
+  };
+
+  test("a signed-out body request does not call Gemini", async () => {
+    const fetchImpl = vi.fn<typeof fetch>();
+    const result = await handleVoiceParse({
+      token: null,
+      signedIn: false,
+      allowed: false,
+      apiKey: "test-gemini-key",
+      audioBase64: "AAAA",
+      mimeType: "audio/webm",
+      kind: "body",
+      fetchImpl,
+    });
+    expect(result.status).toBe(401);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  test("a blocked body request does not call Gemini", async () => {
+    const fetchImpl = vi.fn<typeof fetch>();
+    const result = await handleVoiceParse({
+      token: "session-token",
+      signedIn: true,
+      allowed: false,
+      apiKey: "test-gemini-key",
+      audioBase64: "",
+      mimeType: "",
+      text: "weight 232",
+      kind: "body",
+      fetchImpl,
+    });
+    expect(result.status).toBe(403);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  test("weight 232 is a preview and is not stored", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async () => {
+      return new Response(
+        JSON.stringify({
+          candidates: [{ content: { parts: [{ text: JSON.stringify(weight232) }] } }],
+        }),
+        { status: 200 },
+      );
+    });
+    const result = await handleVoiceParse({
+      token: "session-token",
+      signedIn: true,
+      allowed: true,
+      apiKey: "test-gemini-key",
+      audioBase64: "",
+      mimeType: "",
+      text: "weight 232",
+      weightUnit: "lb",
+      lengthUnit: "in",
+      kind: "body",
+      fetchImpl,
+    });
+    expect(result.status).toBe(200);
+    expect(result.body).toMatchObject({
+      persisted: false,
+      proposal: {
+        weightLb: 232,
+        bodyFatPct: null,
+        waistCm: null,
+        chestCm: null,
+        armCm: null,
+        hipsCm: null,
+        thighCm: null,
+        dayOffset: 0,
+        note: null,
+      },
+    });
+    if (!("proposal" in result.body) || !("weightLb" in result.body.proposal)) {
+      throw new Error("expected a body proposal");
+    }
+    expect(result.body.proposal.weightLb).toBe(232);
+  });
+});
+
 describe("microphone failures stay on the manual log", () => {
   test("permission denied, missing capture, and an insecure page have clear messages", () => {
     expect(
@@ -756,6 +848,8 @@ describe("server env", () => {
       expect(source, file).not.toContain("readGeminiApiKey");
       expect(source, file).not.toContain("parseWorkoutAudio");
       expect(source, file).not.toContain("parseWorkoutText");
+      expect(source, file).not.toContain("parseBodyAudio");
+      expect(source, file).not.toContain("parseBodyText");
     }
   });
 });

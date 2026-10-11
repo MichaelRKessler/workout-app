@@ -7,8 +7,9 @@ import { useOfflineLog } from "@/components/OfflineSync";
 import { useGuardedSignOut } from "@/components/useGuardedSignOut";
 import { useTheme } from "@/components/useTheme";
 import { useProgression } from "@/components/useProgression";
-import { useWeightUnit } from "@/components/WeightUnit";
+import { useLengthUnit, useWeightUnit } from "@/components/WeightUnit";
 import { api } from "@/convex/_generated/api";
+import type { LengthUnit } from "@/convex/lib/bodyMeasures";
 import { fromPounds, toPounds, WEIGHT_STEP, type WeightUnit } from "@/convex/lib/units";
 import { useMutation, useQuery } from "convex/react";
 import Link from "next/link";
@@ -18,12 +19,15 @@ export function SettingsScreen() {
   const viewer = useQuery(api.users.viewer);
   const { theme, setTheme } = useTheme();
   const unit = useWeightUnit();
+  const lengthUnit = useLengthUnit();
   const progression = useProgression();
   const { offline } = useOfflineLog();
   const signOut = useGuardedSignOut();
   const setWeightUnit = useMutation(api.users.setWeightUnit);
+  const setLengthUnit = useMutation(api.users.setLengthUnit);
   const setProgression = useMutation(api.users.setProgression);
   const [savingUnit, setSavingUnit] = useState(false);
+  const [savingLength, setSavingLength] = useState(false);
   const [savingProgression, setSavingProgression] = useState(false);
 
   const name = viewer?.name || viewer?.email || "Signed in";
@@ -39,6 +43,18 @@ export function SettingsScreen() {
       await setWeightUnit({ weightUnit: next });
     } finally {
       setSavingUnit(false);
+    }
+  }
+
+  async function chooseLength(next: LengthUnit) {
+    if (next === lengthUnit || savingLength || offline) {
+      return;
+    }
+    setSavingLength(true);
+    try {
+      await setLengthUnit({ lengthUnit: next });
+    } finally {
+      setSavingLength(false);
     }
   }
 
@@ -92,6 +108,37 @@ export function SettingsScreen() {
           <p className="border-t border-line px-4 py-3 text-sm leading-normal text-muted">
             Shown in this unit. Saved weights stay in pounds, so a workout logged in pounds still
             means pounds if you switch to kilograms.
+            {offline ? " Changing the unit needs a connection." : ""}
+          </p>
+        </div>
+      </section>
+
+      <section aria-labelledby="settings-length" className="mt-7">
+        <SectionLabel id="settings-length">Measurements</SectionLabel>
+        <div className="overflow-hidden rounded-[1.25rem] border border-line bg-surface">
+          <div className="flex min-h-14 items-center justify-between gap-4 px-4 py-3">
+            <span className="text-base font-medium">Length</span>
+            <div role="group" aria-label="Length unit" className="flex rounded-full border border-line p-0.5">
+              {(["in", "cm"] as const).map((choice) => (
+                <button
+                  key={choice}
+                  type="button"
+                  aria-pressed={lengthUnit === choice}
+                  disabled={savingLength || offline}
+                  onClick={() => void chooseLength(choice)}
+                  className={`min-h-11 min-w-14 rounded-full px-4 text-sm font-medium ${
+                    lengthUnit === choice ? "bg-inverse text-inverse-ink" : "text-muted"
+                  }`}
+                >
+                  {choice}
+                </button>
+              ))}
+            </div>
+          </div>
+          <p className="border-t border-line px-4 py-3 text-sm leading-normal text-muted">
+            Inches follow pounds, and centimeters follow kilograms, until you pick one here. After
+            that, it stays when you change the weight unit. Body measurements are stored in
+            centimeters.
             {offline ? " Changing the unit needs a connection." : ""}
           </p>
         </div>
@@ -171,13 +218,22 @@ export function SettingsScreen() {
 
       <section aria-labelledby="settings-exercises" className="mt-7">
         <SectionLabel id="settings-exercises">Library</SectionLabel>
-        <Link
-          href="/exercises"
-          className="flex min-h-14 items-center justify-between rounded-[1.25rem] border border-line bg-surface px-4 text-base font-medium hover:bg-fill-2"
-        >
-          Exercises
-          <span className="text-sm font-normal text-muted">Rename or combine</span>
-        </Link>
+        <div className="overflow-hidden rounded-[1.25rem] border border-line bg-surface">
+          <Link
+            href="/body"
+            className="flex min-h-14 items-center justify-between border-b border-line px-4 text-base font-medium hover:bg-fill-2"
+          >
+            Body
+            <span className="text-sm font-normal text-muted">Weight and measurements</span>
+          </Link>
+          <Link
+            href="/exercises"
+            className="flex min-h-14 items-center justify-between px-4 text-base font-medium hover:bg-fill-2"
+          >
+            Exercises
+            <span className="text-sm font-normal text-muted">Rename or combine</span>
+          </Link>
+        </div>
       </section>
 
       <section aria-labelledby="settings-appearance" className="mt-7">

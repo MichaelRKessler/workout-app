@@ -10,6 +10,7 @@
 
 import type * as access from "../access.js";
 import type * as auth from "../auth.js";
+import type * as body from "../body.js";
 import type * as exercises from "../exercises.js";
 import type * as http from "../http.js";
 import type * as lib_accessControl from "../lib/accessControl.js";
@@ -34,6 +35,7 @@ import type {
 declare const fullApi: ApiFromModules<{
   access: typeof access;
   auth: typeof auth;
+  body: typeof body;
   exercises: typeof exercises;
   http: typeof http;
   "lib/accessControl": typeof lib_accessControl;

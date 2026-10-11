@@ -14,6 +14,7 @@ import {
   batchHasWork,
   editPendingSet,
   emptyOutbox,
+  enqueueBody,
   enqueueSets,
   firstSyncError,
   nextBatch,
@@ -23,8 +24,10 @@ import {
   queueDelete,
   queueEdit,
   reconcileOutbox,
+  removePendingBody,
   removePendingSet,
   type Outbox,
+  type PendingBody,
   type PendingEdit,
   type PendingSet,
   type Placement,
@@ -125,6 +128,10 @@ type OfflineLog = {
   syncPending: () => Promise<number>;
   /** Remembers an exercise rest offline and sends it outside the set batch. */
   queueExerciseRest: (name: string, restSeconds: number | null) => void;
+  /** Queues a weigh-in and sends it with the rest of the outbox. */
+  saveBody: (entry: Omit<PendingBody, "syncError" | "echoed">) => Promise<SyncOutcome>;
+  /** Drops a weigh-in that has not been saved on the server yet. */
+  discardPendingBody: (clientId: string) => void;
 };
 
 const OfflineContext = createContext<OfflineLog | null>(null);
@@ -172,6 +179,7 @@ export function OfflineSyncProvider({
   const editResults = useRef(new Map<string, SyncResult["edits"][number]>());
   const deleteResults = useRef(new Map<string, SyncResult["deletes"][number]>());
   const actionResults = useRef(new Map<string, SyncResult["actions"][number]>());
+  const bodyResults = useRef(new Map<string, SyncResult["body"][number]>());
   const acceptRef = useRef(accept);
   const completeRef = useRef(completeSession);
   const keepGoingRef = useRef(keepGoingSession);
@@ -233,6 +241,9 @@ export function OfflineSyncProvider({
     }
     for (const item of result.actions) {
       actionResults.current.set(item.actionId, item);
+    }
+    for (const item of result.body ?? []) {
+      bodyResults.current.set(item.clientId, item);
     }
   }, []);
 
@@ -390,6 +401,38 @@ export function OfflineSyncProvider({
     }
     return winner;
   }, [flush]);
+
+  const saveBody = useCallback(
+    async (entry: Omit<PendingBody, "syncError" | "echoed">): Promise<SyncOutcome> => {
+      ensureLoaded();
+      persist(enqueueBody(outboxRef.current, entry));
+      if (offlineRef.current) {
+        return { ...outcome("queued", null), clientIds: [entry.clientId] };
+      }
+      await wait();
+      const result = bodyResults.current.get(entry.clientId);
+      if (result?.status === "rejected") {
+        return outcome("rejected", result.message);
+      }
+      if (result?.status === "applied") {
+        return {
+          ...outcome("synced", null),
+          clientIds: [entry.clientId],
+          setIds: result.entryId ? [result.entryId] : [],
+        };
+      }
+      return { ...outcome("queued", null), clientIds: [entry.clientId] };
+    },
+    [ensureLoaded, persist, wait],
+  );
+
+  const discardPendingBody = useCallback(
+    (clientId: string) => {
+      ensureLoaded();
+      persist(removePendingBody(outboxRef.current, clientId));
+    },
+    [ensureLoaded, persist],
+  );
 
   const saveSets = useCallback(
     async (input: SaveSetsInput): Promise<SyncOutcome> => {
@@ -624,8 +667,11 @@ export function OfflineSyncProvider({
       readPending,
       syncPending,
       queueExerciseRest,
+      saveBody,
+      discardPendingBody,
     }),
     [
+      discardPendingBody,
       editSet,
       flushError,
       offline,
@@ -635,6 +681,7 @@ export function OfflineSyncProvider({
       removeMany,
       reconcile,
       runAction,
+      saveBody,
       saveSets,
       queueExerciseRest,
       restPending,
@@ -816,6 +863,18 @@ function batchPayload(batch: SyncBatch) {
       requestedAt: action.requestedAt,
       ...(action.note ? { note: action.note } : {}),
     })),
+    body: batch.body.map((entry) => ({
+      clientId: entry.clientId,
+      loggedAt: entry.loggedAt,
+      ...(entry.weightLb !== null ? { weightLb: entry.weightLb } : {}),
+      ...(entry.bodyFatPct !== null ? { bodyFatPct: entry.bodyFatPct } : {}),
+      ...(entry.waistCm !== null ? { waistCm: entry.waistCm } : {}),
+      ...(entry.chestCm !== null ? { chestCm: entry.chestCm } : {}),
+      ...(entry.armCm !== null ? { armCm: entry.armCm } : {}),
+      ...(entry.hipsCm !== null ? { hipsCm: entry.hipsCm } : {}),
+      ...(entry.thighCm !== null ? { thighCm: entry.thighCm } : {}),
+      ...(entry.note ? { note: entry.note } : {}),
+    })),
   };
 }
 
@@ -824,6 +883,7 @@ function toSyncResult(raw: {
   edits: SyncResult["edits"];
   deletes: SyncResult["deletes"];
   actions: SyncResult["actions"];
+  body?: SyncResult["body"];
 }): SyncResult {
   return {
     sets: raw.sets.map((item) => ({
@@ -852,6 +912,12 @@ function toSyncResult(raw: {
       sessionId: item.sessionId,
       message: item.message,
     })),
+    body: (raw.body ?? []).map((item) => ({
+      clientId: item.clientId,
+      status: item.status,
+      entryId: item.entryId,
+      message: item.message,
+    })),
   };
 }
 
@@ -865,6 +931,7 @@ function failBatch(
   const editIds = new Set(batch.edits.map((edit) => edit.editId));
   const deleteIds = new Set(batch.deletes.map((deletion) => deletion.deleteId));
   const actionIds = new Set(batch.actions.map((action) => action.actionId));
+  const bodyIds = new Set(batch.body.map((entry) => entry.clientId));
   persist({
     ...current,
     sets: current.sets.map((set) =>
@@ -880,6 +947,9 @@ function failBatch(
     ),
     actions: current.actions.map((action) =>
       actionIds.has(action.actionId) && !action.echoed ? { ...action, syncError: message } : action,
+    ),
+    body: current.body.map((entry) =>
+      bodyIds.has(entry.clientId) && !entry.echoed ? { ...entry, syncError: message } : entry,
     ),
   });
 }

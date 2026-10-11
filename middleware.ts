@@ -10,6 +10,7 @@ const isProtectedRoute = createRouteMatcher([
   "/",
   "/history(.*)",
   "/exercises(.*)",
+  "/body(.*)",
   "/settings",
 ]);
 

@@ -1,8 +1,10 @@
 import { v } from "convex/values";
+import { defaultLengthUnit } from "./lib/bodyMeasures";
 import { authedMutation, authedQuery } from "./lib/customFunctions";
 import { clampIncrementLb } from "./lib/progression";
 
 const weightUnit = v.union(v.literal("lb"), v.literal("kg"));
+const lengthUnit = v.union(v.literal("in"), v.literal("cm"));
 
 export const viewer = authedQuery({
   args: {},
@@ -32,16 +34,19 @@ export const preferences = authedQuery({
     weightUnit,
     suggestNextWeight: v.boolean(),
     progressionIncrementLb: v.union(v.number(), v.null()),
+    lengthUnit,
   }),
   handler: async (ctx) => {
     const row = await ctx.db
       .query("preferences")
       .withIndex("by_user", (q) => q.eq("userId", ctx.userId))
       .unique();
+    const unit = row?.weightUnit ?? "lb";
     return {
-      weightUnit: row?.weightUnit ?? "lb",
+      weightUnit: unit,
       suggestNextWeight: row?.suggestNextWeight ?? true,
       progressionIncrementLb: row?.progressionIncrementLb ?? null,
+      lengthUnit: row?.lengthUnit ?? defaultLengthUnit(unit),
     };
   },
 });
@@ -97,6 +102,7 @@ export const setProgression = authedMutation({
         weightUnit: existing.weightUnit,
         suggestNextWeight: args.suggestNextWeight,
         ...(increment !== undefined ? { progressionIncrementLb: increment } : {}),
+        ...(existing.lengthUnit !== undefined ? { lengthUnit: existing.lengthUnit } : {}),
       });
     } else {
       await ctx.db.insert("preferences", {
@@ -104,6 +110,31 @@ export const setProgression = authedMutation({
         weightUnit: "lb",
         suggestNextWeight: args.suggestNextWeight,
         ...(increment !== undefined ? { progressionIncrementLb: increment } : {}),
+      });
+    }
+    return null;
+  },
+});
+
+/** Saves inches or centimeters. Switching pounds and kilograms does not change this. */
+export const setLengthUnit = authedMutation({
+  args: { lengthUnit },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("preferences")
+      .withIndex("by_user", (q) => q.eq("userId", ctx.userId))
+      .unique();
+    if (existing) {
+      if (existing.userId !== ctx.userId) {
+        throw new Error("Not authenticated");
+      }
+      await ctx.db.patch("preferences", existing._id, { lengthUnit: args.lengthUnit });
+    } else {
+      await ctx.db.insert("preferences", {
+        userId: ctx.userId,
+        weightUnit: "lb",
+        lengthUnit: args.lengthUnit,
       });
     }
     return null;

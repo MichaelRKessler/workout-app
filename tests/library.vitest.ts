@@ -29,12 +29,12 @@ describe("units, notes, and multi-exercise saves", () => {
     const t = testBackend();
     const michael = await signIn(t, "Michael");
     const other = await signIn(t, "Other");
-    expect(await michael.asUser.query(api.users.preferences, {})).toEqual({ weightUnit: "lb", suggestNextWeight: true, progressionIncrementLb: null });
+    expect(await michael.asUser.query(api.users.preferences, {})).toEqual({ weightUnit: "lb", suggestNextWeight: true, progressionIncrementLb: null, lengthUnit: "in" });
     await michael.asUser.mutation(api.users.setWeightUnit, { weightUnit: "kg" });
-    expect(await michael.asUser.query(api.users.preferences, {})).toEqual({ weightUnit: "kg", suggestNextWeight: true, progressionIncrementLb: null });
-    expect(await other.asUser.query(api.users.preferences, {})).toEqual({ weightUnit: "lb", suggestNextWeight: true, progressionIncrementLb: null });
+    expect(await michael.asUser.query(api.users.preferences, {})).toEqual({ weightUnit: "kg", suggestNextWeight: true, progressionIncrementLb: null, lengthUnit: "cm" });
+    expect(await other.asUser.query(api.users.preferences, {})).toEqual({ weightUnit: "lb", suggestNextWeight: true, progressionIncrementLb: null, lengthUnit: "in" });
     await michael.asUser.mutation(api.users.setWeightUnit, { weightUnit: "kg" });
-    expect(await michael.asUser.query(api.users.preferences, {})).toEqual({ weightUnit: "kg", suggestNextWeight: true, progressionIncrementLb: null });
+    expect(await michael.asUser.query(api.users.preferences, {})).toEqual({ weightUnit: "kg", suggestNextWeight: true, progressionIncrementLb: null, lengthUnit: "cm" });
   });
 
   test("one confirmation saves every exercise and the note, or none of them", async () => {

@@ -3,7 +3,13 @@ import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { authedMutation, authedQuery } from "./lib/customFunctions";
+import { exerciseRecord } from "./lib/exerciseFields";
 import { formatExerciseName, MAX_KNOWN_EXERCISE_NAMES } from "./lib/exerciseName";
+import {
+  muscleGroupToCopy,
+  muscleGroupValidator,
+  presentMuscle,
+} from "./lib/muscleGroup";
 import { summarizeEfforts, trendFromSets } from "./lib/records";
 import { repointExerciseReferences } from "./lib/routineRecords";
 import { setExerciseRest } from "./lib/rest";
@@ -63,6 +69,8 @@ const exerciseValidator = v.object({
   _id: v.id("exercises"),
   name: v.string(),
   restSeconds: v.union(v.number(), v.null()),
+  muscleGroup: muscleGroupValidator,
+  muscleSource: v.union(v.literal("saved"), v.literal("suggested")),
 });
 
 const EXERCISE_LIMIT = 200;
@@ -86,6 +94,7 @@ export const list = authedQuery({
       _id: exercise._id,
       name: exercise.name,
       restSeconds: exercise.restSeconds ?? null,
+      ...presentMuscle(exercise),
     }));
     exercises.sort((left, right) => left.name.localeCompare(right.name));
 
@@ -112,6 +121,34 @@ export const restForName = authedQuery({
       return null;
     }
     return exercise.restSeconds ?? null;
+  },
+});
+
+/**
+ * Saves the primary muscle, or clears it so the name's suggestion is used.
+ * The weekly summary counts working sets toward this group.
+ */
+export const setMuscle = authedMutation({
+  args: {
+    exerciseId: v.id("exercises"),
+    muscleGroup: v.union(muscleGroupValidator, v.null()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const exercise = await ctx.db.get("exercises", args.exerciseId);
+    if (!exercise || exercise.userId !== ctx.userId) {
+      throw new Error("Exercise not found");
+    }
+    const next = args.muscleGroup ?? undefined;
+    if ((exercise.muscleGroup ?? undefined) === next) {
+      return null;
+    }
+    await ctx.db.replace(
+      "exercises",
+      exercise._id,
+      exerciseRecord(exercise, { muscleGroup: args.muscleGroup }),
+    );
+    return null;
   },
 });
 
@@ -146,6 +183,8 @@ export const detail = authedQuery({
       bestBodyweight: v.union(effortValidator, v.null()),
       bestDuration: v.union(effortValidator, v.null()),
       bestDistance: v.union(effortValidator, v.null()),
+      muscleGroup: muscleGroupValidator,
+      muscleSource: v.union(v.literal("saved"), v.literal("suggested")),
       trendUnit: v.union(
         v.literal("lb"),
         v.literal("reps"),
@@ -240,6 +279,7 @@ export const detail = authedQuery({
       bestBodyweight: effort(efforts.bestBodyweight),
       bestDuration: effort(efforts.bestDuration),
       bestDistance: effort(efforts.bestDistance),
+      ...presentMuscle(exercise),
       trendUnit: trend.unit,
       trend: trend.points.map((point) => ({
         sessionId: point.sessionId as Id<"sessions">,
@@ -316,6 +356,8 @@ const libraryItemValidator = v.object({
   name: v.string(),
   setCount: v.number(),
   setCountCapped: v.boolean(),
+  muscleGroup: muscleGroupValidator,
+  muscleSource: v.union(v.literal("saved"), v.literal("suggested")),
 });
 
 async function countSets(
@@ -353,6 +395,7 @@ export const browse = authedQuery({
           name: exercise.name,
           setCount: counts.setCount,
           setCountCapped: counts.setCountCapped,
+          ...presentMuscle(exercise),
         };
       }),
     );
@@ -467,6 +510,10 @@ export const merge = authedMutation({
     await repointExerciseReferences(ctx, ctx.userId, from._id, into._id);
     if (into.restSeconds === undefined && from.restSeconds !== undefined) {
       await ctx.db.patch("exercises", into._id, { restSeconds: from.restSeconds });
+    }
+    const copiedMuscle = muscleGroupToCopy(into, from);
+    if (copiedMuscle) {
+      await ctx.db.patch("exercises", into._id, { muscleGroup: copiedMuscle });
     }
     await ctx.db.delete("exercises", from._id);
     return { moved, name: into.name };

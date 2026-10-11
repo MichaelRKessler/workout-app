@@ -449,6 +449,7 @@ describe("weekly summary", () => {
       previousSets: 2,
       previousVolumeLb: 1000,
       streakWeeks: 3,
+      muscles: [{ group: "back", sets: 1 }],
     });
 
     const missedThisWeek = await asUser.query(api.sessions.weeklySummary, {

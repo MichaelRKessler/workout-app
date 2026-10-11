@@ -34,6 +34,26 @@ const actionResult = v.object({
   message: v.union(v.string(), v.null()),
 });
 
+const bodyResult = v.object({
+  clientId: v.string(),
+  status: v.union(v.literal("applied"), v.literal("rejected")),
+  entryId: v.union(v.id("bodyEntries"), v.null()),
+  message: v.union(v.string(), v.null()),
+});
+
+const bodyInput = {
+  clientId: v.string(),
+  loggedAt: v.number(),
+  weightLb: v.optional(v.number()),
+  bodyFatPct: v.optional(v.number()),
+  waistCm: v.optional(v.number()),
+  chestCm: v.optional(v.number()),
+  armCm: v.optional(v.number()),
+  hipsCm: v.optional(v.number()),
+  thighCm: v.optional(v.number()),
+  note: v.optional(v.string()),
+};
+
 const measureFields = {
   reps: v.optional(v.number()),
   weightLb: v.number(),
@@ -88,12 +108,15 @@ export const accept = authedMutation({
         requestedAt: v.number(),
       }),
     ),
+    // Optional so a phone that queued only sets before body entries existed still syncs.
+    body: v.optional(v.array(v.object(bodyInput))),
   },
   returns: v.object({
     sets: v.array(setResult),
     edits: v.array(editResult),
     deletes: v.array(deleteResult),
     actions: v.array(actionResult),
+    body: v.array(bodyResult),
   }),
   handler: async (ctx, args) => {
     return await acceptOfflineBatch(ctx, ctx.userId, args);

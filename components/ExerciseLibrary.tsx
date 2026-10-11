@@ -1,6 +1,8 @@
 "use client";
 
 import { Button } from "@/components/Button";
+import { MuscleGroupField } from "@/components/MuscleGroupField";
+import { useOfflineLog } from "@/components/OfflineSync";
 import { PageHeader } from "@/components/PageHeader";
 import { Sheet } from "@/components/Sheet";
 import { api } from "@/convex/_generated/api";
@@ -8,6 +10,7 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { readableError } from "@/lib/errors";
 import { pluralize } from "@/lib/format";
 import { useMutation, usePaginatedQuery } from "convex/react";
+import Link from "next/link";
 import { FormEvent, useState } from "react";
 
 type Conflict = {
@@ -27,6 +30,7 @@ export function ExerciseLibrary() {
   );
   const renameExercise = useMutation(api.exercises.rename);
   const mergeExercises = useMutation(api.exercises.merge);
+  const { offline } = useOfflineLog();
   const [editing, setEditing] = useState<{ id: Id<"exercises">; name: string } | null>(null);
   const [draftName, setDraftName] = useState("");
   const [pending, setPending] = useState(false);
@@ -83,7 +87,8 @@ export function ExerciseLibrary() {
       <PageHeader backHref="/settings" backLabel="Back to settings" title="Exercises">
         <p className="mt-1.5 text-base leading-normal text-muted">
           Rename a duplicate, or merge it into the exercise you want to keep. Merging moves every
-          set. History and personal records follow those sets.
+          set. History and personal records follow those sets. The muscle group is a suggestion
+          until you change it.
         </p>
       </PageHeader>
 
@@ -92,27 +97,47 @@ export function ExerciseLibrary() {
       ) : results.length === 0 ? (
         <p className="mt-8 text-base text-muted">Exercises appear after you log a set.</p>
       ) : (
+        <>
+        {offline ? (
+          <p className="mt-4 text-sm text-muted">Changing a muscle group needs a connection.</p>
+        ) : null}
         <ul className="mt-6 flex flex-col border-t border-line">
           {results.map((exercise) => (
-            <li key={exercise._id} className="flex min-h-14 items-center justify-between gap-3 border-b border-line">
-              <span className="min-w-0">
-                <span className="block truncate text-base font-medium">{exercise.name}</span>
-                <span className="text-sm text-muted">
-                  {exercise.setCountCapped
-                    ? `${exercise.setCount}+ sets`
-                    : pluralize(exercise.setCount, "set")}
+            <li key={exercise._id} className="flex flex-col gap-2 border-b border-line py-3">
+              <span className="flex min-h-11 items-center justify-between gap-3">
+                <span className="min-w-0">
+                  <Link
+                    href={`/exercises/${exercise._id}`}
+                    className="block truncate text-base font-medium hover:underline"
+                  >
+                    {exercise.name}
+                  </Link>
+                  <span className="text-sm text-muted">
+                    {exercise.setCountCapped
+                      ? `${exercise.setCount}+ sets`
+                      : pluralize(exercise.setCount, "set")}
+                  </span>
                 </span>
+                <button
+                  type="button"
+                  onClick={() => openRename(exercise._id, exercise.name)}
+                  className="min-h-11 shrink-0 rounded-full px-3 text-sm font-medium hover:bg-fill-2"
+                >
+                  Rename
+                </button>
               </span>
-              <button
-                type="button"
-                onClick={() => openRename(exercise._id, exercise.name)}
-                className="min-h-11 shrink-0 rounded-full px-3 text-sm font-medium hover:bg-fill-2"
-              >
-                Rename
-              </button>
+              <MuscleGroupField
+                compact
+                exerciseId={exercise._id}
+                exerciseName={exercise.name}
+                muscleGroup={exercise.muscleGroup}
+                muscleSource={exercise.muscleSource}
+                offline={offline}
+              />
             </li>
           ))}
         </ul>
+        </>
       )}
 
       {status === "CanLoadMore" ? (

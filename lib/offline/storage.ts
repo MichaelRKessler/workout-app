@@ -105,6 +105,18 @@ export function saveWeightUnit(store: KeyValueStore, unit: "lb" | "kg"): void {
   store.set(`${PREFIX}unit`, unit);
 }
 
+export function loadLengthUnit(store: KeyValueStore): "in" | "cm" | null {
+  const value = store.get(`${PREFIX}length`);
+  return value === "in" || value === "cm" ? value : null;
+}
+
+export function saveLengthUnit(store: KeyValueStore, unit: "in" | "cm"): void {
+  if (writesSuspended) {
+    return;
+  }
+  store.set(`${PREFIX}length`, unit);
+}
+
 export type CachedProgression = {
   enabled: boolean;
   incrementLb: number | null;

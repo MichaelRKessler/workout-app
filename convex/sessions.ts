@@ -9,6 +9,7 @@ import { loadAchievedRecords } from "./lib/achievedRecords";
 import { assertDayWindow, assertMonthWindow } from "./lib/dayWindow";
 import { formatExerciseName } from "./lib/exerciseName";
 import { normalizeNote } from "./lib/measures";
+import { muscleCounts, muscleGroupValidator, resolveMuscleGroup, type MuscleGroup } from "./lib/muscleGroup";
 import { countsTowardVolume } from "./lib/setType";
 import {
   personalRecordForBatch,
@@ -813,13 +814,20 @@ const weeklySummaryValidator = v.object({
   previousSets: v.number(),
   previousVolumeLb: v.number(),
   streakWeeks: v.number(),
+  /** Working sets this week, warm-ups excluded, one count per exercise's muscle. */
+  muscles: v.array(
+    v.object({
+      group: muscleGroupValidator,
+      sets: v.number(),
+    }),
+  ),
 });
 
 /**
  * Finished workouts whose start falls in the weeks the client computed.
  * The client passes those boundaries so this stays deterministic and follows
  * the viewer's time zone. Bodyweight sets count toward the set total only.
- * Warm-up sets are left out of the set total and the volume.
+ * Warm-up sets are left out of the set total, the volume, and the muscle counts.
  */
 export const weeklySummary = authedQuery({
   args: {
@@ -848,6 +856,7 @@ export const weeklySummary = authedQuery({
       { workouts: 0, sets: 0, volumeLb: 0 },
       { workouts: 0, sets: 0, volumeLb: 0 },
     ];
+    const setsByExercise = new Map<Id<"exercises">, number>();
 
     for (const session of sessions) {
       if (session.userId !== ctx.userId) {
@@ -872,6 +881,25 @@ export const weeklySummary = authedQuery({
       bucket.workouts += 1;
       bucket.sets += sets.filter((set) => countsTowardVolume(set)).length;
       bucket.volumeLb = Math.round((bucket.volumeLb + volumeLb(sets)) * 100) / 100;
+      if (index !== thisWeek) {
+        continue;
+      }
+      for (const set of sets) {
+        if (set.userId !== ctx.userId || !countsTowardVolume(set)) {
+          continue;
+        }
+        setsByExercise.set(set.exerciseId, (setsByExercise.get(set.exerciseId) ?? 0) + 1);
+      }
+    }
+
+    const groupCounts = new Map<MuscleGroup, number>();
+    for (const [exerciseId, count] of setsByExercise) {
+      const exercise = await ctx.db.get("exercises", exerciseId);
+      if (!exercise || exercise.userId !== ctx.userId) {
+        continue;
+      }
+      const group = resolveMuscleGroup(exercise.muscleGroup, exercise.name);
+      groupCounts.set(group, (groupCounts.get(group) ?? 0) + count);
     }
 
     return {
@@ -882,6 +910,7 @@ export const weeklySummary = authedQuery({
       previousSets: totals[1]?.sets ?? 0,
       previousVolumeLb: totals[1]?.volumeLb ?? 0,
       streakWeeks: workoutStreak(weekHasWorkout),
+      muscles: muscleCounts(groupCounts),
     };
   },
 });

@@ -3,6 +3,8 @@ import { convexAuthNextjsToken } from "@convex-dev/auth/nextjs/server";
 import { fetchQuery } from "convex/nextjs";
 import { NextResponse } from "next/server";
 import { api } from "@/convex/_generated/api";
+import type { LengthUnit } from "@/convex/lib/bodyMeasures";
+import { defaultLengthUnit } from "@/convex/lib/bodyMeasures";
 import type { WeightUnit } from "@/convex/lib/units";
 import { readVoiceAccess } from "@/lib/voice/access";
 import { readGeminiApiKey, readGeminiModel } from "@/lib/voice/env";
@@ -44,6 +46,7 @@ export async function POST(request: Request) {
       : "";
   const text =
     isRecord(payload) && typeof payload.text === "string" ? payload.text : undefined;
+  const kind = isRecord(payload) && payload.kind === "body" ? "body" : "workout";
 
   const knownExerciseNames = await loadKnownExerciseNames(voiceAccess, async () => {
     if (!token || !process.env.NEXT_PUBLIC_CONVEX_URL) {
@@ -54,12 +57,12 @@ export async function POST(request: Request) {
     return await fetchQuery(api.exercises.namesForVoice, {}, { token });
   });
 
-  const weightUnit = await loadWeightUnit(voiceAccess, async () => {
+  const preferences = await loadPreferences(voiceAccess, async () => {
     if (!token || !process.env.NEXT_PUBLIC_CONVEX_URL) {
-      return "lb";
+      return { weightUnit: "lb" as const, lengthUnit: "in" as const };
     }
-    const preferences = await fetchQuery(api.users.preferences, {}, { token });
-    return preferences.weightUnit;
+    const row = await fetchQuery(api.users.preferences, {}, { token });
+    return { weightUnit: row.weightUnit, lengthUnit: row.lengthUnit };
   });
 
   const result = await handleVoiceParse({
@@ -71,25 +74,29 @@ export async function POST(request: Request) {
     audioBase64,
     mimeType,
     text,
-    knownExerciseNames,
-    weightUnit,
+    knownExerciseNames: kind === "body" ? [] : knownExerciseNames,
+    weightUnit: preferences.weightUnit,
+    lengthUnit: preferences.lengthUnit,
+    kind,
   });
 
   return NextResponse.json(result.body, { status: result.status });
 }
 
-async function loadWeightUnit(
+async function loadPreferences(
   access: { signedIn: boolean; allowed: boolean },
-  load: () => Promise<WeightUnit>,
-): Promise<WeightUnit> {
+  load: () => Promise<{ weightUnit: WeightUnit; lengthUnit: LengthUnit }>,
+): Promise<{ weightUnit: WeightUnit; lengthUnit: LengthUnit }> {
   if (!access.signedIn || !access.allowed) {
-    return "lb";
+    return { weightUnit: "lb", lengthUnit: "in" };
   }
   try {
-    const unit = await load();
-    return unit === "kg" ? "kg" : "lb";
+    const row = await load();
+    const weightUnit = row.weightUnit === "kg" ? "kg" : "lb";
+    const lengthUnit = row.lengthUnit === "cm" || row.lengthUnit === "in" ? row.lengthUnit : defaultLengthUnit(weightUnit);
+    return { weightUnit, lengthUnit };
   } catch {
-    return "lb";
+    return { weightUnit: "lb", lengthUnit: "in" };
   }
 }
 

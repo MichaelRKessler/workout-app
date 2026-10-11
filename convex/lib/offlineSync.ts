@@ -1,5 +1,6 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
+import { insertBodyEntry, type BodyWrite } from "./bodyEntries";
 import { isClientId } from "./clientIds";
 import { formatExerciseName } from "./exerciseName";
 import { combineNotes, normalizeNote, type NormalizedSet } from "./measures";
@@ -56,6 +57,10 @@ export type OfflineDeleteInput = {
   setId: Id<"sets">;
 };
 
+export type OfflineBodyInput = BodyWrite & {
+  clientId: string;
+};
+
 export type OfflineActionInput = {
   actionId: string;
   kind: "complete" | "discard" | "keepGoing";
@@ -95,11 +100,19 @@ export type OfflineActionResult = {
   message: string | null;
 };
 
+export type OfflineBodyResult = {
+  clientId: string;
+  status: "applied" | "rejected";
+  entryId: Id<"bodyEntries"> | null;
+  message: string | null;
+};
+
 export type AcceptOfflineResult = {
   sets: OfflineSetResult[];
   edits: OfflineEditResult[];
   deletes: OfflineDeleteResult[];
   actions: OfflineActionResult[];
+  body: OfflineBodyResult[];
 };
 
 function acceptedTime(value: number, now: number): number | null {
@@ -237,11 +250,13 @@ export async function acceptOfflineBatch(
     edits: OfflineEditInput[];
     deletes: OfflineDeleteInput[];
     actions: OfflineActionInput[];
+    body?: OfflineBodyInput[];
   },
   now = Date.now(),
 ): Promise<AcceptOfflineResult> {
+  const body = args.body ?? [];
   const total =
-    args.sets.length + args.edits.length + args.deletes.length + args.actions.length;
+    args.sets.length + args.edits.length + args.deletes.length + args.actions.length + body.length;
   if (total === 0) {
     throw new Error("Nothing to sync");
   }
@@ -671,10 +686,31 @@ export async function acceptOfflineBatch(
     }
   }
 
+  const bodyResults: OfflineBodyResult[] = [];
+  for (const item of body) {
+    try {
+      const entryId = await insertBodyEntry(ctx, userId, item, now);
+      bodyResults.push({
+        clientId: item.clientId,
+        status: "applied",
+        entryId,
+        message: null,
+      });
+    } catch (error) {
+      bodyResults.push({
+        clientId: item.clientId,
+        status: "rejected",
+        entryId: null,
+        message: messageOf(error),
+      });
+    }
+  }
+
   return {
     sets: setResults,
     edits: editResults,
     deletes: deleteResults,
     actions: actionResults,
+    body: bodyResults,
   };
 }
