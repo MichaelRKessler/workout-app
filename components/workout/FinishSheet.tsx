@@ -6,6 +6,7 @@ import { Sheet } from "@/components/Sheet";
 export function FinishSheet({
   open,
   summary,
+  note,
   pending,
   error,
   onCancel,
@@ -13,6 +14,7 @@ export function FinishSheet({
 }: {
   open: boolean;
   summary: string;
+  note?: string | null;
   pending: boolean;
   error: string | null;
   onCancel: () => void;
@@ -24,6 +26,7 @@ export function FinishSheet({
         Finish workout?
       </h2>
       <p className="mt-1.5 text-[15px] text-muted">{summary}. It moves to History.</p>
+      {note ? <p className="mt-2 text-[15px] leading-normal text-muted">{note}</p> : null}
       {error ? (
         <p role="alert" className="mt-3 text-sm leading-5 text-danger">
           {error}

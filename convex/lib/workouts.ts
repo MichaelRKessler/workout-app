@@ -4,6 +4,9 @@ import { formatExerciseName } from "./exerciseName";
 
 const MAX_SETS_PER_SESSION = 500;
 
+/** One confirmed voice list, and one Undo of that list. */
+export const MAX_SETS_PER_BATCH = 30;
+
 export async function getOwnedSession(
   ctx: QueryCtx | MutationCtx,
   userId: Id<"users">,
@@ -59,15 +62,34 @@ export function assertWeightLb(weightLb: number): number {
   return Math.round(weightLb * 100) / 100;
 }
 
-export async function assertSessionCanAcceptSet(
+export async function requireOpenSession(
+  ctx: MutationCtx,
+  userId: Id<"users">,
+  sessionId: Id<"sessions">,
+) {
+  const session = await getOwnedSession(ctx, userId, sessionId);
+  if (!session) {
+    throw new Error("Workout not found");
+  }
+  if (session.status !== "open") {
+    throw new Error("This workout is already finished");
+  }
+  return session;
+}
+
+export async function assertSessionCanAcceptSets(
   ctx: MutationCtx,
   sessionId: Id<"sessions">,
+  adding: number,
 ): Promise<void> {
+  if (adding < 1) {
+    throw new Error("Add at least one set");
+  }
   const existing = await ctx.db
     .query("sets")
     .withIndex("by_session_and_exercise", (q) => q.eq("sessionId", sessionId))
     .take(MAX_SETS_PER_SESSION);
-  if (existing.length >= MAX_SETS_PER_SESSION) {
+  if (existing.length + adding > MAX_SETS_PER_SESSION) {
     throw new Error("This workout already has 500 sets");
   }
 }

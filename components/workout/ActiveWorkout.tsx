@@ -32,6 +32,7 @@ export function ActiveWorkout({
   onRemoveSet,
   onFinish,
   onDiscard,
+  idleNote,
   composer,
 }: {
   startedAt: number;
@@ -46,6 +47,7 @@ export function ActiveWorkout({
   onRemoveSet: (setId: string) => void;
   onFinish: () => void;
   onDiscard: () => void;
+  idleNote?: string;
   composer: ComponentProps<typeof Composer>;
 }) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -69,6 +71,7 @@ export function ActiveWorkout({
               </p>
               <p className="text-sm text-muted">
                 {pluralize(groups.length, "exercise")} · {pluralize(setCount, "set")}
+                {idleNote ? <span className="text-subtle"> · {idleNote}</span> : null}
               </p>
             </div>
             {empty ? (

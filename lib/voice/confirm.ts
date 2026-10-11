@@ -33,16 +33,6 @@ export type VoiceLogEvent =
   | { type: "save-failed"; proposal: VoiceProposal }
   | { type: "dismiss" };
 
-export class VoiceSaveError extends Error {
-  readonly savedCount: number;
-
-  constructor(message: string, savedCount: number) {
-    super(message);
-    this.name = "VoiceSaveError";
-    this.savedCount = savedCount;
-  }
-}
-
 export function reduceVoiceLog(
   state: VoiceLogState,
   event: VoiceLogEvent,
@@ -166,38 +156,6 @@ export function readVoiceResponse(payload: unknown): VoiceProposal {
     exerciseName: payload.proposal.exerciseName,
     sets,
   });
-}
-
-export async function commitProposal(
-  proposal: VoiceProposal,
-  save: (set: {
-    exerciseName: string;
-    reps: number;
-    weightLb: number;
-  }) => Promise<void>,
-): Promise<void> {
-  for (let index = 0; index < proposal.sets.length; index += 1) {
-    const set = proposal.sets[index];
-    if (!set) {
-      continue;
-    }
-    try {
-      await save({
-        exerciseName: proposal.exerciseName,
-        reps: set.reps,
-        weightLb: set.weightLb,
-      });
-    } catch (error) {
-      const reason =
-        error instanceof Error ? error.message : "The set could not be saved.";
-      throw new VoiceSaveError(
-        index === 0
-          ? reason
-          : `Saved ${index} ${index === 1 ? "set" : "sets"}, then failed. ${reason}`,
-        index,
-      );
-    }
-  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
