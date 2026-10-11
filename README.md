@@ -40,7 +40,7 @@ Google sign-in stays broken until the Convex deployment variables and the Google
 
 Nothing secret belongs in the repo. `.env.example` only has placeholders.
 
-### Next.js: `.env.local`, and later the Vercel project environment
+### Next.js: `.env.local`, and the Vercel project environment
 
 | Name | Where it comes from |
 | --- | --- |
@@ -55,7 +55,7 @@ Set these in the Convex dashboard for the dev deployment (Settings → Environme
 
 | Name | Value |
 | --- | --- |
-| `SITE_URL` | `http://localhost:3000` while you run locally. When you deploy the site later, set this on the **production** Convex deployment to that site's origin, for example `https://your-app.vercel.app`. |
+| `SITE_URL` | `http://localhost:3000` while you run locally. On the **production** Convex deployment it is the site's origin, `https://repsandsets.vercel.app`. |
 | `JWT_PRIVATE_KEY` | Generated locally. Run `node scripts/generateAuthKeys.mjs` and paste the printed value. Do not commit the output. |
 | `JWKS` | Printed by the same script. Paste the whole JSON object. |
 | `AUTH_GOOGLE_ID` | OAuth client ID from Google Cloud. |
@@ -105,11 +105,20 @@ npm run build
 
 `npm run build` succeeds before the Convex URL and Google keys exist. Signing in and saving workouts needs those values and `npx convex dev` running (or a deployed Convex backend).
 
-## Deploy later
+## Deployment
 
-This repo is ready to put on Vercel, and it is not linked to a Vercel project.
+Production is the Vercel project `workout-app` at [repsandsets.vercel.app](https://repsandsets.vercel.app). It is linked to this GitHub repo, so every push to `main` deploys to production, and other branches get preview deployments. Do not commit a `.vercel` directory.
 
-1. Create a Vercel project from this repo when you want to deploy. Do not commit a `.vercel` directory.
-2. Set `NEXT_PUBLIC_CONVEX_URL` in the Vercel project environment to the Convex deployment you want that site to use. Set `GEMINI_API_KEY` there too, as a server variable, if you want voice logging. Do not mark it as exposed to the browser.
-3. On that Convex deployment, set `SITE_URL` to the Vercel origin and add that origin plus `https://<deployment>.convex.site/api/auth/callback/google` on the Google OAuth client. Production should use `npx convex deploy` only when you intend to update the production Convex deployment.
-4. Use a separate Google OAuth client, or extra redirect URIs, for production. Dev and production Convex deployments do not share environment variables.
+The production build runs `npx convex deploy` first. That pushes the functions in `convex/` to the production Convex deployment (`honorable-tern-770`), then builds the site. Backend and site changes ship together, so there is no separate Convex push. If the Convex step fails, the build fails and the previous version stays live. The build command is set in Vercel under Project Settings → Build and Deployment.
+
+Vercel environment variables:
+
+| Name | Environments | What it is |
+| --- | --- | --- |
+| `NEXT_PUBLIC_CONVEX_URL` | Production, Preview | `https://honorable-tern-770.convex.cloud` |
+| `CONVEX_DEPLOY_KEY` | Production | A production deploy key from the Convex dashboard, used by the build. Keep it secret. |
+| `GEMINI_API_KEY` | Production | Server-only Gemini key for voice and typed sets. Do not expose it to the browser. |
+
+Preview deployments point at the same Convex deployment, so they read and write the live data. Voice and typed sets do not work in previews, because `GEMINI_API_KEY` is set for production only.
+
+On the production Convex deployment, `SITE_URL` must be the site's origin (`https://repsandsets.vercel.app`), and the Google OAuth client needs `https://honorable-tern-770.convex.site/api/auth/callback/google` as an authorized redirect URI. Dev and production Convex deployments do not share environment variables, so set these on production separately.
