@@ -94,6 +94,10 @@ A typed set goes to the same route as `{ "text": "..." }` (up to 300 characters)
 
 Mobile Safari records `audio/mp4`, which the server sends to Gemini as `audio/m4a`. Mobile Chrome records `audio/webm`. The microphone needs a secure page, so use localhost or HTTPS. If permission is denied, recording is unavailable, or the key is missing, the message says so and you can still type the set.
 
+## Offline
+
+Gym signal is often too weak for voice or for Convex. A set logged by hand is written to this phone first, with an id generated here, and shown as pending until it syncs. Sending it again uses that same id, so reconnecting cannot create a second copy. Finish, keep going, discard, edits, and a past workout use the same queue. Voice and typed parsing need a connection; the manual form does not. The installed app keeps a network-first copy of its shell so it can open offline, then picks up the live site the next time it loads. History and the weekly summary wait for the network.
+
 ## Check the project
 
 ```bash

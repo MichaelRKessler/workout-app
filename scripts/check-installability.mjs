@@ -184,8 +184,9 @@ try {
   if (report.page?.deferredInstall !== "captured") {
     throw new Error("beforeinstallprompt was not captured for the Install app button");
   }
-  if (report.page?.serviceWorkerController !== "none") {
-    throw new Error("A service worker is controlling the page");
+  const controller = report.page?.serviceWorkerController;
+  if (controller !== "none" && controller !== "controlled") {
+    throw new Error(`Unexpected service worker state: ${String(controller)}`);
   }
   ws.close();
 } finally {

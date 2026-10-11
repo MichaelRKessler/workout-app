@@ -1,5 +1,6 @@
 "use client";
 
+import { useOfflineLog, type SyncOutcome } from "@/components/OfflineSync";
 import { Toast, type ToastMessage } from "@/components/Toast";
 import { ActiveWorkout } from "@/components/workout/ActiveWorkout";
 import { ConfirmSheet } from "@/components/workout/ConfirmSheet";
@@ -21,13 +22,25 @@ import { formatDuration, formatPersonalRecord, formatPersonalRecords, pluralize 
 import { localWeekFirstDay, weekRange } from "@/convex/lib/week";
 import { groupSets, type SetLine } from "@/lib/groupSets";
 import {
+  OFFLINE_TYPED_MESSAGE,
+  OFFLINE_VOICE_MESSAGE,
+  QUEUED_FINISH_MESSAGE,
+  QUEUED_SAVE_MESSAGE,
+} from "@/lib/offline/messages";
+import {
+  hasPendingFinish,
+  mergeVisibleSets,
+  pendingNote,
+  pendingResumedAt,
+} from "@/lib/offline/outbox";
+import {
   draftToProposal,
   proposalToDraft,
   proposalToSave,
   reduceVoiceLog,
   type VoiceDraft,
 } from "@/lib/voice/confirm";
-import { useMutation, useQuery } from "convex/react";
+import { useQuery } from "convex/react";
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 
 type Toasted = ToastMessage & { id: number };
@@ -36,6 +49,19 @@ type Toasted = ToastMessage & { id: number };
  * The Log tab. With no open workout it shows the start screen; the first set
  * confirmed by voice, by typing, or by hand opens one.
  */
+function combinedNote(existing: string | null | undefined, extra: string | null): string | null {
+  if (!extra) {
+    return existing ?? null;
+  }
+  if (!existing) {
+    return extra;
+  }
+  if (existing.includes(extra)) {
+    return existing;
+  }
+  return `${existing}\n${extra}`;
+}
+
 export function LogWorkout() {
   const openSession = useQuery(api.sessions.getOpen);
   const exercises = useQuery(api.exercises.list);
@@ -47,15 +73,8 @@ export function LogWorkout() {
     api.sessions.listHistory,
     openSession === null ? { paginationOpts: { numItems: 1, cursor: null } } : "skip",
   );
-  const startSession = useMutation(api.sessions.start);
-  const completeSession = useMutation(api.sessions.complete);
-  const keepGoingSession = useMutation(api.sessions.keepGoing);
-  const discardSession = useMutation(api.sessions.discard);
-  const logSet = useMutation(api.sets.log);
-  const logWorkout = useMutation(api.sets.logWorkout);
-  const updateSet = useMutation(api.sets.update);
-  const removeSet = useMutation(api.sets.remove);
-  const removeSets = useMutation(api.sets.removeMany);
+  const log = useOfflineLog();
+  const { offline, outbox, snapshot } = log;
 
   const unit = useWeightUnit();
   const [voice, dispatch] = useReducer(reduceVoiceLog, { status: "idle" });
@@ -68,7 +87,7 @@ export function LogWorkout() {
     | {
         key: number;
         mode: "edit";
-        setId: Id<"sets">;
+        setId: string;
         exerciseName: string;
         reps: number | null;
         weightLb: number;
@@ -114,7 +133,34 @@ export function LogWorkout() {
     };
   }, []);
 
-  const sessionSets = useMemo(() => sets ?? [], [sets]);
+  useEffect(() => {
+    if (sets) {
+      log.reconcile(sets);
+    }
+  }, [log, sets]);
+
+  useEffect(() => {
+    if (openSession === undefined) {
+      return;
+    }
+    if (openSession && sets === undefined) {
+      return;
+    }
+    log.rememberWorkout({
+      session: openSession,
+      sets: sets ?? [],
+    });
+  }, [log, openSession, sets]);
+
+  const knownSession = openSession !== undefined ? openSession : (snapshot?.session ?? null);
+  const sessionSets = useMemo(() => {
+    const serverSets =
+      sets ?? (openSession === null ? [] : openSession === undefined ? (snapshot?.sets ?? []) : []);
+    return mergeVisibleSets(serverSets, outbox, {
+      kind: "open",
+      sessionId: knownSession?._id ?? null,
+    });
+  }, [knownSession?._id, openSession, outbox, sets, snapshot?.sets]);
   const groups = useMemo(() => groupSets(sessionSets), [sessionSets]);
   const newestSetId = useMemo(() => {
     let newest: (typeof sessionSets)[number] | undefined;
@@ -146,33 +192,39 @@ export function LogWorkout() {
     setToast({ ...message, id: Date.now() });
   }
 
-  function showAdded(
-    ids: Array<Id<"sets">>,
-    exerciseName: string,
-    personalRecord: Parameters<typeof formatPersonalRecord>[0] | null,
-  ) {
-    if (ids.length === 0) {
+  function showSaved(saved: SyncOutcome, exerciseName: string) {
+    if (saved.status === "queued") {
+      showToast({ tone: "info", message: QUEUED_SAVE_MESSAGE });
       return;
     }
-    const added = `Added ${pluralize(ids.length, "set")} · ${exerciseName}`;
+    const count = saved.setIds.length || saved.clientIds.length;
+    if (count === 0) {
+      return;
+    }
+    const added = `Added ${pluralize(count, "set")} · ${exerciseName}`;
+    const record = formatPersonalRecords(saved.personalRecords, unit);
+    const undoIds = saved.setIds.length > 0 ? saved.setIds : saved.clientIds;
     showToast({
       tone: "info",
-      message: personalRecord ? `${formatPersonalRecord(personalRecord, unit)}. ${added}` : added,
-      action: { label: "Undo", onClick: () => void undo(ids) },
+      message: record ? `${record}. ${added}` : added,
+      action: { label: "Undo", onClick: () => void undo(undoIds) },
     });
   }
 
-  async function undo(ids: Array<Id<"sets">>) {
+  async function undo(ids: string[]) {
     setToast(null);
-    try {
-      await removeSets({ setIds: ids });
-    } catch (error) {
-      showToast({ tone: "error", message: readableError(error) });
+    const removed = await log.removeMany(ids);
+    if (removed.status === "rejected" && removed.error) {
+      showToast({ tone: "error", message: removed.error });
     }
   }
 
-  async function ensureSessionId(): Promise<Id<"sessions">> {
-    return openSession?._id ?? (await startSession({}));
+  function openTarget() {
+    const session = knownSession;
+    return {
+      sessionId: session?._id ?? null,
+      sessionStartedAt: session?.startedAt ?? Date.now(),
+    };
   }
 
   // Voice and typed parsing.
@@ -181,6 +233,10 @@ export function LogWorkout() {
     voice.status === "recording" || voice.status === "parsing" || voice.status === "saving";
 
   async function startVoice() {
+    if (offline) {
+      dispatch({ type: "failed", message: OFFLINE_VOICE_MESSAGE });
+      return;
+    }
     if (voiceBusy) {
       return;
     }
@@ -217,6 +273,10 @@ export function LogWorkout() {
 
   async function submitText() {
     const value = text.trim();
+    if (offline) {
+      dispatch({ type: "failed", message: OFFLINE_TYPED_MESSAGE });
+      return;
+    }
     if (value.length === 0 || voiceBusy) {
       return;
     }
@@ -264,37 +324,35 @@ export function LogWorkout() {
     }
     dispatch({ type: "confirm", proposal: toSave });
     setSheetNotice(null);
-    try {
-      const sessionId = await ensureSessionId();
-      const saved = await logWorkout({
-        sessionId,
-        ...(toSave.note ? { note: toSave.note } : {}),
-        exercises: toSave.exercises.map((exercise) => ({
+    const target = openTarget();
+    const saved = await log.saveSets({
+      placement: "open",
+      sessionId: target.sessionId,
+      sessionStartedAt: target.sessionStartedAt,
+      note: toSave.note,
+      sets: toSave.exercises.flatMap((exercise) =>
+        exercise.sets.map((set) => ({
           exerciseName: exercise.exerciseName,
-          sets: exercise.sets.map((set) => ({
-            weightLb: set.weightLb,
-            ...(set.reps !== null ? { reps: set.reps } : {}),
-            ...(set.durationSec !== null ? { durationSec: set.durationSec } : {}),
-            ...(set.distanceM !== null ? { distanceM: set.distanceM } : {}),
-            ...(set.rpe !== null ? { rpe: set.rpe } : {}),
-          })),
+          weightLb: set.weightLb,
+          reps: set.reps,
+          durationSec: set.durationSec,
+          distanceM: set.distanceM,
+          rpe: set.rpe,
         })),
-      });
-      dispatch({ type: "saved" });
-      setDraft(null);
-      const names = toSave.exercises.map((exercise) => exercise.exerciseName).join(", ");
-      const record = formatPersonalRecords(saved.personalRecords, unit);
-      const added = `Added ${pluralize(saved.setIds.length, "set")} · ${names}`;
-      showToast({
-        tone: "info",
-        message: record ? `${record}. ${added}` : added,
-        action: { label: "Undo", onClick: () => void undo(saved.setIds) },
-      });
-    } catch (error) {
+      ),
+    });
+    if (saved.status === "rejected") {
       setDraft(proposalToDraft(toSave, unit));
       dispatch({ type: "save-failed", proposal: toSave });
-      setSheetNotice(readableError(error));
+      setSheetNotice(saved.error ?? "That set could not be saved");
+      return;
     }
+    dispatch({ type: "saved" });
+    setDraft(null);
+    showSaved(
+      saved,
+      toSave.exercises.map((exercise) => exercise.exerciseName).join(", "),
+    );
   }
 
   function discardDraft() {
@@ -325,7 +383,7 @@ export function LogWorkout() {
       setManual({
         key: Date.now(),
         mode: "edit",
-        setId: set._id as Id<"sets">,
+        setId: set._id,
         exerciseName: set.exerciseName,
         reps: set.reps,
         weightLb: set.weightLb,
@@ -345,28 +403,47 @@ export function LogWorkout() {
   }) {
     setManualPending(true);
     try {
+      const measures = {
+        weightLb: set.weightLb,
+        reps: set.reps ?? null,
+        durationSec: set.durationSec ?? null,
+        distanceM: set.distanceM ?? null,
+        rpe: set.rpe ?? null,
+      };
       if (manual?.mode === "edit") {
-        const personalRecord = await updateSet({
+        const saved = await log.editSet({
           setId: manual.setId,
-          weightLb: set.weightLb,
-          ...(set.reps !== undefined ? { reps: set.reps } : {}),
-          ...(set.durationSec !== undefined ? { durationSec: set.durationSec } : {}),
-          ...(set.distanceM !== undefined ? { distanceM: set.distanceM } : {}),
-          ...(set.rpe !== undefined ? { rpe: set.rpe } : {}),
+          clientId: sessionSets.find((item) => item._id === manual.setId)?.clientId,
+          ...measures,
         });
+        if (saved.status === "rejected") {
+          return saved.error ?? "That set could not be saved";
+        }
         setManual(null);
-        if (personalRecord) {
-          showToast({ tone: "info", message: formatPersonalRecord(personalRecord, unit) });
+        if (saved.status === "queued") {
+          showToast({ tone: "info", message: QUEUED_SAVE_MESSAGE });
+        } else if (saved.personalRecords[0]) {
+          showToast({
+            tone: "info",
+            message: formatPersonalRecord(saved.personalRecords[0], unit),
+          });
         }
         return null;
       }
-      const sessionId = await ensureSessionId();
-      const saved = await logSet({ sessionId, ...set });
+      const target = openTarget();
+      const saved = await log.saveSets({
+        placement: "open",
+        sessionId: target.sessionId,
+        sessionStartedAt: target.sessionStartedAt,
+        note: null,
+        sets: [{ exerciseName: set.exerciseName, ...measures }],
+      });
+      if (saved.status === "rejected") {
+        return saved.error ?? "That set could not be saved";
+      }
       setManual(null);
-      showAdded([saved.setId], set.exerciseName, saved.personalRecord);
+      showSaved(saved, set.exerciseName);
       return null;
-    } catch (error) {
-      return readableError(error);
     } finally {
       setManualPending(false);
     }
@@ -374,90 +451,103 @@ export function LogWorkout() {
 
   async function repeatSet(group: { exerciseId: string; name: string; sets: SetLine[] }) {
     const last = group.sets[group.sets.length - 1];
-    if (!openSession || !last) {
+    if (!last) {
       return;
     }
     setRepeatingId(group.exerciseId);
-    try {
-      const saved = await logSet({
-        sessionId: openSession._id,
-        exerciseName: group.name,
-        weightLb: last.weightLb,
-        ...(last.reps !== null ? { reps: last.reps } : {}),
-        ...(last.durationSec !== null ? { durationSec: last.durationSec } : {}),
-        ...(last.distanceM !== null ? { distanceM: last.distanceM } : {}),
-        ...(last.rpe !== null ? { rpe: last.rpe } : {}),
-      });
-      showAdded([saved.setId], group.name, saved.personalRecord);
-    } catch (error) {
-      showToast({ tone: "error", message: readableError(error) });
-    } finally {
-      setRepeatingId(null);
+    const target = openTarget();
+    const saved = await log.saveSets({
+      placement: "open",
+      sessionId: target.sessionId,
+      sessionStartedAt: target.sessionStartedAt,
+      note: null,
+      sets: [
+        {
+          exerciseName: group.name,
+          weightLb: last.weightLb,
+          reps: last.reps,
+          durationSec: last.durationSec,
+          distanceM: last.distanceM,
+          rpe: last.rpe,
+        },
+      ],
+    });
+    setRepeatingId(null);
+    if (saved.status === "rejected") {
+      showToast({ tone: "error", message: saved.error ?? "That set could not be saved" });
+      return;
     }
+    showSaved(saved, group.name);
   }
 
   async function deleteSet(setId: string) {
     setRemovingId(setId);
-    try {
-      await removeSet({ setId: setId as Id<"sets"> });
-    } catch (error) {
-      showToast({ tone: "error", message: readableError(error) });
-    } finally {
-      setRemovingId(null);
+    const removed = await log.removeMany([setId]);
+    setRemovingId(null);
+    if (removed.status === "rejected" && removed.error) {
+      showToast({ tone: "error", message: removed.error });
+    } else if (removed.status === "queued") {
+      showToast({ tone: "info", message: QUEUED_SAVE_MESSAGE });
     }
   }
 
   async function keepWorkoutGoing() {
-    if (!openSession) {
+    if (!knownSession && sessionSets.length === 0) {
       return;
     }
     setKeeping(true);
     setFinishError(null);
-    try {
-      await keepGoingSession({ sessionId: openSession._id });
-      setFinishOpen(false);
-    } catch (error) {
-      setFinishError(readableError(error));
-    } finally {
-      setKeeping(false);
+    const saved = await log.keepGoing({
+      sessionId: knownSession?._id ?? null,
+      requestedAt: Date.now(),
+    });
+    setKeeping(false);
+    if (saved.status === "rejected") {
+      setFinishError(saved.error);
+      return;
     }
+    setFinishOpen(false);
   }
 
   async function finishWorkout() {
-    if (!openSession) {
+    if (!knownSession && sessionSets.length === 0) {
       return;
     }
     setEnding(true);
     setFinishError(null);
-    try {
-      await completeSession({
-        sessionId: openSession._id,
-        ...(finishOpen ? { note: finishNote } : {}),
-      });
-      setFinishOpen(false);
-      showToast({ tone: "info", message: "Workout saved to History." });
-    } catch (error) {
-      setFinishError(readableError(error));
-    } finally {
-      setEnding(false);
+    const saved = await log.finishWorkout({
+      sessionId: knownSession?._id ?? null,
+      requestedAt: Date.now(),
+      ...(finishOpen ? { note: finishNote } : {}),
+    });
+    setEnding(false);
+    if (saved.status === "rejected") {
+      setFinishError(saved.error);
+      return;
     }
+    setFinishOpen(false);
+    showToast({
+      tone: "info",
+      message: saved.status === "queued" ? QUEUED_FINISH_MESSAGE : "Workout saved to History.",
+    });
   }
 
   async function discardWorkout() {
-    if (!openSession) {
+    if (!knownSession && sessionSets.length === 0) {
       return;
     }
     setEnding(true);
-    try {
-      await discardSession({ sessionId: openSession._id });
-    } catch (error) {
-      showToast({ tone: "error", message: readableError(error) });
-    } finally {
-      setEnding(false);
+    const saved = await log.discardWorkout({
+      sessionId: knownSession?._id ?? null,
+      requestedAt: Date.now(),
+    });
+    setEnding(false);
+    if (saved.status === "rejected" && saved.error) {
+      showToast({ tone: "error", message: saved.error });
     }
   }
 
-  if (openSession === undefined || exercises === undefined) {
+  if (!offline && (openSession === undefined || exercises === undefined)) {
     return (
       <div className="flex min-h-[70dvh] items-center justify-center">
         <p className="text-[15px] text-muted">Loading your workout…</p>
@@ -466,15 +556,30 @@ export function LogWorkout() {
   }
 
   const clockNow = now > 0 ? now : null;
+  const viewSessionId = knownSession?._id ?? null;
+  const discarding = outbox.actions.some((action) => {
+    if (action.kind !== "discard" || action.echoed || action.syncError) {
+      return false;
+    }
+    if (viewSessionId) {
+      return action.sessionId === viewSessionId || action.sessionClientId === outbox.openSessionClientId;
+    }
+    return action.sessionClientId === outbox.openSessionClientId;
+  });
+  const showWorkout = !discarding && (knownSession !== null || sessionSets.length > 0);
+  const startedAt =
+    knownSession?.startedAt ??
+    outbox.sets.find((set) => set.placement === "open" && !set.removed)?.sessionStartedAt ??
+    (clockNow ?? Date.now());
+  const loggedLast = sessionSets.reduce((max, set) => Math.max(max, set.loggedAt), 0);
+  const lastSetAt = Math.max(knownSession?.lastSetAt ?? 0, loggedLast) || null;
+  const resumedAt =
+    Math.max(knownSession?.resumedAt ?? 0, pendingResumedAt(outbox, viewSessionId) ?? 0) || null;
   const stale =
-    openSession !== null &&
+    showWorkout &&
+    !hasPendingFinish(outbox, viewSessionId) &&
     clockNow !== null &&
-    workoutLooksStale(
-      clockNow,
-      openSession.startedAt,
-      openSession.lastSetAt,
-      openSession.resumedAt,
-    );
+    workoutLooksStale(clockNow, startedAt, lastSetAt, resumedAt);
   const voiceOrManualOpen =
     voice.status === "recording" ||
     voice.status === "parsing" ||
@@ -483,15 +588,18 @@ export function LogWorkout() {
     manual !== null;
   const showStale = stale && !voiceOrManualOpen;
   const savedEnd =
-    openSession?.lastSetAt != null
+    lastSetAt !== null
       ? plannedCompletedAt({
           now: clockNow ?? Date.now(),
-          startedAt: openSession.startedAt,
-          lastSetAt: openSession.lastSetAt,
+          startedAt,
+          lastSetAt,
         })
       : (clockNow ?? Date.now());
-  const idleTrimmed =
-    openSession?.lastSetAt != null && (clockNow ?? Date.now()) - savedEnd >= 60_000;
+  const idleTrimmed = lastSetAt !== null && (clockNow ?? Date.now()) - savedEnd >= 60_000;
+  const workoutNote = combinedNote(
+    knownSession?.note,
+    pendingNote(outbox, { kind: "open", sessionId: viewSessionId }),
+  );
 
   const activeToast: Toasted | null =
     voice.status === "error"
@@ -505,20 +613,23 @@ export function LogWorkout() {
 
   return (
     <>
-      {openSession ? (
+      {showWorkout ? (
         <ActiveWorkout
-          startedAt={openSession.startedAt}
+          startedAt={startedAt}
           groups={groups}
           setCount={sessionSets.length}
           newestSetId={newestSetId}
-          loadingSets={sets === undefined}
+          loadingSets={sets === undefined && !offline && knownSession !== null}
           repeatingId={repeatingId}
           removingId={removingId}
           ending={ending}
-          note={openSession.note}
+          note={workoutNote}
+          emptyMessage={
+            offline ? "No sets yet. Add one by hand. Voice needs a connection." : undefined
+          }
           idleNote={
-            stale && clockNow !== null && openSession.lastSetAt !== null
-              ? `last set ${formatDuration(clockNow - openSession.lastSetAt)} ago`
+            stale && clockNow !== null && lastSetAt !== null
+              ? `last set ${formatDuration(clockNow - lastSetAt)} ago`
               : undefined
           }
           onRepeat={(group) => void repeatSet(group)}
@@ -527,7 +638,7 @@ export function LogWorkout() {
           onFinish={() => {
             setFinishError(null);
             if (!stale) {
-              setFinishNote(openSession.note ?? "");
+              setFinishNote(workoutNote ?? "");
               setFinishOpen(true);
             }
           }}
@@ -540,6 +651,7 @@ export function LogWorkout() {
             onVoice: () => void startVoice(),
             onManual: openManual,
             busy: voiceBusy,
+            offline,
           }}
         />
       ) : (
@@ -547,6 +659,7 @@ export function LogWorkout() {
           lastWorkout={history === undefined ? undefined : (history.page[0] ?? null)}
           weekSummary={weekSummary}
           voiceBusy={voiceBusy}
+          offline={offline}
           onVoice={() => void startVoice()}
           onManual={openManual}
         />
@@ -555,7 +668,7 @@ export function LogWorkout() {
       <Toast
         key={activeToast ? `${activeToast.id}-${activeToast.message}` : "none"}
         toast={activeToast}
-        raised={Boolean(openSession)}
+        raised={showWorkout}
         onDismiss={() => {
           if (voice.status === "error") {
             dispatch({ type: "dismiss" });
@@ -581,7 +694,7 @@ export function LogWorkout() {
         source={source}
         saving={voice.status === "saving"}
         notice={sheetNotice}
-        excludeSessionId={openSession?._id}
+        excludeSessionId={knownSession ? (knownSession._id as Id<"sessions">) : undefined}
         onChange={setDraft}
         onDiscard={discardDraft}
         onConfirm={() => void confirmDraft()}
@@ -606,9 +719,9 @@ export function LogWorkout() {
               : undefined
           }
           library={library}
-          truncatedLibrary={exercises.truncated}
+          truncatedLibrary={exercises?.truncated ?? false}
           sessionSets={sessionSets}
-          excludeSessionId={openSession?._id}
+          excludeSessionId={knownSession ? (knownSession._id as Id<"sessions">) : undefined}
           pending={manualPending}
           onClose={() => setManual(null)}
           onAdd={addManual}
@@ -617,7 +730,7 @@ export function LogWorkout() {
 
       <FinishSheet
         open={finishOpen && !showStale}
-        summary={`${pluralize(groups.length, "exercise")} · ${pluralize(sessionSets.length, "set")} · ${formatDuration(savedEnd - (openSession?.startedAt ?? savedEnd))}`}
+        summary={`${pluralize(groups.length, "exercise")} · ${pluralize(sessionSets.length, "set")} · ${formatDuration(savedEnd - startedAt)}`}
         note={idleTrimmed ? "Idle time after your last set isn't counted." : null}
         pending={ending}
         error={finishError}
@@ -627,10 +740,10 @@ export function LogWorkout() {
         onFinish={() => void finishWorkout()}
       />
 
-      {openSession?.lastSetAt != null ? (
+      {lastSetAt !== null ? (
         <StaleWorkoutSheet
           open={showStale}
-          idleMs={Math.max(0, (clockNow ?? openSession.lastSetAt) - openSession.lastSetAt)}
+          idleMs={Math.max(0, (clockNow ?? lastSetAt) - lastSetAt)}
           finishing={ending}
           keeping={keeping}
           error={finishError}

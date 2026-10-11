@@ -1,19 +1,18 @@
 "use client";
 
 import { Button } from "@/components/Button";
+import { useOfflineLog } from "@/components/OfflineSync";
 import { CloseIcon, PlusIcon } from "@/components/icons";
 import { PageHeader } from "@/components/PageHeader";
 import { useWeightUnit } from "@/components/WeightUnit";
-import { api } from "@/convex/_generated/api";
 import { formatExerciseName } from "@/convex/lib/exerciseName";
 import { parseClock, parseDistanceInput, type SetKind } from "@/convex/lib/measures";
 import { maxDisplayWeight, parseDisplayWeight, toPounds } from "@/convex/lib/units";
-import { readableError } from "@/lib/errors";
 import { formatPersonalRecords } from "@/lib/format";
 import { parseReps } from "@/lib/numbers";
 import { defaultPastWorkoutTime, fromDatetimeLocalValue, toDatetimeLocalValue } from "@/lib/pastWorkout";
+import { QUEUED_SAVE_MESSAGE } from "@/lib/offline/messages";
 import { stashToast } from "@/lib/pendingToast";
-import { useMutation } from "convex/react";
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
 
@@ -45,7 +44,7 @@ function blankExercise(): DraftExercise {
 export function LogPastWorkout() {
   const router = useRouter();
   const unit = useWeightUnit();
-  const logPast = useMutation(api.sessions.logPast);
+  const log = useOfflineLog();
   const [when, setWhen] = useState("");
   const [note, setNote] = useState("");
   const [exercises, setExercises] = useState<DraftExercise[]>([blankExercise()]);
@@ -161,21 +160,48 @@ export function LogPastWorkout() {
 
     setPending(true);
     setError(null);
-    try {
-      const saved = await logPast({
-        startedAt,
-        exercises: payload,
-        ...(note.trim() ? { note } : {}),
-      });
-      const record = formatPersonalRecords(saved.personalRecords, unit);
-      if (record) {
-        stashToast(record);
-      }
-      router.push(`/history/${saved.sessionId}`);
-    } catch (caught) {
-      setError(readableError(caught));
+    let loggedAt = startedAt;
+    const saved = await log.saveSets({
+      placement: "completed",
+      sessionId: null,
+      sessionStartedAt: startedAt,
+      note: note.trim() || null,
+      sets: payload.flatMap((exercise) =>
+        exercise.sets.map((set) => {
+          const at = loggedAt;
+          loggedAt += 1;
+          return {
+            exerciseName: exercise.name,
+            weightLb: set.weightLb,
+            reps: set.reps ?? null,
+            durationSec: set.durationSec ?? null,
+            distanceM: set.distanceM ?? null,
+            rpe: set.rpe ?? null,
+            loggedAt: at,
+          };
+        }),
+      ),
+    });
+    if (saved.status === "rejected") {
+      setError(saved.error ?? "That workout could not be saved");
       setPending(false);
+      return;
     }
+    const record = formatPersonalRecords(saved.personalRecords, unit);
+    if (saved.status === "queued") {
+      stashToast(QUEUED_SAVE_MESSAGE);
+      router.push("/history");
+      return;
+    }
+    if (record) {
+      stashToast(record);
+    }
+    if (saved.sessionId) {
+      router.push(`/history/${saved.sessionId}`);
+      return;
+    }
+    stashToast(QUEUED_SAVE_MESSAGE);
+    router.push("/history");
   }
 
   return (

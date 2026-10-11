@@ -4,6 +4,7 @@ import { cookies } from "next/headers";
 import Script from "next/script";
 import { ConvexAuthNextjsServerProvider } from "@convex-dev/auth/nextjs/server";
 import { ConvexClientProvider } from "@/components/ConvexClientProvider";
+import { ServiceWorkerRegister } from "@/components/ServiceWorkerRegister";
 import { SetupRequired } from "@/components/SetupRequired";
 import { pwaDescription, pwaName } from "@/lib/pwa/manifest";
 import {
@@ -69,6 +70,7 @@ export default async function RootLayout({
         />
       </head>
       <body className={`${geist.variable} ${geistMono.variable} antialiased`}>
+        <ServiceWorkerRegister />
         <Script id="pwa-install-prompt" strategy="beforeInteractive">
           {`window.__deferredInstallPrompt=null;window.addEventListener("beforeinstallprompt",function(event){event.preventDefault();window.__deferredInstallPrompt=event;window.dispatchEvent(new Event("pwa-installable"));});window.addEventListener("appinstalled",function(){window.__deferredInstallPrompt=null;window.dispatchEvent(new Event("pwa-installed"));});`}
         </Script>

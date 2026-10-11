@@ -95,15 +95,11 @@ test("the manifest link is in the initial document head", () => {
   );
 });
 
-test("no service worker is shipped that could cache workouts", () => {
-  for (const relative of [
-    "public/sw.js",
-    "public/service-worker.js",
-    "app/sw.ts",
-    "app/sw.js",
-  ]) {
+test("the service worker is a network-first route, not a cached public file", () => {
+  for (const relative of ["public/sw.js", "public/service-worker.js", "app/sw.ts"]) {
     assert.equal(fs.existsSync(path.join(root, relative)), false, relative);
   }
+  assert.equal(fs.existsSync(path.join(root, "app/sw.js/route.ts")), true);
 });
 
 test("install offer is hidden once the app is installed", () => {

@@ -4,9 +4,11 @@ import { AccessSettings } from "@/components/AccessSettings";
 import { InstallOffer } from "@/components/InstallOffer";
 import { PageHeader, SectionLabel } from "@/components/PageHeader";
 import { useTheme } from "@/components/useTheme";
+import { useOfflineLog } from "@/components/OfflineSync";
 import { useWeightUnit } from "@/components/WeightUnit";
 import { api } from "@/convex/_generated/api";
 import type { WeightUnit } from "@/convex/lib/units";
+import { browserStore, clearOfflineStorage } from "@/lib/offline/storage";
 import { useAuthActions } from "@convex-dev/auth/react";
 import { useMutation, useQuery } from "convex/react";
 import Link from "next/link";
@@ -19,6 +21,7 @@ export function SettingsScreen() {
   const router = useRouter();
   const { theme, setTheme } = useTheme();
   const unit = useWeightUnit();
+  const { offline } = useOfflineLog();
   const setWeightUnit = useMutation(api.users.setWeightUnit);
   const [signingOut, setSigningOut] = useState(false);
   const [savingUnit, setSavingUnit] = useState(false);
@@ -28,7 +31,7 @@ export function SettingsScreen() {
   const dark = theme === "dark";
 
   async function chooseUnit(next: WeightUnit) {
-    if (next === unit || savingUnit) {
+    if (next === unit || savingUnit || offline) {
       return;
     }
     setSavingUnit(true);
@@ -41,6 +44,7 @@ export function SettingsScreen() {
 
   async function onSignOut() {
     setSigningOut(true);
+    clearOfflineStorage(browserStore());
     try {
       await signOut();
       router.replace("/signin");
@@ -66,7 +70,7 @@ export function SettingsScreen() {
                   key={choice}
                   type="button"
                   aria-pressed={unit === choice}
-                  disabled={savingUnit}
+                  disabled={savingUnit || offline}
                   onClick={() => void chooseUnit(choice)}
                   className={`min-h-11 min-w-14 rounded-full px-4 text-sm font-medium ${
                     unit === choice ? "bg-inverse text-inverse-ink" : "text-muted"
@@ -80,6 +84,7 @@ export function SettingsScreen() {
           <p className="border-t border-line px-4 py-3 text-[13px] leading-normal text-muted">
             Shown in this unit. Saved weights stay in pounds, so a workout logged in pounds still
             means pounds if you switch to kilograms.
+            {offline ? " Changing the unit needs a connection." : ""}
           </p>
         </div>
       </section>
