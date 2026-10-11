@@ -28,6 +28,8 @@ type DraftExercise = { key: string; name: string; kind: SetKind; sets: DraftSet[
 
 const fieldClass =
   "h-12 w-full min-w-0 rounded-xl border border-line bg-background px-3 text-base text-foreground outline-none focus:border-foreground";
+const setFieldClass =
+  "h-12 min-w-0 rounded-xl border border-line bg-surface text-center font-mono text-lg font-medium outline-none focus:border-foreground";
 
 function nextKey(): string {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -210,12 +212,12 @@ export function LogPastWorkout() {
       className="px-5 pt-3 pb-[calc(32px+env(safe-area-inset-bottom))]"
     >
       <PageHeader backHref="/history" backLabel="Back to history" title="Log a past workout">
-        <p className="mt-1.5 text-[15px] leading-normal text-muted">
+        <p className="mt-1.5 text-base leading-normal text-muted">
           It is saved as finished, so it won&apos;t replace the workout you have open.
         </p>
       </PageHeader>
 
-      <label htmlFor="past-when" className="mt-6 block text-[11px] font-medium tracking-[0.1em] text-subtle uppercase">
+      <label htmlFor="past-when" className="mt-6 block text-xs font-medium tracking-[0.06em] text-subtle uppercase">
         When
       </label>
       <input
@@ -236,7 +238,7 @@ export function LogPastWorkout() {
             <div className="flex items-center justify-between gap-2">
               <label
                 htmlFor={`past-exercise-${exercise.key}`}
-                className="text-[11px] font-medium tracking-[0.1em] text-subtle uppercase"
+                className="text-xs font-medium tracking-[0.06em] text-subtle uppercase"
               >
                 Exercise {exerciseIndex + 1}
               </label>
@@ -274,7 +276,7 @@ export function LogPastWorkout() {
                   type="button"
                   aria-pressed={exercise.kind === kind}
                   onClick={() => updateExercise(exercise.key, { kind })}
-                  className={`min-h-11 flex-1 rounded-full text-sm font-medium ${
+                  className={`min-h-11 flex-1 rounded-full px-1 text-sm font-medium whitespace-nowrap ${
                     exercise.kind === kind ? "bg-inverse text-inverse-ink" : "text-muted"
                   }`}
                 >
@@ -284,82 +286,88 @@ export function LogPastWorkout() {
             </div>
             <div className="mt-3 flex flex-col gap-2">
               {exercise.sets.map((set, setIndex) => (
-                <div key={set.key} className="flex items-center gap-2">
-                  <span className="w-6 font-mono text-[15px] text-muted">{setIndex + 1}</span>
-                  {exercise.kind === "strength" ? (
-                    <input
-                      value={set.reps}
-                      onChange={(event) => updateSet(exercise.key, set.key, { reps: event.target.value })}
-                      inputMode="numeric"
-                      placeholder="Reps"
-                      aria-label={`Set ${setIndex + 1} reps`}
-                      className="h-12 min-w-0 flex-1 rounded-xl border border-line bg-background text-center font-mono text-lg font-medium outline-none focus:border-foreground"
-                    />
-                  ) : null}
-                  {exercise.kind === "timed" || exercise.kind === "distance" ? (
-                    <input
-                      value={exercise.kind === "timed" ? set.duration : set.distance}
-                      onChange={(event) =>
-                        updateSet(
-                          exercise.key,
-                          set.key,
-                          exercise.kind === "timed"
-                            ? { duration: event.target.value }
-                            : { distance: event.target.value },
-                        )
+                <div key={set.key} className="rounded-xl border border-line bg-background p-2.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-mono text-base text-muted">Set {setIndex + 1}</span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        updateExercise(exercise.key, {
+                          sets:
+                            exercise.sets.length === 1
+                              ? exercise.sets
+                              : exercise.sets.filter((item) => item.key !== set.key),
+                        })
                       }
-                      placeholder={exercise.kind === "timed" ? "1:30" : "2 km"}
-                      aria-label={
-                        exercise.kind === "timed"
-                          ? `Set ${setIndex + 1} time`
-                          : `Set ${setIndex + 1} distance`
-                      }
-                      className="h-12 min-w-0 flex-1 rounded-xl border border-line bg-background text-center font-mono text-lg font-medium outline-none focus:border-foreground"
-                    />
-                  ) : null}
-                  {exercise.kind === "distance" ? (
-                    <input
-                      value={set.duration}
-                      onChange={(event) =>
-                        updateSet(exercise.key, set.key, { duration: event.target.value })
-                      }
-                      placeholder="Time"
-                      aria-label={`Set ${setIndex + 1} time`}
-                      className="h-12 min-w-0 flex-1 rounded-xl border border-line bg-background text-center font-mono text-lg font-medium outline-none focus:border-foreground"
-                    />
-                  ) : null}
-                  <input
-                    value={set.weight}
-                    onChange={(event) => updateSet(exercise.key, set.key, { weight: event.target.value })}
-                    inputMode="decimal"
-                    placeholder={unit}
-                    aria-label={`Set ${setIndex + 1} weight in ${unit}`}
-                    className="h-12 min-w-0 flex-1 rounded-xl border border-line bg-background text-center font-mono text-lg font-medium outline-none focus:border-foreground"
-                  />
-                  <input
-                    value={set.rpe}
-                    onChange={(event) => updateSet(exercise.key, set.key, { rpe: event.target.value })}
-                    inputMode="numeric"
-                    placeholder="RPE"
-                    aria-label={`Set ${setIndex + 1} RPE`}
-                    className="h-12 w-16 rounded-xl border border-line bg-background text-center font-mono text-lg font-medium outline-none focus:border-foreground"
-                  />
-                  <button
-                    type="button"
-                    onClick={() =>
-                      updateExercise(exercise.key, {
-                        sets:
-                          exercise.sets.length === 1
-                            ? exercise.sets
-                            : exercise.sets.filter((item) => item.key !== set.key),
-                      })
-                    }
-                    disabled={exercise.sets.length === 1}
-                    aria-label={`Remove set ${setIndex + 1}`}
-                    className="flex size-11 shrink-0 items-center justify-center rounded-full text-subtle hover:bg-fill-2 disabled:opacity-30"
+                      disabled={exercise.sets.length === 1}
+                      aria-label={`Remove set ${setIndex + 1}`}
+                      className="flex size-11 shrink-0 items-center justify-center rounded-full text-subtle hover:bg-fill-2 disabled:opacity-30"
+                    >
+                      <CloseIcon className="size-5" strokeWidth={1.8} />
+                    </button>
+                  </div>
+                  <div
+                    className={`mt-1 grid gap-2 ${exercise.kind === "distance" ? "grid-cols-2" : "grid-cols-3"}`}
                   >
-                    <CloseIcon className="size-[18px]" strokeWidth={1.8} />
-                  </button>
+                    {exercise.kind === "strength" ? (
+                      <input
+                        value={set.reps}
+                        onChange={(event) => updateSet(exercise.key, set.key, { reps: event.target.value })}
+                        inputMode="numeric"
+                        placeholder="Reps"
+                        aria-label={`Set ${setIndex + 1} reps`}
+                        className={setFieldClass}
+                      />
+                    ) : null}
+                    {exercise.kind === "timed" || exercise.kind === "distance" ? (
+                      <input
+                        value={exercise.kind === "timed" ? set.duration : set.distance}
+                        onChange={(event) =>
+                          updateSet(
+                            exercise.key,
+                            set.key,
+                            exercise.kind === "timed"
+                              ? { duration: event.target.value }
+                              : { distance: event.target.value },
+                          )
+                        }
+                        placeholder={exercise.kind === "timed" ? "1:30" : "2 km"}
+                        aria-label={
+                          exercise.kind === "timed"
+                            ? `Set ${setIndex + 1} time`
+                            : `Set ${setIndex + 1} distance`
+                        }
+                        className={setFieldClass}
+                      />
+                    ) : null}
+                    {exercise.kind === "distance" ? (
+                      <input
+                        value={set.duration}
+                        onChange={(event) =>
+                          updateSet(exercise.key, set.key, { duration: event.target.value })
+                        }
+                        placeholder="Time"
+                        aria-label={`Set ${setIndex + 1} time`}
+                        className={setFieldClass}
+                      />
+                    ) : null}
+                    <input
+                      value={set.weight}
+                      onChange={(event) => updateSet(exercise.key, set.key, { weight: event.target.value })}
+                      inputMode="decimal"
+                      placeholder={unit}
+                      aria-label={`Set ${setIndex + 1} weight in ${unit}`}
+                      className={setFieldClass}
+                    />
+                    <input
+                      value={set.rpe}
+                      onChange={(event) => updateSet(exercise.key, set.key, { rpe: event.target.value })}
+                      inputMode="numeric"
+                      placeholder="RPE"
+                      aria-label={`Set ${setIndex + 1} RPE`}
+                      className={setFieldClass}
+                    />
+                  </div>
                 </div>
               ))}
             </div>
@@ -370,9 +378,9 @@ export function LogPastWorkout() {
                   sets: [...exercise.sets, blankSet()],
                 })
               }
-              className="mt-2 flex min-h-11 items-center gap-2 text-[15px] font-medium"
+              className="mt-2 flex min-h-11 items-center gap-2 text-base font-medium"
             >
-              <PlusIcon className="size-[18px]" strokeWidth={1.8} />
+              <PlusIcon className="size-5" strokeWidth={1.8} />
               Add a set
             </button>
           </li>
@@ -382,13 +390,13 @@ export function LogPastWorkout() {
       <button
         type="button"
         onClick={() => setExercises((current) => [...current, blankExercise()])}
-        className="mt-3 flex min-h-11 items-center gap-2 text-[15px] font-medium"
+        className="mt-3 flex min-h-11 items-center gap-2 text-base font-medium"
       >
-        <PlusIcon className="size-[18px]" strokeWidth={1.8} />
+        <PlusIcon className="size-5" strokeWidth={1.8} />
         Add an exercise
       </button>
 
-      <label htmlFor="past-note" className="mt-6 block text-[11px] font-medium tracking-[0.1em] text-subtle uppercase">
+      <label htmlFor="past-note" className="mt-6 block text-xs font-medium tracking-[0.06em] text-subtle uppercase">
         Note
       </label>
       <textarea
@@ -398,15 +406,15 @@ export function LogPastWorkout() {
         maxLength={500}
         rows={3}
         placeholder="Optional"
-        className="mt-2 w-full resize-none rounded-xl border border-line bg-background px-3 py-2 text-[15px] outline-none focus:border-foreground"
+        className="mt-2 w-full resize-none rounded-xl border border-line bg-background px-3 py-2 text-base outline-none focus:border-foreground"
       />
 
       {error ? (
-        <p role="alert" className="mt-3 text-sm leading-5 text-danger">
+        <p role="alert" className="mt-3 text-sm text-danger">
           {error}
         </p>
       ) : (
-        <p className="mt-3 text-[13px] text-subtle">
+        <p className="mt-3 text-sm text-subtle">
           Weights use {unit}. Leave weight blank for bodyweight. The length isn&apos;t recorded.
         </p>
       )}

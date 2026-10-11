@@ -54,7 +54,7 @@ export function Toast({
           role={toast.tone === "error" ? "alert" : undefined}
           className="pointer-events-auto flex min-h-12 w-full max-w-lg animate-[sheet-in_200ms_ease-out] items-center justify-between gap-2 rounded-2xl bg-inverse py-1 pr-1 pl-4 text-inverse-ink shadow-lift"
         >
-          <p className="py-2 text-sm leading-5">{toast.message}</p>
+          <p className="py-2 text-sm">{toast.message}</p>
           <div className="flex shrink-0 items-center">
             {toast.action ? (
               <button

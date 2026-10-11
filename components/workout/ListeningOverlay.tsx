@@ -110,12 +110,12 @@ export function ListeningOverlay({
             aria-label={parsing ? "Cancel" : "Cancel recording"}
             className="flex size-11 items-center justify-center rounded-full bg-fill text-foreground"
           >
-            <CloseIcon className="size-[18px]" strokeWidth={1.9} />
+            <CloseIcon className="size-5" strokeWidth={1.9} />
           </button>
         </header>
 
         <div className="flex flex-1 flex-col items-center justify-center text-center">
-          <div className="relative size-[min(280px,72vw)]">
+          <div className="relative size-[min(20rem,82vw)]">
             <svg
               viewBox="0 0 280 280"
               className="absolute inset-0 size-full"
@@ -162,10 +162,10 @@ export function ListeningOverlay({
           </div>
 
           <p className="mt-7 flex items-baseline gap-2 font-mono">
-            <span className="text-[40px] font-medium tracking-[-0.04em]">{formatSeconds(elapsedMs)}</span>
+            <span className="text-timer font-medium tracking-[-0.04em]">{formatSeconds(elapsedMs)}</span>
             <span className="text-base text-subtle">/ {formatSeconds(MAX_RECORDING_MS)}</span>
           </p>
-          <p className="mt-3.5 max-w-[280px] text-base leading-normal text-pretty text-muted">
+          <p className="mt-3.5 max-w-[21rem] text-base leading-normal text-pretty text-muted">
             {parsing
               ? "Turning that into sets. Nothing is saved until you confirm."
               : "Say the exercise, then the sets, reps and weight."}
@@ -190,7 +190,7 @@ export function ListeningOverlay({
               <span aria-hidden="true" className="size-6 rounded-md bg-inverse-ink" />
             )}
           </button>
-          <span className="text-[13px] font-medium text-muted">{parsing ? "Reading…" : "Done"}</span>
+          <span className="text-sm font-medium text-muted">{parsing ? "Reading…" : "Done"}</span>
         </div>
       </div>
     </div>

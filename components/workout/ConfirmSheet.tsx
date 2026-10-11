@@ -73,7 +73,7 @@ export function ConfirmSheet({
       <div className="flex items-center justify-between">
         <h2
           id="confirm-title"
-          className="flex items-center gap-1.5 text-[11px] font-medium tracking-[0.1em] text-subtle uppercase"
+          className="flex items-center gap-1.5 text-xs font-medium tracking-[0.06em] text-subtle uppercase"
         >
           {source === "voice" ? (
             <MicIcon className="size-3.5" strokeWidth={2} />
@@ -114,7 +114,7 @@ export function ConfirmSheet({
         ))}
       </div>
 
-      <label htmlFor="confirm-note" className="mt-4 text-[11px] font-medium tracking-[0.1em] text-subtle uppercase">
+      <label htmlFor="confirm-note" className="mt-4 text-xs font-medium tracking-[0.06em] text-subtle uppercase">
         Note
       </label>
       <textarea
@@ -129,11 +129,11 @@ export function ConfirmSheet({
       />
 
       {notice ? (
-        <p role="alert" className="mt-1.5 text-sm leading-5 text-danger">
+        <p role="alert" className="mt-1.5 text-sm text-danger">
           {notice}
         </p>
       ) : (
-        <p className="mt-1.5 text-[13px] text-subtle">
+        <p className="mt-1.5 text-sm text-subtle">
           Weights are in {unit}. 0 is bodyweight. Nothing is saved until you add them.
         </p>
       )}
@@ -209,7 +209,7 @@ function ExerciseConfirmBlock({
           disabled={saving}
           autoComplete="off"
           maxLength={80}
-          className="h-12 min-w-0 flex-1 border-0 border-b border-line bg-transparent p-0 text-[22px] font-semibold tracking-[-0.02em] text-foreground outline-none focus:border-foreground disabled:opacity-60"
+          className="h-12 min-w-0 flex-1 border-0 border-b border-line bg-transparent p-0 text-day font-semibold tracking-[-0.02em] text-foreground outline-none focus:border-foreground disabled:opacity-60"
         />
         {canRemoveExercise ? (
           <button
@@ -222,13 +222,13 @@ function ExerciseConfirmBlock({
           </button>
         ) : null}
       </div>
-      {history.label ? <p className="mt-2 text-[13px] text-muted">{history.label}</p> : null}
+      {history.label ? <p className="mt-2 text-sm text-muted">{history.label}</p> : null}
 
       <div className="mt-3 flex flex-col gap-3">
         {exercise.sets.map((set, setIndex) => (
           <div key={setIndex} className="flex flex-col gap-2">
             <div className="flex items-center justify-between">
-              <span className="font-mono text-[15px] text-muted">Set {setIndex + 1}</span>
+              <span className="font-mono text-base text-muted">Set {setIndex + 1}</span>
               <button
                 type="button"
                 onClick={() => removeSet(setIndex)}
@@ -236,7 +236,7 @@ function ExerciseConfirmBlock({
                 aria-label={`Remove set ${setIndex + 1} of ${exercise.exerciseName}`}
                 className="flex size-11 items-center justify-center rounded-full text-subtle hover:bg-fill-2 disabled:opacity-30"
               >
-                <CloseIcon className="size-[18px]" strokeWidth={1.8} />
+                <CloseIcon className="size-5" strokeWidth={1.8} />
               </button>
             </div>
             <KindSwitch
@@ -297,9 +297,9 @@ function ExerciseConfirmBlock({
         type="button"
         onClick={addSet}
         disabled={saving || totalSets >= MAX_VOICE_SETS}
-        className="mt-1.5 flex min-h-11 items-center gap-2 self-start text-[15px] font-medium disabled:opacity-50"
+        className="mt-1.5 flex min-h-11 items-center gap-2 self-start text-base font-medium disabled:opacity-50"
       >
-        <PlusIcon className="size-[18px]" strokeWidth={1.8} />
+        <PlusIcon className="size-5" strokeWidth={1.8} />
         Add a set
       </button>
     </section>
@@ -329,7 +329,7 @@ function KindSwitch({
           aria-pressed={kind === option.id}
           disabled={disabled}
           onClick={() => onChange(option.id)}
-          className={`min-h-9 flex-1 rounded-full px-2 text-sm font-medium disabled:opacity-50 ${
+          className={`min-h-11 flex-1 rounded-full px-1.5 text-sm font-medium whitespace-nowrap disabled:opacity-50 ${
             kind === option.id ? "bg-inverse text-inverse-ink" : "text-muted"
           }`}
         >
@@ -355,7 +355,7 @@ function Field({
 }) {
   return (
     <label className="flex flex-col gap-1">
-      <span className="text-[11px] font-medium tracking-[0.1em] text-subtle uppercase">{label}</span>
+      <span className="text-xs font-medium tracking-[0.06em] text-subtle uppercase">{label}</span>
       <input
         value={value}
         onChange={(event) => onChange(event.target.value)}

@@ -36,15 +36,15 @@ export function SignInScreen() {
 
   return (
     <main className="mx-auto flex min-h-dvh w-full max-w-lg flex-col px-5 pt-3 pb-[calc(24px+env(safe-area-inset-bottom))]">
-      <div className="flex h-11 items-center gap-2.5">
+      <div className="flex min-h-11 items-center gap-2.5">
         <BrandMark />
-        <span className="text-[17px] font-semibold tracking-[-0.01em]">Workout</span>
+        <span className="text-lg font-semibold tracking-[-0.01em]">Workout</span>
       </div>
       <div className="flex flex-1 flex-col justify-center py-10">
-        <h1 className="text-[34px] leading-[1.1] font-semibold tracking-[-0.03em] text-balance">
+        <h1 className="text-4xl leading-[1.1] font-semibold tracking-[-0.03em] text-balance">
           Say the set. Keep the history.
         </h1>
-        <p className="mt-4 max-w-[320px] text-base leading-normal text-pretty text-muted">
+        <p className="mt-4 max-w-sm text-base leading-normal text-pretty text-muted">
           Log sets, reps, and weight by voice or by hand, and come back to every
           workout you finished.
         </p>
@@ -61,7 +61,7 @@ export function SignInScreen() {
           </Button>
         </form>
         {error ? (
-          <p role="alert" className="mt-4 text-sm leading-5 text-danger">
+          <p role="alert" className="mt-4 text-sm text-danger">
             {error}
           </p>
         ) : null}

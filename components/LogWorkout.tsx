@@ -550,7 +550,7 @@ export function LogWorkout() {
   if (!offline && (openSession === undefined || exercises === undefined)) {
     return (
       <div className="flex min-h-[70dvh] items-center justify-center">
-        <p className="text-[15px] text-muted">Loading your workout…</p>
+        <p className="text-base text-muted">Loading your workout…</p>
       </div>
     );
   }

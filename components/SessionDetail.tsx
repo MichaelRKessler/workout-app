@@ -229,7 +229,7 @@ export function SessionDetail({ sessionId }: { sessionId: string }) {
     return (
       <div className="px-5 pt-3">
         <PageHeader backHref="/history" backLabel="Back to history" title="Workout" />
-        <p className="mt-8 text-[15px] text-muted">
+        <p className="mt-8 text-base text-muted">
           {log.offline
             ? "You're offline. This workout will load when you reconnect."
             : "Loading workout…"}
@@ -242,7 +242,7 @@ export function SessionDetail({ sessionId }: { sessionId: string }) {
     return (
       <div className="px-5 pt-3">
         <PageHeader backHref="/history" backLabel="Back to history" title="Workout not found" />
-        <p className="mt-3 text-[15px] leading-normal text-muted">
+        <p className="mt-3 text-base leading-normal text-muted">
           That session is not in your history.
         </p>
       </div>
@@ -269,12 +269,12 @@ export function SessionDetail({ sessionId }: { sessionId: string }) {
         backLabel="Back to history"
         title={<span suppressHydrationWarning>{formatLongDate(session.startedAt)}</span>}
       >
-        <p className="mt-1.5 text-[15px] text-muted" suppressHydrationWarning>
+        <p className="mt-1.5 text-base text-muted" suppressHydrationWarning>
           {meta}
         </p>
         {finished ? (
           <label className="mt-4 block">
-            <span className="text-[11px] font-medium tracking-[0.1em] text-subtle uppercase">
+            <span className="text-xs font-medium tracking-[0.06em] text-subtle uppercase">
               Note
             </span>
             <textarea
@@ -283,7 +283,7 @@ export function SessionDetail({ sessionId }: { sessionId: string }) {
               maxLength={500}
               rows={3}
               placeholder="Optional. How the workout felt."
-              className="mt-2 w-full resize-none rounded-xl border border-line bg-background px-3 py-2 text-[15px] outline-none focus:border-foreground"
+              className="mt-2 w-full resize-none rounded-xl border border-line bg-background px-3 py-2 text-base outline-none focus:border-foreground"
             />
             {noteDraft !== null ? (
               <Button
@@ -297,14 +297,14 @@ export function SessionDetail({ sessionId }: { sessionId: string }) {
             ) : null}
           </label>
         ) : session.note ? (
-          <p className="mt-3 text-[15px] leading-normal text-muted">{session.note}</p>
+          <p className="mt-3 text-base leading-normal text-muted">{session.note}</p>
         ) : null}
       </PageHeader>
 
       {session.status === "open" ? (
         <Link
           href="/"
-          className="mt-5 inline-flex min-h-11 items-center rounded-full bg-inverse px-5 text-[15px] font-semibold text-inverse-ink"
+          className="mt-5 inline-flex min-h-11 items-center rounded-full bg-inverse px-5 text-base font-semibold text-inverse-ink"
         >
           Continue workout
         </Link>
@@ -335,7 +335,7 @@ export function SessionDetail({ sessionId }: { sessionId: string }) {
       )}
 
       {groups.length === 0 ? (
-        <p className="mt-8 text-[15px] text-muted">No sets were logged.</p>
+        <p className="mt-8 text-base text-muted">No sets were logged.</p>
       ) : (
         <ul aria-label="Exercises" className="mt-5 flex flex-col border-t border-line">
           {groups.map((group) => (

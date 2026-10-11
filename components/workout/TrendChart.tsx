@@ -75,7 +75,7 @@ export function TrendChart({
           <circle key={points[index]?.startedAt ?? index} cx={point.x} cy={point.y} r="2.5" fill="currentColor" />
         ))}
       </svg>
-      <figcaption className="mt-1 flex justify-between text-[12px] text-subtle">
+      <figcaption className="mt-1 flex justify-between text-xs text-subtle">
         <span>{trendAmount(min, unit)}</span>
         <span>
           {unit === "lb" ? "Est. 1RM" : unit === "reps" ? "Most reps" : unit === "m" ? "Farthest" : "Longest"}

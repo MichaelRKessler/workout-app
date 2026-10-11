@@ -23,11 +23,11 @@ export function DeleteWorkoutSheet({
       <h2 id="delete-workout-title" className="mt-2 text-xl font-semibold tracking-[-0.02em]">
         Delete this workout?
       </h2>
-      <p className="mt-1.5 text-[15px] leading-normal text-muted">
+      <p className="mt-1.5 text-base leading-normal text-muted">
         This permanently deletes the workout from {summary} and every set in it. This can&apos;t be undone.
       </p>
       {error ? (
-        <p role="alert" className="mt-3 text-sm leading-5 text-danger">
+        <p role="alert" className="mt-3 text-sm text-danger">
           {error}
         </p>
       ) : null}

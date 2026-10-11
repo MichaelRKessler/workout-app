@@ -52,15 +52,15 @@ export function NoAccess({ status }: { status: AccessStatus }) {
 
   return (
     <div className="flex min-h-dvh flex-col px-5 pt-3 pb-[calc(24px+env(safe-area-inset-bottom))]">
-      <div className="flex h-11 items-center gap-2.5">
+      <div className="flex min-h-11 items-center gap-2.5">
         <BrandMark />
-        <span className="text-[17px] font-semibold tracking-[-0.01em]">Workout</span>
+        <span className="text-lg font-semibold tracking-[-0.01em]">Workout</span>
       </div>
       <div className="flex flex-1 flex-col justify-center py-10">
-        <h1 className="text-[34px] leading-[1.1] font-semibold tracking-[-0.03em] text-balance">
+        <h1 className="text-4xl leading-[1.1] font-semibold tracking-[-0.03em] text-balance">
           You don&apos;t have access yet
         </h1>
-        <p className="mt-4 max-w-[340px] text-base leading-normal text-pretty text-muted">
+        <p className="mt-4 max-w-[25.5rem] text-base leading-normal text-pretty text-muted">
           {status.email
             ? `${status.email} can sign in, but this workout log is limited to approved accounts.`
             : "This workout log is limited to approved accounts."}{" "}
@@ -68,17 +68,17 @@ export function NoAccess({ status }: { status: AccessStatus }) {
         </p>
 
         {requestSent ? (
-          <p className="mt-8 rounded-[18px] border border-line bg-surface px-4 py-4 text-[15px] leading-normal" role="status">
+          <p className="mt-8 rounded-[1.25rem] border border-line bg-surface px-4 py-4 text-base leading-normal" role="status">
             Request sent. You&apos;ll be able to use the app after it&apos;s approved.
           </p>
         ) : (
           <form onSubmit={(event) => void onRequest(event)} className="mt-8">
             {denied ? (
-              <p className="mb-3 text-sm leading-5 text-muted">
+              <p className="mb-3 text-sm text-muted">
                 The last request was denied. You can send another.
               </p>
             ) : null}
-            <label htmlFor="access-note" className="text-[11px] font-medium tracking-[0.1em] text-subtle uppercase">
+            <label htmlFor="access-note" className="text-xs font-medium tracking-[0.06em] text-subtle uppercase">
               Note <span className="tracking-normal normal-case">(optional)</span>
             </label>
             <textarea
@@ -88,13 +88,13 @@ export function NoAccess({ status }: { status: AccessStatus }) {
               maxLength={280}
               rows={3}
               placeholder="A short note for the admin"
-              className="mt-2 w-full resize-none rounded-xl border border-line bg-background px-3 py-3 text-[15px] outline-none focus:border-foreground"
+              className="mt-2 w-full resize-none rounded-xl border border-line bg-background px-3 py-3 text-base outline-none focus:border-foreground"
             />
             <Button type="submit" size="lg" className="mt-4 w-full" disabled={sending || !status.email}>
               {sending ? "Sending…" : "Request access"}
             </Button>
             {error ? (
-              <p role="alert" className="mt-4 text-sm leading-5 text-danger">
+              <p role="alert" className="mt-4 text-sm text-danger">
                 {error}
               </p>
             ) : null}

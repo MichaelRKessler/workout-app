@@ -59,7 +59,7 @@ export function ExerciseHistory({ exerciseId }: { exerciseId: string }) {
     return (
       <div className="px-5 pt-3">
         <PageHeader backHref="/history" backLabel="Back to history" title="Exercise" />
-        <p className="mt-8 text-[15px] text-muted">Loading exercise…</p>
+        <p className="mt-8 text-base text-muted">Loading exercise…</p>
       </div>
     );
   }
@@ -68,7 +68,7 @@ export function ExerciseHistory({ exerciseId }: { exerciseId: string }) {
     return (
       <div className="px-5 pt-3">
         <PageHeader backHref="/history" backLabel="Back to history" title="Exercise not found" />
-        <p className="mt-3 text-[15px] leading-normal text-muted">
+        <p className="mt-3 text-base leading-normal text-muted">
           That exercise is not in your history.
         </p>
       </div>
@@ -91,19 +91,19 @@ export function ExerciseHistory({ exerciseId }: { exerciseId: string }) {
         <Records detail={detail} unit={unit} />
         <TrendChart points={detail.trend} unit={detail.trendUnit} />
         {detail.truncated ? (
-          <p className="mt-2 text-[13px] text-subtle">Best of your latest 2,000 sets.</p>
+          <p className="mt-2 text-sm text-subtle">Best of your latest 2,000 sets.</p>
         ) : null}
       </PageHeader>
 
       {workouts.length === 0 ? (
-        <p className="mt-8 text-[15px] text-muted">No sets logged for this exercise yet.</p>
+        <p className="mt-8 text-base text-muted">No sets logged for this exercise yet.</p>
       ) : (
         <ul className="mt-6 flex flex-col" aria-label="Past workouts">
           {workouts.map((workout) => (
             <li key={workout.sessionId} className="border-b border-line py-3">
               <Link
                 href={`/history/${workout.sessionId}`}
-                className="text-[15px] font-medium hover:underline"
+                className="text-base font-medium hover:underline"
                 suppressHydrationWarning
               >
                 {formatShortDate(workout.startedAt)}
@@ -113,7 +113,7 @@ export function ExerciseHistory({ exerciseId }: { exerciseId: string }) {
                   <span key={set._id} className="mr-3 inline-flex items-center gap-1.5">
                     {formatSetShort(set, unit)}
                     {highlight.has(set._id) ? (
-                      <span className="font-sans text-[11px] font-semibold tracking-[0.08em] text-accent uppercase">
+                      <span className="font-sans text-xs font-semibold tracking-[0.05em] text-accent uppercase">
                         PR
                       </span>
                     ) : null}
@@ -153,7 +153,7 @@ function Records({
   const sameEffort = detail.bestWeight && detail.bestEpley && detail.bestWeight.setId === detail.bestEpley.setId;
   const hasStrength = Boolean(detail.bestWeight || detail.bestEpley || detail.bestBodyweight);
   return (
-    <div className="mt-3 flex flex-col gap-1 text-[15px] text-muted">
+    <div className="mt-3 flex flex-col gap-1 text-base text-muted">
       {detail.bestWeight ? (
         <p>
           <SectionInline>Heaviest</SectionInline> {formatSetShort(detail.bestWeight, unit)}

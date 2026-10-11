@@ -102,7 +102,7 @@ export function RestTimer({ setCount, loading }: { setCount: number; loading: bo
     <div className="flex items-center gap-0.5 rounded-full border border-line bg-surface py-0.5 pr-0.5 pl-2.5">
       <span className="sr-only">{spoken}</span>
       <span aria-hidden="true" className="flex items-baseline gap-1 pr-0.5">
-        <span className="text-[10px] font-medium tracking-[0.1em] text-subtle uppercase">Rest</span>
+        <span className="text-xs font-medium tracking-[0.06em] text-subtle uppercase">Rest</span>
         <span
           className={`font-mono text-sm tabular-nums ${done ? "font-semibold text-foreground" : "text-foreground"}`}
         >
@@ -115,7 +115,7 @@ export function RestTimer({ setCount, loading }: { setCount: number; loading: bo
         onClick={() => adjust(-1)}
         className={buttonClass}
       >
-        <MinusIcon className="size-3.5" strokeWidth={1.8} />
+        <MinusIcon className="size-4" strokeWidth={1.8} />
       </button>
       <button
         type="button"
@@ -123,7 +123,7 @@ export function RestTimer({ setCount, loading }: { setCount: number; loading: bo
         onClick={() => adjust(1)}
         className={buttonClass}
       >
-        <PlusIcon className="size-3.5" strokeWidth={1.8} />
+        <PlusIcon className="size-4" strokeWidth={1.8} />
       </button>
     </div>
   );

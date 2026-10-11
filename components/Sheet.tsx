@@ -93,9 +93,9 @@ export function Sheet({
         aria-modal="true"
         aria-labelledby={labelledBy}
         tabIndex={-1}
-        className="relative flex max-h-[92dvh] w-full max-w-lg animate-[sheet-in_220ms_cubic-bezier(0.2,0.8,0.2,1)] flex-col overflow-y-auto rounded-t-[28px] bg-surface px-5 pt-2 pb-[calc(20px+env(safe-area-inset-bottom))] shadow-sheet outline-none"
+        className="relative flex max-h-[92dvh] w-full max-w-lg animate-[sheet-in_220ms_cubic-bezier(0.2,0.8,0.2,1)] flex-col overflow-y-auto rounded-t-[2rem] bg-surface px-5 pt-2 pb-[calc(20px+env(safe-area-inset-bottom))] shadow-sheet outline-none"
       >
-        <div aria-hidden="true" className="mx-auto mb-2 h-[5px] w-9 shrink-0 rounded-full bg-line" />
+        <div aria-hidden="true" className="mx-auto mb-2 h-1.5 w-10 shrink-0 rounded-full bg-line" />
         {children}
       </div>
     </div>

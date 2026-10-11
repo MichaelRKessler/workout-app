@@ -124,7 +124,7 @@ export function ArrowUpIcon(props: IconProps) {
 }
 
 /** The app's tilted dumbbell, from public/icons/icon.svg. */
-export function BrandMark({ className = "size-[22px]" }: { className?: string }) {
+export function BrandMark({ className = "size-6" }: { className?: string }) {
   return (
     <svg aria-hidden="true" viewBox="0 0 512 512" className={className}>
       <g fill="currentColor" transform="rotate(35 256 256)">

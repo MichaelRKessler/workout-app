@@ -38,6 +38,43 @@
   color-scheme: dark;
 }
 
+/*
+  Readability scale for phone and laptop Chrome.
+  Body copy is 19px. Labels, captions, timestamps, and badges floor at 16px
+  (the biggest step up from the old 10–13px type). Headings stay a clear step
+  above body. Spacing is 12.5% larger so tap targets, icons, and padding grow
+  with the type without blowing out the 360px column.
+  Tune sizes here; components use these tokens instead of raw pixel type.
+*/
+@theme {
+  --spacing: 0.28125rem;
+
+  --text-xs: 1rem; /* 16px, was 12px */
+  --text-xs--line-height: 1.35;
+  --text-sm: 1.0625rem; /* 17px, was 14px */
+  --text-sm--line-height: 1.45;
+  --text-base: 1.1875rem; /* 19px, was 16px. Former 15px body uses this too. */
+  --text-base--line-height: 1.5;
+  --text-lg: 1.375rem; /* 22px, was 18px */
+  --text-lg--line-height: 1.4;
+  --text-xl: 1.5625rem; /* 25px, was 20px */
+  --text-xl--line-height: 1.3;
+  --text-2xl: 1.875rem; /* 30px, was 24px */
+  --text-2xl--line-height: 1.25;
+  --text-3xl: 2.375rem; /* 38px, was 30px */
+  --text-3xl--line-height: 1.15;
+  --text-4xl: 2.6875rem; /* 43px, was 34px */
+  --text-4xl--line-height: 1.12;
+  --text-metric: 2.125rem; /* 34px stepper values, was 28px */
+  --text-metric--line-height: 1.1;
+  --text-day: 1.75rem; /* 28px history dates, was 22px */
+  --text-day--line-height: 1;
+  --text-timer: 3.125rem; /* 50px clocks, was 40px */
+  --text-timer--line-height: 1.05;
+  --text-title: 2.5rem; /* 40px page titles, was 32px */
+  --text-title--line-height: 1.15;
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-surface: var(--surface);
@@ -64,6 +101,8 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: var(--text-base--line-height);
   min-height: 100dvh;
   padding-top: env(safe-area-inset-top);
   padding-left: env(safe-area-inset-left);

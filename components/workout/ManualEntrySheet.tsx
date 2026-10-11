@@ -252,12 +252,12 @@ export function ManualEntrySheet({
 
         <label
           htmlFor="manual-exercise"
-          className="mt-3 text-[11px] font-medium tracking-[0.1em] text-subtle uppercase"
+          className="mt-3 text-xs font-medium tracking-[0.06em] text-subtle uppercase"
         >
           Exercise
         </label>
         <div className="mt-2 flex h-12 items-center gap-2 rounded-xl border border-line bg-background px-3 text-subtle focus-within:border-foreground">
-          <SearchIcon className="size-[18px] shrink-0" strokeWidth={1.8} />
+          <SearchIcon className="size-5 shrink-0" strokeWidth={1.8} />
           <input
             id="manual-exercise"
             value={exerciseName}
@@ -300,7 +300,7 @@ export function ManualEntrySheet({
           </div>
         ) : null}
         {!editing && truncatedLibrary ? (
-          <p className="mt-2 text-[13px] text-subtle">
+          <p className="mt-2 text-sm text-subtle">
             Showing 200 exercises. The rest are in Settings, under Exercises.
           </p>
         ) : null}
@@ -321,7 +321,7 @@ export function ManualEntrySheet({
                 setDirty(true);
                 setValues({ ...values, kind });
               }}
-              className={`min-h-11 flex-1 rounded-full text-sm font-medium ${
+              className={`min-h-11 flex-1 rounded-full px-1 text-sm font-medium whitespace-nowrap ${
                 values.kind === kind ? "bg-inverse text-inverse-ink" : "text-muted"
               }`}
             >
@@ -350,7 +350,7 @@ export function ManualEntrySheet({
             />
           ) : (
             <label className="flex flex-col gap-1.5 rounded-2xl border border-line bg-background p-3">
-              <span className="text-[11px] font-medium tracking-[0.1em] text-subtle uppercase">
+              <span className="text-xs font-medium tracking-[0.06em] text-subtle uppercase">
                 {values.kind === "timed" ? "Time" : "Distance"}
               </span>
               <input
@@ -365,7 +365,7 @@ export function ManualEntrySheet({
                 }}
                 inputMode="text"
                 placeholder={values.kind === "timed" ? "1:30" : "2 km"}
-                className="h-11 bg-transparent text-center font-mono text-[28px] font-medium tracking-[-0.03em] outline-none"
+                className="min-h-12 bg-transparent py-1 text-center font-mono text-metric font-medium tracking-[-0.03em] outline-none"
               />
             </label>
           )}
@@ -394,7 +394,7 @@ export function ManualEntrySheet({
           />
           {values.kind === "distance" ? (
             <label className="col-span-2 flex flex-col gap-1.5 rounded-2xl border border-line bg-background p-3">
-              <span className="text-[11px] font-medium tracking-[0.1em] text-subtle uppercase">
+              <span className="text-xs font-medium tracking-[0.06em] text-subtle uppercase">
                 Time, optional
               </span>
               <input
@@ -405,12 +405,12 @@ export function ManualEntrySheet({
                 }}
                 inputMode="text"
                 placeholder="7:30"
-                className="h-11 bg-transparent text-center font-mono text-2xl font-medium outline-none"
+                className="min-h-12 bg-transparent py-1 text-center font-mono text-2xl font-medium outline-none"
               />
             </label>
           ) : null}
           <label className="col-span-2 flex items-center justify-between gap-3 rounded-2xl border border-line bg-background px-3 py-2">
-            <span className="text-[11px] font-medium tracking-[0.1em] text-subtle uppercase">RPE</span>
+            <span className="shrink-0 text-xs font-medium tracking-[0.06em] text-subtle uppercase">RPE</span>
             <input
               value={values.rpe}
               onChange={(event) => {
@@ -420,17 +420,17 @@ export function ManualEntrySheet({
               inputMode="numeric"
               placeholder="Optional, 1–10"
               aria-label="RPE"
-              className="h-11 w-40 bg-transparent text-right font-mono text-lg outline-none"
+              className="h-12 min-w-0 flex-1 bg-transparent text-right font-mono text-lg outline-none"
             />
           </label>
         </div>
 
         {error ? (
-          <p role="alert" className="mt-3 text-sm leading-5 text-danger">
+          <p role="alert" className="mt-3 text-sm text-danger">
             {error}
           </p>
         ) : (
-          <p className="mt-3 text-[13px] text-subtle">
+          <p className="mt-3 text-sm text-subtle">
             {history.label ? <span className="text-muted">{history.label}. </span> : null}
             {values.source === "session" ? "Filled in from your last set. " : null}
             {editing ? "This set stays where it is. " : null}
@@ -468,26 +468,26 @@ function Stepper({
   onStep: (delta: number) => void;
 }) {
   const buttonClass =
-    "flex size-11 shrink-0 items-center justify-center rounded-full border border-line bg-surface text-foreground hover:bg-fill-2";
+    "flex h-12 min-w-0 flex-1 items-center justify-center rounded-full border border-line bg-surface text-foreground hover:bg-fill-2";
   return (
-    <div className="flex flex-col gap-1.5 rounded-2xl border border-line bg-background p-3">
-      <label htmlFor={id} className="text-[11px] font-medium tracking-[0.1em] text-subtle uppercase">
+    <div className="flex min-w-0 flex-col gap-2 rounded-2xl border border-line bg-background p-3">
+      <label htmlFor={id} className="text-xs font-medium tracking-[0.06em] text-subtle uppercase">
         {label}
       </label>
-      <div className="flex items-center justify-between gap-1">
+      <input
+        id={id}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        inputMode={inputMode}
+        autoComplete="off"
+        className="w-full min-w-0 bg-transparent py-1 text-center font-mono text-metric font-medium tracking-[-0.03em] text-foreground outline-none"
+      />
+      <div className="flex items-center gap-2">
         <button type="button" aria-label={decreaseLabel} onClick={() => onStep(-stepSize)} className={buttonClass}>
-          <MinusIcon className="size-[18px]" strokeWidth={1.8} />
+          <MinusIcon className="size-5" strokeWidth={1.8} />
         </button>
-        <input
-          id={id}
-          value={value}
-          onChange={(event) => onChange(event.target.value)}
-          inputMode={inputMode}
-          autoComplete="off"
-          className="w-full min-w-0 bg-transparent text-center font-mono text-[28px] font-medium tracking-[-0.03em] text-foreground outline-none"
-        />
         <button type="button" aria-label={increaseLabel} onClick={() => onStep(stepSize)} className={buttonClass}>
-          <PlusIcon className="size-[18px]" strokeWidth={1.8} />
+          <PlusIcon className="size-5" strokeWidth={1.8} />
         </button>
       </div>
     </div>

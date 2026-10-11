@@ -31,12 +31,12 @@ export function StaleWorkoutSheet({
       <h2 id="stale-title" className="mt-2 text-xl font-semibold tracking-[-0.02em]">
         Still working out?
       </h2>
-      <p className="mt-1.5 text-[15px] leading-normal text-muted">
+      <p className="mt-1.5 text-base leading-normal text-muted">
         Your last set was {idle} ago. The timer kept running. Finish saves this workout as ending{" "}
         {margin} after that set, so the idle time stays out of History.
       </p>
       {error ? (
-        <p role="alert" className="mt-3 text-sm leading-5 text-danger">
+        <p role="alert" className="mt-3 text-sm text-danger">
           {error}
         </p>
       ) : null}
