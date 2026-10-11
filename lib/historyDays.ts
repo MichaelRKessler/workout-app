@@ -166,6 +166,114 @@ function roundVolume(volumeLb: number): number {
   return Math.round(volumeLb * 100) / 100;
 }
 
+const WEEKDAY_INDEX: Record<string, number> = {
+  Sun: 0,
+  Mon: 1,
+  Tue: 2,
+  Wed: 3,
+  Thu: 4,
+  Fri: 5,
+  Sat: 6,
+};
+
+/** Sunday is 0. The history calendar starts weeks on Sunday. */
+export function weekdayIndex(timestamp: number, timeZone?: string): number {
+  const label = new Intl.DateTimeFormat("en-US", { timeZone, weekday: "short" }).format(
+    new Date(timestamp),
+  );
+  return WEEKDAY_INDEX[label] ?? 0;
+}
+
+export function civilMonth(timestamp: number, timeZone?: string): { year: number; month: number } {
+  const parts = zonedParts(timestamp, timeZone);
+  return { year: parts.year, month: parts.month };
+}
+
+export function shiftMonth(
+  year: number,
+  month: number,
+  delta: number,
+): { year: number; month: number } {
+  const index = year * 12 + (month - 1) + delta;
+  const nextYear = Math.floor(index / 12);
+  const nextMonth = index - nextYear * 12;
+  return { year: nextYear, month: nextMonth + 1 };
+}
+
+function addCivilDays(date: CivilDate, days: number): CivilDate {
+  const probe = new Date(Date.UTC(date.year, date.month - 1, date.day));
+  probe.setUTCDate(probe.getUTCDate() + days);
+  return {
+    year: probe.getUTCFullYear(),
+    month: probe.getUTCMonth() + 1,
+    day: probe.getUTCDate(),
+  };
+}
+
+export type CalendarCell = {
+  dayKey: string;
+  day: number;
+  inMonth: boolean;
+};
+
+/**
+ * Sunday-first weeks covering `month` (1–12). Leading and trailing cells
+ * belong to the adjacent months so each row has seven days.
+ */
+export function monthCells(year: number, month: number, timeZone?: string): CalendarCell[] | null {
+  if (month < 1 || month > 12) {
+    return null;
+  }
+  const firstKey = formatDayKey(year, month, 1);
+  const first = calendarDayBounds(firstKey, timeZone);
+  if (!first) {
+    return null;
+  }
+  const gridStart = addCivilDays({ year, month, day: 1 }, -weekdayIndex(first.start, timeZone));
+  const cells: CalendarCell[] = [];
+  let cursor = gridStart;
+  for (let index = 0; index < 42; index += 1) {
+    cells.push({
+      dayKey: formatDayKey(cursor.year, cursor.month, cursor.day),
+      day: cursor.day,
+      inMonth: cursor.year === year && cursor.month === month,
+    });
+    cursor = addCivilDays(cursor, 1);
+  }
+  while (cells.length > 28 && cells.slice(-7).every((cell) => !cell.inMonth)) {
+    cells.splice(-7, 7);
+  }
+  return cells;
+}
+
+/** `[start, end)` for a local calendar month. `end` is the next month's midnight. */
+export function monthWindow(
+  year: number,
+  month: number,
+  timeZone?: string,
+): { start: number; end: number } | null {
+  if (month < 1 || month > 12) {
+    return null;
+  }
+  const start = calendarDayBounds(formatDayKey(year, month, 1), timeZone);
+  const next = shiftMonth(year, month, 1);
+  const end = calendarDayBounds(formatDayKey(next.year, next.month, 1), timeZone);
+  if (!start || !end || end.start <= start.start) {
+    return null;
+  }
+  return { start: start.start, end: end.start };
+}
+
+/** How many finished workouts fall on each local day. */
+export function markedDayKeys(startedAts: number[], timeZone?: string): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const startedAt of startedAts) {
+    const key = calendarDayKey(startedAt, timeZone);
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return counts;
+}
+
 /**
  * Finished workouts on the same local calendar day, newest day first.
  * Exercises follow the order they were first performed. Open workouts are

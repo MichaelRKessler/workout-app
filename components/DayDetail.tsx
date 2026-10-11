@@ -1,6 +1,7 @@
 "use client";
 
 import { Button } from "@/components/Button";
+import { WorkoutSummaryCard } from "@/components/WorkoutSummaryCard";
 import { useOfflineLog } from "@/components/OfflineSync";
 import { PageHeader } from "@/components/PageHeader";
 import { OpenWorkoutSheet } from "@/components/routines/OpenWorkoutSheet";
@@ -15,15 +16,12 @@ import { ManualEntrySheet } from "@/components/workout/ManualEntrySheet";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { formatExerciseName } from "@/convex/lib/exerciseName";
-import { volumeLb } from "@/convex/lib/records";
 import { readableError } from "@/lib/errors";
 import { EXAMPLE_EXERCISES } from "@/lib/examples";
 import {
-  formatDuration,
   formatLongDate,
   formatPersonalRecord,
   formatTimeOfDay,
-  formatVolumeLb,
   pluralize,
   suggestRoutineName,
 } from "@/lib/format";
@@ -37,6 +35,7 @@ import {
 import { QUEUED_SAVE_MESSAGE } from "@/lib/offline/messages";
 import { mergeVisibleSets } from "@/lib/offline/outbox";
 import { takeToast } from "@/lib/pendingToast";
+import { summarizeSessions } from "@/lib/workoutSummary";
 import { useMutation, useQuery } from "convex/react";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
@@ -325,25 +324,15 @@ export function DayDetail({ dayKey }: { dayKey: string }) {
   if (!anchor || !latest) {
     return null;
   }
-  const durationMs = orderedSessions.reduce((sum, session) => {
-    if (session.completedAt !== null && session.completedAt > session.startedAt) {
-      return sum + (session.completedAt - session.startedAt);
-    }
-    return sum;
-  }, 0);
-  const serverSetCount = orderedSessions.reduce((sum, session) => sum + session.sets.length, 0);
-  const meta = [
-    orderedSessions.length === 1
-      ? formatTimeOfDay(anchor.startedAt)
-      : pluralize(orderedSessions.length, "workout"),
-    durationMs > 0 ? formatDuration(durationMs) : null,
-    pluralize(groups.length, "exercise"),
-    pluralize(visibleSets.length, "set"),
-    formatVolumeLb(volumeLb(visibleSets), unit),
-  ]
-    .filter((part) => part !== null)
-    .join(" · ");
+  const summary = summarizeSessions(
+    orderedSessions.map((session) => ({
+      startedAt: session.startedAt,
+      completedAt: session.completedAt,
+      sets: mergeVisibleSets(session.sets, log.outbox, { kind: "session", sessionId: session._id }),
+    })),
+  );
   const dateLabel = formatLongDate(anchor.startedAt);
+  const serverSetCount = orderedSessions.reduce((sum, session) => sum + session.sets.length, 0);
 
   return (
     <div className="px-5 pt-3 pb-[calc(32px+env(safe-area-inset-bottom))]">
@@ -352,9 +341,9 @@ export function DayDetail({ dayKey }: { dayKey: string }) {
         backLabel="Back to history"
         title={<span suppressHydrationWarning>{dateLabel}</span>}
       >
-        <p className="mt-1.5 text-base text-pretty text-muted" suppressHydrationWarning>
-          {meta}
-        </p>
+        <div className="mt-4">
+          <WorkoutSummaryCard summary={summary} records={day.personalRecords} unit={unit} />
+        </div>
         {orderedSessions.length > 1 ? (
           <p className="mt-1 text-sm text-pretty text-muted" suppressHydrationWarning>
             {orderedSessions.map((session) => formatTimeOfDay(session.startedAt)).join(" · ")}

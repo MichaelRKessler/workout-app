@@ -16,7 +16,8 @@ import {
   presentSet,
 } from "./lib/workouts";
 
-const TREND_SESSIONS = 48;
+/** Newest workouts kept for the chart. Older ones stay in the set list below it. */
+const TREND_SESSIONS = 400;
 
 const effortValidator = v.object({
   setId: v.id("sets"),
@@ -155,7 +156,8 @@ export const detail = authedQuery({
         v.object({
           sessionId: v.id("sessions"),
           startedAt: v.number(),
-          value: v.number(),
+          value: v.union(v.number(), v.null()),
+          volumeLb: v.number(),
         }),
       ),
       truncated: v.boolean(),
@@ -207,6 +209,7 @@ export const detail = authedQuery({
           durationSec: set.durationSec,
           distanceM: set.distanceM,
           loggedAt: set.loggedAt,
+          setType: set.setType,
           sessionStartedAt,
         },
       ];
@@ -242,6 +245,7 @@ export const detail = authedQuery({
         sessionId: point.sessionId as Id<"sessions">,
         startedAt: point.startedAt,
         value: point.value,
+        volumeLb: point.volumeLb,
       })),
       truncated,
     };

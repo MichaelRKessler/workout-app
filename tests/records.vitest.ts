@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import {
+  achievedRecord,
   epleyOneRepMax,
   personalRecordForBatch,
   personalRecordForSet,
@@ -151,6 +152,45 @@ describe("best efforts and volume", () => {
     expect(trend.unit).toBe("lb");
     expect(trend.points.map((point) => point.sessionId)).toEqual(["old", "new"]);
     expect(trend.points[0]?.value).toBe(epleyOneRepMax(140, 8));
+    expect(trend.points[0]?.volumeLb).toBe(8 * 140 + 5 * 150);
+  });
+
+  test("warm-ups and drops stay off the record series, and drops stay in volume", () => {
+    const trend = trendFromSets(
+      [
+        {
+          _id: "warm",
+          sessionId: "warm-only",
+          reps: 10,
+          weightLb: 300,
+          loggedAt: 1,
+          sessionStartedAt: 1,
+          setType: "warmup",
+        },
+        {
+          _id: "drop",
+          sessionId: "work",
+          reps: 8,
+          weightLb: 100,
+          loggedAt: 2,
+          sessionStartedAt: 2,
+          setType: "drop",
+        },
+        {
+          _id: "work",
+          sessionId: "work",
+          reps: 5,
+          weightLb: 135,
+          loggedAt: 3,
+          sessionStartedAt: 2,
+          setType: "working",
+        },
+      ],
+      10,
+    );
+    expect(trend.points.map((point) => point.sessionId)).toEqual(["work"]);
+    expect(trend.points[0]?.value).toBe(epleyOneRepMax(135, 5));
+    expect(trend.points[0]?.volumeLb).toBe(8 * 100 + 5 * 135);
   });
 
   test("warm-ups skip records and volume, and drop sets skip records only", () => {
@@ -183,5 +223,42 @@ describe("best efforts and volume", () => {
       { _id: "work", sessionId: "a", reps: 5, weightLb: 135, loggedAt: 2, setType: "working" },
     ]);
     expect(efforts.bestWeight?.setId).toBe("work");
+  });
+});
+
+describe("records achieved in one workout", () => {
+  test("merges a heavier load and a later estimate into one line", () => {
+    const record = achievedRecord(
+      "bench press",
+      [
+        { reps: 2, weightLb: 155 },
+        { reps: 12, weightLb: 140 },
+      ],
+      [{ reps: 10, weightLb: 135 }],
+    );
+    expect(record).toMatchObject({ kind: "both", weightLb: 155, epleyLb: 196 });
+  });
+
+  test("warm-ups and drop sets do not become the workout record", () => {
+    expect(
+      achievedRecord(
+        "bench press",
+        [
+          { reps: 10, weightLb: 300, setType: "warmup" },
+          { reps: 3, weightLb: 225, setType: "drop" },
+        ],
+        [],
+      ),
+    ).toBeNull();
+    expect(
+      achievedRecord(
+        "bench press",
+        [
+          { reps: 10, weightLb: 95, setType: "warmup" },
+          { reps: 5, weightLb: 135, setType: "working" },
+        ],
+        [],
+      ),
+    ).toMatchObject({ kind: "both", weightLb: 135 });
   });
 });
