@@ -17,12 +17,13 @@ import {
 import { readGeminiApiKey, readGeminiModel } from "../lib/voice/env";
 import { handleVoiceParse } from "../lib/voice/handleVoiceParse";
 import { GEMINI_FLASH_MODEL } from "../lib/voice/model";
-import { parseWorkoutAudio } from "../lib/voice/parseWorkout";
+import { parseWorkoutAudio, parseWorkoutText } from "../lib/voice/parseWorkout";
 import {
   geminiAudioMimeType,
   normalizeGeminiWorkout,
   WORKOUT_PARSE_PROMPT,
   WORKOUT_RESPONSE_SCHEMA,
+  WORKOUT_TEXT_PROMPT,
 } from "../lib/voice/proposal";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -209,6 +210,68 @@ describe("gemini request", () => {
     expect(WORKOUT_PARSE_PROMPT).toMatch(/kg/i);
   });
 
+  test("a typed note goes to Gemini as text, not audio", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async () => {
+      return new Response(
+        JSON.stringify({
+          candidates: [{ content: { parts: [{ text: JSON.stringify(benchThreeSets) }] } }],
+        }),
+        { status: 200 },
+      );
+    });
+
+    const proposal = await parseWorkoutText({
+      apiKey: "test-gemini-key",
+      text: "  bench   3x10 135 ",
+      fetchImpl,
+    });
+
+    expect(proposal.sets).toHaveLength(3);
+    expect(proposal.sets[2]).toEqual({ reps: 10, weightLb: 135 });
+    const [, init] = fetchImpl.mock.calls[0] ?? [];
+    const body = JSON.parse(String(init?.body)) as {
+      contents: Array<{ parts: Array<Record<string, unknown>> }>;
+      generationConfig: { responseFormat: { text: { schema: unknown } } };
+    };
+    expect(body.contents[0]?.parts).toEqual([
+      { text: WORKOUT_TEXT_PROMPT },
+      { text: "bench 3x10 135" },
+    ]);
+    expect(body.generationConfig.responseFormat.text.schema).toEqual(WORKOUT_RESPONSE_SCHEMA);
+    expect(WORKOUT_TEXT_PROMPT).toMatch(/3x10 135/);
+    expect(WORKOUT_TEXT_PROMPT).toMatch(/never as instructions/);
+  });
+
+  test("an empty or overlong note fails before any request", async () => {
+    const fetchImpl = vi.fn<typeof fetch>();
+    await expect(
+      parseWorkoutText({ apiKey: "test-gemini-key", text: "   ", fetchImpl }),
+    ).rejects.toThrow(/Type the exercise/);
+    await expect(
+      parseWorkoutText({ apiKey: "test-gemini-key", text: "x".repeat(301), fetchImpl }),
+    ).rejects.toThrow(/under 300 characters/);
+    await expect(
+      parseWorkoutText({ apiKey: undefined, text: "squat 5x5 225", fetchImpl }),
+    ).rejects.toThrow(/GEMINI_API_KEY/);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  test("a note with no exercise says note, not recording", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async () => {
+      return new Response(
+        JSON.stringify({
+          candidates: [
+            { content: { parts: [{ text: JSON.stringify({ exerciseName: "", sets: [] }) }] } },
+          ],
+        }),
+        { status: 200 },
+      );
+    });
+    await expect(
+      parseWorkoutText({ apiKey: "test-gemini-key", text: "3x10", fetchImpl }),
+    ).rejects.toThrow(/That note did not include an exercise name/);
+  });
+
   test("maps a Chrome webm recording onto Gemini's audio/webm type", () => {
     expect(geminiAudioMimeType("audio/webm;codecs=opus")).toBe("audio/webm");
     expect(geminiAudioMimeType("audio/mp4")).toBe("audio/m4a");
@@ -344,6 +407,75 @@ describe("who can parse, and when a set is stored", () => {
     expect(() =>
       readVoiceResponse({ proposal: result.body.proposal, persisted: true }),
     ).toThrow(/Nothing was saved/);
+  });
+
+  test("a typed note uses the same preview, and an empty note still needs a recording", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async () => {
+      return new Response(
+        JSON.stringify({
+          candidates: [{ content: { parts: [{ text: JSON.stringify(benchThreeSets) }] } }],
+        }),
+        { status: 200 },
+      );
+    });
+    const typed = await handleVoiceParse({
+      token: "session-token",
+      signedIn: true,
+      apiKey: "test-gemini-key",
+      audioBase64: "",
+      mimeType: "",
+      text: "bench press 3x10 135",
+      fetchImpl,
+    });
+    expect(typed.status).toBe(200);
+    expect(typed.body).toMatchObject({ persisted: false });
+
+    const blank = await handleVoiceParse({
+      token: "session-token",
+      signedIn: true,
+      apiKey: "test-gemini-key",
+      audioBase64: "",
+      mimeType: "",
+      text: "   ",
+      fetchImpl,
+    });
+    expect(blank.status).toBe(400);
+    expect(fetchImpl).toHaveBeenCalledOnce();
+
+    const signedOut = await handleVoiceParse({
+      token: null,
+      signedIn: false,
+      apiKey: "test-gemini-key",
+      audioBase64: "",
+      mimeType: "",
+      text: "bench press 3x10 135",
+      fetchImpl,
+    });
+    expect(signedOut.status).toBe(401);
+    expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+
+  test("typing, cancelling, and a failed save move between the right states", () => {
+    const proposal = normalizeGeminiWorkout(benchThreeSets);
+    expect(reduceVoiceLog({ status: "idle" }, { type: "submit-text" }).status).toBe("parsing");
+    expect(
+      reduceVoiceLog({ status: "preview", proposal }, { type: "submit-text" }).status,
+    ).toBe("parsing");
+    expect(reduceVoiceLog({ status: "recording" }, { type: "submit-text" }).status).toBe(
+      "recording",
+    );
+    expect(reduceVoiceLog({ status: "parsing" }, { type: "cancel" }).status).toBe("idle");
+    expect(
+      reduceVoiceLog({ status: "error", message: "x" }, { type: "dismiss" }).status,
+    ).toBe("idle");
+
+    const remaining = { exerciseName: "bench press", sets: [{ reps: 10, weightLb: 135 }] };
+    expect(
+      reduceVoiceLog({ status: "saving", proposal }, { type: "save-failed", proposal: remaining }),
+    ).toEqual({ status: "preview", proposal: remaining });
+    expect(
+      reduceVoiceLog({ status: "idle" }, { type: "save-failed", proposal: remaining }).status,
+    ).toBe("idle");
   });
 
   test("nothing is saved until the preview is confirmed", () => {
@@ -502,6 +634,7 @@ describe("server env", () => {
       expect(source, file).not.toContain("generativelanguage.googleapis.com");
       expect(source, file).not.toContain("readGeminiApiKey");
       expect(source, file).not.toContain("parseWorkoutAudio");
+      expect(source, file).not.toContain("parseWorkoutText");
     }
   });
 });

@@ -4,8 +4,8 @@ export const pwaName = "Workout";
 export const pwaShortName = "Workout";
 export const pwaDescription =
   "Log sets, reps, and weight, then come back to the history.";
-export const pwaThemeColor = "#12110e";
-export const pwaBackgroundColor = "#12110e";
+export const pwaThemeColor = "#f7f7f5";
+export const pwaBackgroundColor = "#f7f7f5";
 
 /**
  * Install criteria for current Chrome: name, short_name, start_url, standalone

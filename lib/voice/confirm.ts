@@ -24,11 +24,14 @@ export type VoiceLogEvent =
   | { type: "start-recording" }
   | { type: "cancel" }
   | { type: "submit-audio" }
+  | { type: "submit-text" }
   | { type: "parsed"; proposal: VoiceProposal }
   | { type: "failed"; message: string }
   | { type: "discard" }
   | { type: "confirm"; proposal: VoiceProposal }
-  | { type: "saved" };
+  | { type: "saved" }
+  | { type: "save-failed"; proposal: VoiceProposal }
+  | { type: "dismiss" };
 
 export class VoiceSaveError extends Error {
   readonly savedCount: number;
@@ -55,9 +58,17 @@ export function reduceVoiceLog(
       }
       return state;
     case "cancel":
-      return state.status === "recording" ? { status: "idle" } : state;
+      return state.status === "recording" || state.status === "parsing"
+        ? { status: "idle" }
+        : state;
     case "submit-audio":
       return state.status === "recording" ? { status: "parsing" } : state;
+    case "submit-text":
+      return state.status === "idle" ||
+        state.status === "error" ||
+        state.status === "preview"
+        ? { status: "parsing" }
+        : state;
     case "parsed":
       return state.status === "parsing"
         ? { status: "preview", proposal: event.proposal }
@@ -75,6 +86,12 @@ export function reduceVoiceLog(
         : state;
     case "saved":
       return state.status === "saving" ? { status: "idle" } : state;
+    case "save-failed":
+      return state.status === "saving"
+        ? { status: "preview", proposal: event.proposal }
+        : state;
+    case "dismiss":
+      return state.status === "error" ? { status: "idle" } : state;
     default:
       return state;
   }

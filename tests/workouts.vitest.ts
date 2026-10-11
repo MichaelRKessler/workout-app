@@ -97,6 +97,35 @@ describe("workout log", () => {
     ).rejects.toThrow("Set not found");
   });
 
+  test("an empty open workout can be discarded, and one with sets cannot", async () => {
+    const t = testBackend();
+    const asUser = await signIn(t, "Michael");
+    const emptyId = await asUser.mutation(api.sessions.start, {});
+    await asUser.mutation(api.sessions.discard, { sessionId: emptyId });
+    expect(await asUser.query(api.sessions.getOpen, {})).toBeNull();
+
+    const sessionId = await asUser.mutation(api.sessions.start, {});
+    await asUser.mutation(api.sets.log, {
+      sessionId,
+      exerciseName: "Squat",
+      reps: 5,
+      weightLb: 225,
+    });
+    await expect(
+      asUser.mutation(api.sessions.discard, { sessionId }),
+    ).rejects.toThrow("Finish it instead");
+
+    const other = await signIn(t, "Someone else");
+    await expect(
+      other.mutation(api.sessions.discard, { sessionId }),
+    ).rejects.toThrow("Workout not found");
+
+    await asUser.mutation(api.sessions.complete, { sessionId });
+    await expect(
+      asUser.mutation(api.sessions.discard, { sessionId }),
+    ).rejects.toThrow("already finished");
+  });
+
   test("requires sign-in", async () => {
     const t = convexTest(schema, modules);
     await expect(t.mutation(api.sessions.start, {})).rejects.toThrow(

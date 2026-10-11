@@ -1,6 +1,7 @@
 "use client";
 
 import { Button } from "@/components/Button";
+import { SectionLabel } from "@/components/PageHeader";
 import {
   installOffer,
   isIosSafari,
@@ -26,7 +27,17 @@ function readKind(): InstallOfferKind {
   });
 }
 
-export function InstallOffer({ className = "" }: { className?: string }) {
+/**
+ * "inline" sits under the sign-in button. "settings" is a whole Settings
+ * section and renders nothing when the app is installed or cannot be.
+ */
+export function InstallOffer({
+  className = "",
+  variant = "inline",
+}: {
+  className?: string;
+  variant?: "inline" | "settings";
+}) {
   const [kind, setKind] = useState<InstallOfferKind>("hidden");
 
   useEffect(() => {
@@ -68,6 +79,29 @@ export function InstallOffer({ className = "" }: { className?: string }) {
 
   if (kind === "hidden") {
     return null;
+  }
+
+  if (variant === "settings") {
+    return (
+      <section aria-labelledby="settings-install" className={`mt-7 ${className}`}>
+        <SectionLabel id="settings-install">App</SectionLabel>
+        <div className="overflow-hidden rounded-[18px] border border-line bg-surface">
+          {kind === "ios-hint" ? (
+            <p className="px-4 py-4 text-[15px] leading-normal text-muted">
+              Install it from Safari: Share, then Add to Home Screen.
+            </p>
+          ) : (
+            <button
+              type="button"
+              onClick={() => void onInstall()}
+              className="flex min-h-14 w-full items-center px-4 text-left text-[15px] font-medium hover:bg-fill-2"
+            >
+              Install app
+            </button>
+          )}
+        </div>
+      </section>
+    );
   }
 
   if (kind === "ios-hint") {

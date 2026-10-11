@@ -1,8 +1,14 @@
 "use client";
 
-import { LocalTime } from "@/components/LocalTime";
+import { PageHeader } from "@/components/PageHeader";
+import { ExerciseRow } from "@/components/workout/ExerciseRow";
 import { api } from "@/convex/_generated/api";
-import { formatWeightLb } from "@/lib/format";
+import {
+  formatDuration,
+  formatLongDate,
+  formatTimeOfDay,
+  pluralize,
+} from "@/lib/format";
 import { groupSets } from "@/lib/groupSets";
 import { useQuery } from "convex/react";
 import Link from "next/link";
@@ -13,68 +19,62 @@ export function SessionDetail({ sessionId }: { sessionId: string }) {
   const groups = useMemo(() => groupSets(session?.sets ?? []), [session?.sets]);
 
   if (session === undefined) {
-    return <p className="text-muted">Loading workout…</p>;
+    return (
+      <div className="px-5 pt-3">
+        <PageHeader backHref="/history" backLabel="Back to history" title="Workout" />
+        <p className="mt-8 text-[15px] text-muted">Loading workout…</p>
+      </div>
+    );
   }
 
   if (session === null) {
     return (
-      <section className="flex flex-col gap-4">
-        <Link href="/history" className="text-sm font-semibold text-accent">
-          Back to history
-        </Link>
-        <h1 className="text-3xl font-semibold tracking-tight">Workout not found</h1>
-        <p className="text-sm leading-6 text-muted">
+      <div className="px-5 pt-3">
+        <PageHeader backHref="/history" backLabel="Back to history" title="Workout not found" />
+        <p className="mt-3 text-[15px] leading-normal text-muted">
           That session is not in your history.
         </p>
-      </section>
+      </div>
     );
   }
 
+  const meta = [
+    formatTimeOfDay(session.startedAt),
+    session.completedAt ? formatDuration(session.completedAt - session.startedAt) : "In progress",
+    pluralize(groups.length, "exercise"),
+    pluralize(session.sets.length, "set"),
+  ].join(" · ");
+
   return (
-    <section className="flex flex-col gap-5">
-      <Link href="/history" className="text-sm font-semibold text-accent">
-        Back to history
-      </Link>
-      <div>
-        <h1 className="text-3xl font-semibold tracking-tight">
-          <LocalTime timestamp={session.startedAt} />
-        </h1>
-        <p className="mt-2 text-sm text-muted">
-          {session.status === "open"
-            ? "This workout is still in progress."
-            : "Finished workout"}
-          {session.completedAt ? (
-            <>
-              {" "}
-              · saved <LocalTime timestamp={session.completedAt} />
-            </>
-          ) : null}
+    <div className="px-5 pt-3 pb-[calc(32px+env(safe-area-inset-bottom))]">
+      <PageHeader
+        backHref="/history"
+        backLabel="Back to history"
+        title={<span suppressHydrationWarning>{formatLongDate(session.startedAt)}</span>}
+      >
+        <p className="mt-1.5 text-[15px] text-muted" suppressHydrationWarning>
+          {meta}
         </p>
-      </div>
+      </PageHeader>
+
       {session.status === "open" ? (
         <Link
           href="/"
-          className="inline-flex min-h-12 items-center justify-center rounded-xl bg-accent px-4 font-semibold text-accent-ink"
+          className="mt-5 inline-flex min-h-11 items-center rounded-full bg-inverse px-5 text-[15px] font-semibold text-inverse-ink"
         >
-          Continue logging
+          Continue workout
         </Link>
       ) : null}
+
       {groups.length === 0 ? (
-        <p className="text-sm text-muted">No sets were logged.</p>
+        <p className="mt-8 text-[15px] text-muted">No sets were logged.</p>
       ) : (
-        groups.map((group) => (
-          <article key={group.exerciseId} className="rounded-2xl bg-panel p-4">
-            <h2 className="text-lg font-semibold">{group.name}</h2>
-            <ol className="mt-3 flex flex-col gap-2 text-sm">
-              {group.sets.map((set, index) => (
-                <li key={set._id}>
-                  Set {index + 1} · {set.reps} reps · {formatWeightLb(set.weightLb)}
-                </li>
-              ))}
-            </ol>
-          </article>
-        ))
+        <ul aria-label="Exercises" className="mt-5 flex flex-col border-t border-line">
+          {groups.map((group) => (
+            <ExerciseRow key={group.exerciseId} name={group.name} sets={group.sets} />
+          ))}
+        </ul>
       )}
-    </section>
+    </div>
   );
 }

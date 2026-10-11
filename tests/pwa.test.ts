@@ -22,8 +22,8 @@ test("manifest meets Chrome installability criteria", () => {
   assert.equal(webAppManifest.display, "standalone");
   assert.equal(webAppManifest.theme_color, pwaThemeColor);
   assert.equal(webAppManifest.background_color, pwaBackgroundColor);
-  assert.equal(webAppManifest.theme_color, "#12110e");
-  assert.equal(webAppManifest.background_color, "#12110e");
+  assert.equal(webAppManifest.theme_color, "#f7f7f5");
+  assert.equal(webAppManifest.background_color, "#f7f7f5");
   assert.notEqual(webAppManifest.prefer_related_applications, true);
 
   const icons = webAppManifest.icons ?? [];

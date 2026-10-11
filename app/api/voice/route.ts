@@ -38,6 +38,8 @@ export async function POST(request: Request) {
     isRecord(payload) && typeof payload.mimeType === "string"
       ? payload.mimeType
       : "";
+  const text =
+    isRecord(payload) && typeof payload.text === "string" ? payload.text : undefined;
 
   const result = await handleVoiceParse({
     token,
@@ -46,6 +48,7 @@ export async function POST(request: Request) {
     model: readGeminiModel(),
     audioBase64,
     mimeType,
+    text,
   });
 
   return NextResponse.json(result.body, { status: result.status });

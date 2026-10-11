@@ -174,6 +174,34 @@ export const complete = authedMutation({
   },
 });
 
+/** Drops an open workout that has no sets, such as one whose only sets were undone. */
+export const discard = authedMutation({
+  args: { sessionId: v.id("sessions") },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const session = await getOwnedSession(ctx, ctx.userId, args.sessionId);
+    if (!session) {
+      throw new Error("Workout not found");
+    }
+    if (session.status !== "open") {
+      throw new Error("This workout is already finished");
+    }
+
+    const sets = await ctx.db
+      .query("sets")
+      .withIndex("by_session_and_exercise", (q) =>
+        q.eq("sessionId", session._id),
+      )
+      .take(1);
+    if (sets.length > 0) {
+      throw new Error("This workout has sets. Finish it instead");
+    }
+
+    await ctx.db.delete("sessions", session._id);
+    return null;
+  },
+});
+
 export const listHistory = authedQuery({
   args: { paginationOpts: paginationOptsValidator },
   returns: paginationResultValidator(historyItemValidator),

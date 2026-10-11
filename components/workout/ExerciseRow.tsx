@@ -1,0 +1,125 @@
+"use client";
+
+import { ExerciseGlyph, PlusIcon, Spinner } from "@/components/icons";
+import { exerciseIconKind } from "@/lib/exerciseIcon";
+import { describeSet, formatSetShort } from "@/lib/format";
+import type { SetLine } from "@/lib/groupSets";
+import { useId } from "react";
+
+export function ExerciseTile({ name }: { name: string }) {
+  return (
+    <span
+      aria-hidden="true"
+      className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-fill text-foreground"
+    >
+      <ExerciseGlyph kind={exerciseIconKind(name)} />
+    </span>
+  );
+}
+
+function SetTokens({ sets, newestSetId }: { sets: SetLine[]; newestSetId?: string }) {
+  return (
+    <span className="flex flex-wrap gap-x-3 gap-y-0.5 font-mono text-sm text-muted">
+      {sets.map((set) => (
+        <span
+          key={set._id}
+          className={set._id === newestSetId ? "font-semibold text-foreground" : undefined}
+        >
+          {formatSetShort(set)}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+/**
+ * One exercise and its sets. With `onRepeat` it is part of the open workout:
+ * the + logs the last set again and tapping the row shows each set with Remove.
+ */
+export function ExerciseRow({
+  name,
+  sets,
+  newestSetId,
+  expanded = false,
+  onToggle,
+  onRepeat,
+  repeating = false,
+  onRemoveSet,
+  removingId = null,
+}: {
+  name: string;
+  sets: SetLine[];
+  newestSetId?: string;
+  expanded?: boolean;
+  onToggle?: () => void;
+  onRepeat?: () => void;
+  repeating?: boolean;
+  onRemoveSet?: (setId: string) => void;
+  removingId?: string | null;
+}) {
+  const detailId = useId();
+  const last = sets[sets.length - 1];
+  const summary = (
+    <>
+      <ExerciseTile name={name} />
+      <span className="flex min-w-0 flex-1 flex-col gap-1">
+        <span className="truncate text-base font-semibold tracking-[-0.01em]">{name}</span>
+        <SetTokens sets={sets} newestSetId={newestSetId} />
+      </span>
+    </>
+  );
+
+  return (
+    <li className="border-b border-line-soft last:border-b-0">
+      <div className="flex items-center gap-3.5 py-3.5">
+        {onToggle ? (
+          <button
+            type="button"
+            onClick={onToggle}
+            aria-expanded={expanded}
+            aria-controls={detailId}
+            className="flex min-w-0 flex-1 items-center gap-3.5 rounded-xl text-left"
+          >
+            {summary}
+          </button>
+        ) : (
+          <div className="flex min-w-0 flex-1 items-center gap-3.5">{summary}</div>
+        )}
+        {onRepeat && last ? (
+          <button
+            type="button"
+            onClick={onRepeat}
+            disabled={repeating}
+            aria-label={`Log another set of ${name}, ${describeSet(last)}`}
+            className="flex size-11 shrink-0 items-center justify-center rounded-full border border-line bg-surface text-foreground hover:bg-fill-2 disabled:opacity-60"
+          >
+            {repeating ? <Spinner className="size-4" /> : <PlusIcon className="size-[18px]" />}
+          </button>
+        ) : null}
+      </div>
+      {onToggle && expanded ? (
+        <ol id={detailId} className="-mt-1 flex flex-col pb-3 pl-[58px]">
+          {sets.map((set, index) => (
+            <li key={set._id} className="flex min-h-11 items-center justify-between gap-3 text-sm">
+              <span>
+                <span className="text-subtle">Set {index + 1}</span>
+                <span className="ml-3 font-mono">{formatSetShort(set)}</span>
+              </span>
+              {onRemoveSet ? (
+                <button
+                  type="button"
+                  onClick={() => onRemoveSet(set._id)}
+                  disabled={removingId === set._id}
+                  aria-label={`Remove set ${index + 1} of ${name}`}
+                  className="min-h-11 rounded-full px-3 font-medium text-danger hover:bg-fill-2 disabled:opacity-50"
+                >
+                  {removingId === set._id ? "Removing…" : "Remove"}
+                </button>
+              ) : null}
+            </li>
+          ))}
+        </ol>
+      ) : null}
+    </li>
+  );
+}

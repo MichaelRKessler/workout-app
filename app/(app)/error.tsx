@@ -10,12 +10,16 @@ export default function AppError({
   reset: () => void;
 }) {
   return (
-    <section className="flex flex-col gap-4">
-      <h1 className="text-3xl font-semibold tracking-tight">Something went wrong</h1>
-      <p role="alert" className="text-sm leading-6 text-muted">
+    <section className="flex min-h-[70dvh] flex-col justify-center gap-4 px-5">
+      <h1 className="text-[28px] leading-tight font-semibold tracking-[-0.025em]">
+        Something went wrong
+      </h1>
+      <p role="alert" className="text-[15px] leading-normal text-muted">
         {error.message}
       </p>
-      <Button onClick={reset}>Try again</Button>
+      <Button size="lg" className="self-start" onClick={reset}>
+        Try again
+      </Button>
     </section>
   );
 }

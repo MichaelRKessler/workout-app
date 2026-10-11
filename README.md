@@ -2,9 +2,11 @@
 
 A mobile-friendly workout log. Sign in with Google, record sets, reps, and weight for any exercise, and open the history later.
 
-Push-ups and bench press show up as examples when you have not saved them yet. They are not a fixed exercise list. Type any name to add it.
+Voice comes first. Tap the mic and say a set, for example “bench press, three sets of ten at 135” or “push-ups 20”. The app shows the exercise, sets, reps, and weight so you can edit them. Nothing is written until you confirm, and the first confirmed set starts the workout. During a workout you can also type a set in the bar at the bottom (“squat 3x5 225”), tap `+` for the manual form, or tap `+` on an exercise to log its last set again. Each add shows an Undo.
 
-During an open workout you can also tap the mic and say a set, for example “bench press, three sets of ten at 135” or “push-ups 20”. The app shows the exercise, sets, reps, and weight so you can edit them. Nothing is written until you confirm. The manual form still works when the mic or the voice service is unavailable.
+Push-ups and bench press show up as examples when you have not saved them yet. They are not a fixed exercise list. Type any name to add it. Exercise icons come from words in the name (barbell, dumbbell, kettlebell, bodyweight, cable or machine), with a neutral icon when nothing matches.
+
+Settings sit behind the avatar in the top right: dark mode, installing the app, and signing out. The theme is saved in a `theme` cookie on that device, so the server renders the right one on the first paint.
 
 ## Run it locally
 
@@ -87,6 +89,8 @@ Sign-in uses [Convex Auth](https://labs.convex.dev/auth) with the Google provide
 ## Voice logging
 
 The mic records a short clip in the browser (up to 20 seconds) and sends it to `POST /api/voice`. That route checks the Convex Auth session, then calls Gemini Flash (`gemini-3.8-flash` unless `GEMINI_MODEL` is set) with structured output. The key is read on the server from `GEMINI_API_KEY`.
+
+A typed set goes to the same route as `{ "text": "..." }` (up to 300 characters) and gets the same preview. The audio and text paths share the response schema and the confirm step.
 
 Mobile Safari records `audio/mp4`, which the server sends to Gemini as `audio/m4a`. Mobile Chrome records `audio/webm`. The microphone needs a secure page, so use localhost or HTTPS. If permission is denied, recording is unavailable, or the key is missing, the message says so and you can still type the set.
 

@@ -1,10 +1,12 @@
 import { GEMINI_FLASH_MODEL, GEMINI_GENERATE_CONTENT_URL } from "./model";
 import {
+  geminiAudioMimeType,
+  MAX_WORKOUT_TEXT_LENGTH,
   normalizeGeminiWorkout,
+  VoiceParseError,
   WORKOUT_PARSE_PROMPT,
   WORKOUT_RESPONSE_SCHEMA,
-  geminiAudioMimeType,
-  VoiceParseError,
+  WORKOUT_TEXT_PROMPT,
   type VoiceProposal,
 } from "./proposal";
 
@@ -17,13 +19,7 @@ export async function parseWorkoutAudio(options: {
   model?: string;
   fetchImpl?: typeof fetch;
 }): Promise<VoiceProposal> {
-  const apiKey = options.apiKey?.trim() ?? "";
-  if (apiKey.length === 0) {
-    throw new VoiceParseError(
-      "Voice logging is not set up on the server (GEMINI_API_KEY). Log the set by hand.",
-      "missing_key",
-    );
-  }
+  const apiKey = requireApiKey(options.apiKey);
 
   const audioBase64 = normalizeBase64(options.audioBase64);
   if (!isBase64(audioBase64)) {
@@ -40,6 +36,93 @@ export async function parseWorkoutAudio(options: {
   }
 
   const mimeType = geminiAudioMimeType(options.mimeType);
+  return await requestWorkout({
+    apiKey,
+    model: options.model,
+    fetchImpl: options.fetchImpl,
+    parts: [
+      { text: WORKOUT_PARSE_PROMPT },
+      { inlineData: { mimeType, data: audioBase64 } },
+    ],
+    subject: "recording",
+    logContext: { mimeType },
+  });
+}
+
+/** Parses a typed note such as "squat 3x5 225" the same way a recording is parsed. */
+export async function parseWorkoutText(options: {
+  apiKey: string | undefined;
+  text: string;
+  model?: string;
+  fetchImpl?: typeof fetch;
+}): Promise<VoiceProposal> {
+  const apiKey = requireApiKey(options.apiKey);
+
+  const text = options.text.trim().replace(/\s+/g, " ");
+  if (text.length === 0) {
+    throw new VoiceParseError(
+      "Type the exercise, then the sets, reps, and weight.",
+      "rejected",
+    );
+  }
+  if (text.length > MAX_WORKOUT_TEXT_LENGTH) {
+    throw new VoiceParseError(
+      `Keep it under ${MAX_WORKOUT_TEXT_LENGTH} characters, or add the set by hand.`,
+      "rejected",
+    );
+  }
+
+  return await requestWorkout({
+    apiKey,
+    model: options.model,
+    fetchImpl: options.fetchImpl,
+    parts: [{ text: WORKOUT_TEXT_PROMPT }, { text }],
+    subject: "note",
+    logContext: {},
+  });
+}
+
+type Subject = "recording" | "note";
+
+const MESSAGES: Record<
+  Subject,
+  { unavailable: string; rejected: string; invalid: string }
+> = {
+  recording: {
+    unavailable: "The voice service did not answer. Log the set by hand.",
+    rejected:
+      "The voice service could not read that recording. Log the set by hand.",
+    invalid:
+      "That recording could not be turned into a set. Try again, or log it by hand.",
+  },
+  note: {
+    unavailable: "The set could not be read right now. Add it by hand.",
+    rejected: "That note could not be read right now. Add the set by hand.",
+    invalid:
+      "That note could not be turned into a set. Try again, or add it by hand.",
+  },
+};
+
+function requireApiKey(value: string | undefined): string {
+  const apiKey = value?.trim() ?? "";
+  if (apiKey.length === 0) {
+    throw new VoiceParseError(
+      "Voice logging is not set up on the server (GEMINI_API_KEY). Log the set by hand.",
+      "missing_key",
+    );
+  }
+  return apiKey;
+}
+
+async function requestWorkout(options: {
+  apiKey: string;
+  model: string | undefined;
+  fetchImpl: typeof fetch | undefined;
+  parts: Array<Record<string, unknown>>;
+  subject: Subject;
+  logContext: Record<string, string>;
+}): Promise<VoiceProposal> {
+  const messages = MESSAGES[options.subject];
   const model = options.model?.trim() || GEMINI_FLASH_MODEL;
   const fetchImpl = options.fetchImpl ?? fetch;
 
@@ -49,18 +132,10 @@ export async function parseWorkoutAudio(options: {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "x-goog-api-key": apiKey,
+        "x-goog-api-key": options.apiKey,
       },
       body: JSON.stringify({
-        contents: [
-          {
-            role: "user",
-            parts: [
-              { text: WORKOUT_PARSE_PROMPT },
-              { inlineData: { mimeType, data: audioBase64 } },
-            ],
-          },
-        ],
+        contents: [{ role: "user", parts: options.parts }],
         generationConfig: {
           // Gemini 3.8 deprecates temperature, topP, and topK. The schema constrains the output.
           responseFormat: {
@@ -74,53 +149,41 @@ export async function parseWorkoutAudio(options: {
       }),
     });
   } catch (error) {
-    console.error("Gemini voice parse request failed", {
+    console.error("Gemini workout parse request failed", {
       model,
-      mimeType,
+      ...options.logContext,
       message: error instanceof Error ? error.message : "unknown",
     });
-    throw new VoiceParseError(
-      "The voice service did not answer. Log the set by hand.",
-      "unavailable",
-    );
+    throw new VoiceParseError(messages.unavailable, "unavailable");
   }
 
   const raw = await response.text();
   if (!response.ok) {
-    console.error("Gemini voice parse rejected the recording", {
+    console.error("Gemini workout parse was rejected", {
       status: response.status,
       model,
-      mimeType,
+      ...options.logContext,
       upstream: summarizeGeminiError(raw),
     });
-    throw new VoiceParseError(
-      "The voice service could not read that recording. Log the set by hand.",
-      "unavailable",
-    );
+    throw new VoiceParseError(messages.rejected, "unavailable");
   }
 
   let payload: unknown;
   try {
     payload = JSON.parse(raw) as unknown;
   } catch {
-    throw new VoiceParseError(
-      "That recording could not be turned into a set. Try again, or log it by hand.",
-      "invalid",
-    );
+    throw new VoiceParseError(messages.invalid, "invalid");
   }
 
-  const text = extractCandidateText(payload);
+  const text = extractCandidateText(payload, messages.invalid);
   let structured: unknown;
   try {
     structured = JSON.parse(stripFences(text)) as unknown;
   } catch {
-    throw new VoiceParseError(
-      "That recording could not be turned into a set. Try again, or log it by hand.",
-      "invalid",
-    );
+    throw new VoiceParseError(messages.invalid, "invalid");
   }
 
-  return normalizeGeminiWorkout(structured);
+  return normalizeGeminiWorkout(structured, options.subject);
 }
 
 function normalizeBase64(value: string): string {
@@ -152,26 +215,17 @@ function stripFences(value: string): string {
     .trim();
 }
 
-function extractCandidateText(payload: unknown): string {
+function extractCandidateText(payload: unknown, invalidMessage: string): string {
   if (!isRecord(payload) || !Array.isArray(payload.candidates)) {
-    throw new VoiceParseError(
-      "That recording could not be turned into a set. Try again, or log it by hand.",
-      "invalid",
-    );
+    throw new VoiceParseError(invalidMessage, "invalid");
   }
   const candidate = payload.candidates[0];
   if (!isRecord(candidate) || !isRecord(candidate.content)) {
-    throw new VoiceParseError(
-      "That recording could not be turned into a set. Try again, or log it by hand.",
-      "invalid",
-    );
+    throw new VoiceParseError(invalidMessage, "invalid");
   }
   const parts = candidate.content.parts;
   if (!Array.isArray(parts)) {
-    throw new VoiceParseError(
-      "That recording could not be turned into a set. Try again, or log it by hand.",
-      "invalid",
-    );
+    throw new VoiceParseError(invalidMessage, "invalid");
   }
   const text = parts
     .filter((part) => !(isRecord(part) && part.thought === true))
@@ -179,10 +233,7 @@ function extractCandidateText(payload: unknown): string {
     .join("")
     .trim();
   if (text.length === 0) {
-    throw new VoiceParseError(
-      "That recording could not be turned into a set. Try again, or log it by hand.",
-      "invalid",
-    );
+    throw new VoiceParseError(invalidMessage, "invalid");
   }
   return text;
 }
