@@ -8,7 +8,7 @@ import { RestTimer } from "@/components/workout/RestTimer";
 import { useWakeLock } from "@/components/workout/useWakeLock";
 import { formatElapsed, formatShortDate, pluralize } from "@/lib/format";
 import type { SetLine } from "@/lib/groupSets";
-import { ComponentProps, useEffect, useState } from "react";
+import { ComponentProps, ReactNode, useEffect, useState } from "react";
 
 type Group = { exerciseId: string; name: string; sets: SetLine[] };
 
@@ -38,6 +38,8 @@ export function ActiveWorkout({
   onDiscard,
   idleNote,
   emptyMessage,
+  exerciseCount,
+  planList,
   composer,
 }: {
   startedAt: number;
@@ -56,6 +58,8 @@ export function ActiveWorkout({
   onDiscard: () => void;
   idleNote?: string;
   emptyMessage?: string;
+  exerciseCount?: number;
+  planList?: ReactNode;
   composer: ComponentProps<typeof Composer>;
 }) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -80,7 +84,7 @@ export function ActiveWorkout({
                 <ElapsedClock startedAt={startedAt} />
               </p>
               <p className="text-sm text-muted">
-                {pluralize(groups.length, "exercise")} · {pluralize(setCount, "set")}
+                {pluralize(exerciseCount ?? groups.length, "exercise")} · {pluralize(setCount, "set")}
                 {idleNote ? <span className="text-subtle"> · {idleNote}</span> : null}
               </p>
               {note ? <p className="mt-1 text-sm text-muted">{note}</p> : null}
@@ -100,9 +104,10 @@ export function ActiveWorkout({
           </div>
         </header>
 
+        {planList}
         {loadingSets ? (
           <p className="py-10 text-center text-base text-muted">Loading sets…</p>
-        ) : empty ? (
+        ) : planList ? null : empty ? (
           <p className="mx-auto max-w-[21rem] py-12 text-center text-base leading-normal text-pretty text-muted">
             {emptyMessage ?? "No sets yet. Tap the mic and say one, or type it below."}
           </p>

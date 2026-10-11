@@ -290,3 +290,58 @@ export function monthKey(timestamp: number): string {
   const date = new Date(timestamp);
   return `${date.getFullYear()}-${date.getMonth()}`;
 }
+
+/** Default routine name: the weekday the workout happened, such as "Sunday". */
+export function suggestRoutineName(timestamp: number): string {
+  return new Intl.DateTimeFormat(undefined, { weekday: "long" }).format(timestamp);
+}
+
+/** "3×10 · 60 kg", "3×1:00", "5 km", or "3 sets" when the sets were mixed. */
+export function formatRoutineTarget(
+  target: {
+    targetSets?: number | null;
+    targetReps?: number | null;
+    targetWeightLb?: number | null;
+    targetDurationSec?: number | null;
+    targetDistanceM?: number | null;
+  },
+  unit: WeightUnit = "lb",
+): string | null {
+  const sets = target.targetSets ?? null;
+  const reps = target.targetReps ?? null;
+  const weight = target.targetWeightLb;
+  const duration = target.targetDurationSec ?? null;
+  const distance = target.targetDistanceM ?? null;
+  const load =
+    weight === undefined || weight === null
+      ? null
+      : weight === 0
+        ? "bodyweight"
+        : formatWeightLb(weight, unit);
+
+  if (distance) {
+    let label = formatDistance(distance);
+    if (duration) {
+      label += ` in ${formatClock(duration)}`;
+    }
+    if (load && load !== "bodyweight") {
+      label += ` · ${load}`;
+    }
+    return sets && sets > 1 ? `${sets}×${label}` : label;
+  }
+  if (duration && reps === null) {
+    let label = formatClock(duration);
+    if (load && load !== "bodyweight") {
+      label += ` · ${load}`;
+    }
+    return sets ? `${sets}×${label}` : label;
+  }
+  if (reps) {
+    const body = sets ? `${sets}×${reps}` : pluralize(reps, "rep");
+    return load ? `${body} · ${load}` : body;
+  }
+  if (sets) {
+    return pluralize(sets, "set");
+  }
+  return null;
+}

@@ -3,18 +3,35 @@
 import { Button } from "@/components/Button";
 import { ChevronRightIcon } from "@/components/icons";
 import { PageHeader, SectionLabel } from "@/components/PageHeader";
+import { OpenWorkoutSheet } from "@/components/routines/OpenWorkoutSheet";
+import { SaveRoutineSheet } from "@/components/routines/SaveRoutineSheet";
+import { useBeginWorkout } from "@/components/routines/useBeginWorkout";
 import { api } from "@/convex/_generated/api";
-import { formatMonthHeading, formatWorkoutLength, monthKey, pluralize } from "@/lib/format";
-import { usePaginatedQuery } from "convex/react";
+import type { Id } from "@/convex/_generated/dataModel";
+import { readableError } from "@/lib/errors";
+import { formatMonthHeading, formatWorkoutLength, monthKey, pluralize, suggestRoutineName } from "@/lib/format";
+import { groupByLocalDay } from "@/lib/historyDays";
+import { useMutation, usePaginatedQuery } from "convex/react";
 import Link from "next/link";
-import { useMemo } from "react";
+import { useRouter } from "next/navigation";
+import { useMemo, useState } from "react";
 
 export function HistoryList() {
+  const router = useRouter();
   const { results, status, loadMore } = usePaginatedQuery(
     api.sessions.listHistory,
     {},
     { initialNumItems: 15 },
   );
+  const createFromSessions = useMutation(api.routines.createFromSessions);
+  const begin = useBeginWorkout();
+  const [saving, setSaving] = useState<{
+    sessionIds: string[];
+    name: string;
+    summary: string;
+  } | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [savePending, setSavePending] = useState(false);
 
   const months = useMemo(() => {
     const grouped: Array<{ key: string; label: string; sessions: typeof results }> = [];
@@ -51,7 +68,40 @@ export function HistoryList() {
           <section key={month.key} aria-labelledby={`month-${month.key}`} className="mt-7">
             <SectionLabel id={`month-${month.key}`}>{month.label}</SectionLabel>
             <ul className="flex flex-col">
-              {month.sessions.map((session) => {
+              {groupByLocalDay(month.sessions).map((day) => (
+                <li key={day.key} className="flex flex-col">
+                  {day.items.length > 1 ? (
+                    <div className="flex flex-wrap items-center gap-1 pt-3">
+                      <p className="mr-auto text-sm text-muted">
+                        {pluralize(day.items.length, "workout")} this day
+                      </p>
+                      <Button
+                        variant="ghost"
+                        disabled={begin.pending}
+                        onClick={() => void begin.repeatWorkouts(day.items.map((session) => session._id))}
+                      >
+                        Repeat this day
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        onClick={() => {
+                          const names = day.items.flatMap((session) =>
+                            session.exercises.map((exercise) => exercise.name),
+                          );
+                          setSaveError(null);
+                          setSaving({
+                            sessionIds: day.items.map((session) => session._id),
+                            name: suggestRoutineName(day.items[0]?.startedAt ?? Date.now()),
+                            summary: uniqueNames(names).join(", ") || "These workouts",
+                          });
+                        }}
+                      >
+                        Save as routine
+                      </Button>
+                    </div>
+                  ) : null}
+                  <ul className="flex flex-col">
+              {day.items.map((session) => {
                 const date = new Date(session.startedAt);
                 const setCount = session.exercises.reduce(
                   (sum, exercise) => sum + exercise.setCount,
@@ -107,6 +157,9 @@ export function HistoryList() {
                   </li>
                 );
               })}
+                  </ul>
+                </li>
+              ))}
             </ul>
           </section>
         ))
@@ -120,6 +173,60 @@ export function HistoryList() {
       {status === "LoadingMore" ? (
         <p className="mt-6 text-center text-sm text-muted">Loading more…</p>
       ) : null}
+
+      {begin.error ? (
+        <p role="alert" className="mt-4 text-sm text-danger">
+          {begin.error}
+        </p>
+      ) : null}
+
+      <SaveRoutineSheet
+        key={saving?.sessionIds.join("-") ?? "save-routine"}
+        open={saving !== null}
+        defaultName={saving?.name ?? ""}
+        summary={saving ? `${saving.summary}.` : ""}
+        pending={savePending}
+        error={saveError}
+        onCancel={() => setSaving(null)}
+        onSave={(name) => void saveRoutine(name)}
+      />
+      <OpenWorkoutSheet
+        open={begin.promptOpen}
+        onClose={begin.closePrompt}
+        onContinue={begin.continueOpen}
+      />
     </div>
   );
+
+  async function saveRoutine(name: string) {
+    if (!saving) {
+      return;
+    }
+    setSavePending(true);
+    setSaveError(null);
+    try {
+      const routineId = await createFromSessions({
+        name,
+        sessionIds: saving.sessionIds as Id<"sessions">[],
+      });
+      router.push(`/routines/${routineId}`);
+    } catch (caught) {
+      setSaveError(readableError(caught));
+      setSavePending(false);
+    }
+  }
+}
+
+function uniqueNames(names: string[]): string[] {
+  const seen = new Set<string>();
+  const unique: string[] = [];
+  for (const name of names) {
+    const key = name.toLocaleLowerCase();
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    unique.push(name);
+  }
+  return unique;
 }

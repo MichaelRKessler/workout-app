@@ -1,7 +1,9 @@
 import { formatExerciseName } from "../convex/lib/exerciseName";
-import { formatClock, formatDistance, setKind, type SetKind } from "../convex/lib/measures";
+import { formatClock, formatDistance, parseClock, parseDistanceInput, setKind, type SetKind } from "../convex/lib/measures";
+import type { RoutinePrefill } from "../convex/lib/routinePlan";
+import { parseReps } from "./numbers";
 
-export type PrefillSource = "session" | "previous" | "default";
+export type PrefillSource = "session" | "previous" | "routine" | "default";
 
 export type PrefillValues = {
   kind: SetKind;
@@ -29,6 +31,7 @@ export function prefillValues(
   exerciseName: string,
   sessionSets: Array<{ exerciseName: string } & SetNumbers>,
   previousSets: SetNumbers[] | null,
+  routineTarget?: RoutinePrefill | null,
 ): PrefillValues {
   const normalized = formatExerciseName(exerciseName)?.normalizedName;
   if (normalized) {
@@ -46,6 +49,11 @@ export function prefillValues(
     return valuesFromSet(previous, "previous");
   }
 
+  const routine = valuesFromRoutine(routineTarget);
+  if (routine) {
+    return routine;
+  }
+
   return {
     kind: "strength",
     reps: "10",
@@ -55,6 +63,65 @@ export function prefillValues(
     rpe: "",
     source: "default",
   };
+}
+
+function valuesFromRoutine(target: RoutinePrefill | null | undefined): PrefillValues | null {
+  if (!target) {
+    return null;
+  }
+  if (target.reps == null && target.durationSec == null && target.distanceM == null) {
+    return null;
+  }
+  return valuesFromSet(
+    {
+      reps: target.reps,
+      weightLb: target.weightLb ?? 0,
+      durationSec: target.durationSec,
+      distanceM: target.distanceM,
+    },
+    "routine",
+  );
+}
+
+/** One confirmed set from a prefill. Null when the values are not a valid set. */
+export function setFromPrefill(values: PrefillValues): {
+  reps?: number;
+  weightLb: number;
+  durationSec?: number;
+  distanceM?: number;
+} | null {
+  const weight = Number(values.weight);
+  if (!Number.isFinite(weight) || weight < 0 || weight > 2000) {
+    return null;
+  }
+  const weightLb = Math.round(weight * 100) / 100;
+  if (values.kind === "timed") {
+    const durationSec = parseClock(values.duration);
+    if (durationSec === null) {
+      return null;
+    }
+    return { weightLb, durationSec };
+  }
+  if (values.kind === "distance") {
+    const distanceM = parseDistanceInput(values.distance);
+    if (distanceM === null) {
+      return null;
+    }
+    const durationSec = values.duration.trim() ? parseClock(values.duration) : null;
+    if (values.duration.trim() && durationSec === null) {
+      return null;
+    }
+    return {
+      weightLb,
+      distanceM,
+      ...(durationSec ? { durationSec } : {}),
+    };
+  }
+  const reps = parseReps(values.reps);
+  if (reps === null) {
+    return null;
+  }
+  return { weightLb, reps };
 }
 
 function valuesFromSet(set: SetNumbers, source: PrefillSource): PrefillValues {

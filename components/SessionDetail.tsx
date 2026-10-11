@@ -1,6 +1,9 @@
 "use client";
 
 import { Button } from "@/components/Button";
+import { OpenWorkoutSheet } from "@/components/routines/OpenWorkoutSheet";
+import { SaveRoutineSheet } from "@/components/routines/SaveRoutineSheet";
+import { useBeginWorkout } from "@/components/routines/useBeginWorkout";
 import { useOfflineLog } from "@/components/OfflineSync";
 import { PageHeader } from "@/components/PageHeader";
 import { Toast, type ToastMessage } from "@/components/Toast";
@@ -18,6 +21,7 @@ import {
   formatTimeOfDay,
   formatWorkoutLength,
   pluralize,
+  suggestRoutineName,
 } from "@/lib/format";
 import { groupSets, type SetLine } from "@/lib/groupSets";
 import { QUEUED_SAVE_MESSAGE } from "@/lib/offline/messages";
@@ -36,6 +40,8 @@ export function SessionDetail({ sessionId }: { sessionId: string }) {
   const libraryQuery = useQuery(api.exercises.list);
   const log = useOfflineLog();
   const deleteWorkout = useMutation(api.sessions.remove);
+  const createFromSessions = useMutation(api.routines.createFromSessions);
+  const begin = useBeginWorkout();
   const setNote = useMutation(api.sessions.setNote);
   const unit = useWeightUnit();
 
@@ -48,6 +54,9 @@ export function SessionDetail({ sessionId }: { sessionId: string }) {
   const [toast, setToast] = useState<Toasted | null>(null);
   const [noteDraft, setNoteDraft] = useState<string | null>(null);
   const [savingNote, setSavingNote] = useState(false);
+  const [saveRoutineOpen, setSaveRoutineOpen] = useState(false);
+  const [saveRoutineError, setSaveRoutineError] = useState<string | null>(null);
+  const [saveRoutinePending, setSaveRoutinePending] = useState(false);
   const [manual, setManual] = useState<
     | { key: number; mode: "add"; exerciseName: string }
     | {
@@ -210,6 +219,24 @@ export function SessionDetail({ sessionId }: { sessionId: string }) {
     }
   }
 
+  async function saveAsRoutine(name: string) {
+    if (!session) {
+      return;
+    }
+    setSaveRoutinePending(true);
+    setSaveRoutineError(null);
+    try {
+      const routineId = await createFromSessions({
+        name,
+        sessionIds: [session._id],
+      });
+      router.push(`/routines/${routineId}`);
+    } catch (error) {
+      setSaveRoutineError(readableError(error));
+      setSaveRoutinePending(false);
+    }
+  }
+
   async function confirmDelete() {
     if (!session) {
       return;
@@ -323,6 +350,22 @@ export function SessionDetail({ sessionId }: { sessionId: string }) {
             Add a set
           </Button>
           <Button
+            variant="secondary"
+            disabled={begin.pending}
+            onClick={() => void begin.repeatWorkouts([session._id])}
+          >
+            Repeat this workout
+          </Button>
+          <Button
+            variant="secondary"
+            onClick={() => {
+              setSaveRoutineError(null);
+              setSaveRoutineOpen(true);
+            }}
+          >
+            Save as routine
+          </Button>
+          <Button
             variant="danger"
             onClick={() => {
               setDeleteError(null);
@@ -404,6 +447,31 @@ export function SessionDetail({ sessionId }: { sessionId: string }) {
           onAdd={addManual}
         />
       ) : null}
+
+      <SaveRoutineSheet
+        key={saveRoutineOpen ? session._id : "closed"}
+        open={saveRoutineOpen}
+        defaultName={suggestRoutineName(session.startedAt)}
+        summary={
+          groups.length > 0
+            ? groups.map((group) => group.name).join(", ")
+            : "This workout"
+        }
+        pending={saveRoutinePending}
+        error={saveRoutineError}
+        onCancel={() => setSaveRoutineOpen(false)}
+        onSave={(name) => void saveAsRoutine(name)}
+      />
+      {begin.error ? (
+        <p role="alert" className="mt-3 text-sm text-danger">
+          {begin.error}
+        </p>
+      ) : null}
+      <OpenWorkoutSheet
+        open={begin.promptOpen}
+        onClose={begin.closePrompt}
+        onContinue={begin.continueOpen}
+      />
 
       <DeleteWorkoutSheet
         open={deleteOpen}
