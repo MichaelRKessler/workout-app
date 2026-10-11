@@ -122,15 +122,15 @@ export function ExerciseRow({
             aria-label={`Log another set of ${name}, ${describeSet(last, unit)}`}
             className="flex size-11 shrink-0 items-center justify-center rounded-full border border-line bg-surface text-foreground hover:bg-fill-2 disabled:opacity-60"
           >
-            {repeating ? <Spinner className="size-4" /> : <PlusIcon className="size-[18px]" />}
+            {repeating ? <Spinner className="size-4" /> : <PlusIcon className="size-5" />}
           </button>
         ) : null}
       </div>
       {onToggle && expanded ? (
-        <ol id={detailId} className="-mt-1 flex flex-col pb-3 pl-[58px]">
+        <ol id={detailId} className="-mt-1 flex flex-col pb-3 pl-[calc(var(--spacing)*14.5)]">
           {sets.map((set, index) => (
-            <li key={set._id} className="flex min-h-11 items-center justify-between gap-3 text-sm">
-              <span>
+            <li key={set._id} className="flex min-h-11 flex-wrap items-center justify-between gap-x-3 gap-y-1 text-sm">
+              <span className="min-w-0">
                 <span className="text-subtle">Set {index + 1}</span>
                 <span className="ml-3 font-mono">
                   {formatSetShort(set, unit)}

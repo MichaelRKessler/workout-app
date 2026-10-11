@@ -29,11 +29,11 @@ export function FinishSheet({
       <h2 id="finish-title" className="mt-2 text-xl font-semibold tracking-[-0.02em]">
         Finish workout?
       </h2>
-      <p className="mt-1.5 text-[15px] text-muted">{summary}. It moves to History.</p>
-      {note ? <p className="mt-2 text-[15px] leading-normal text-muted">{note}</p> : null}
+      <p className="mt-1.5 text-base text-muted">{summary}. It moves to History.</p>
+      {note ? <p className="mt-2 text-base leading-normal text-muted">{note}</p> : null}
       {onWorkoutNoteChange ? (
         <label className="mt-4 block">
-          <span className="text-[11px] font-medium tracking-[0.1em] text-subtle uppercase">
+          <span className="text-xs font-medium tracking-[0.06em] text-subtle uppercase">
             Note
           </span>
           <textarea
@@ -42,12 +42,12 @@ export function FinishSheet({
             maxLength={500}
             rows={3}
             placeholder="Optional. How the workout felt."
-            className="mt-2 w-full resize-none rounded-xl border border-line bg-background px-3 py-2 text-[15px] outline-none focus:border-foreground"
+            className="mt-2 w-full resize-none rounded-xl border border-line bg-background px-3 py-2 text-base outline-none focus:border-foreground"
           />
         </label>
       ) : null}
       {error ? (
-        <p role="alert" className="mt-3 text-sm leading-5 text-danger">
+        <p role="alert" className="mt-3 text-sm text-danger">
           {error}
         </p>
       ) : null}

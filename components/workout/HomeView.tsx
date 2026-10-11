@@ -49,22 +49,22 @@ export function HomeView({
 }) {
   return (
     <div className="flex min-h-[calc(100dvh-env(safe-area-inset-top))] flex-col px-5 pt-3 pb-[calc(20px+env(safe-area-inset-bottom))]">
-      <header className="flex h-11 items-center justify-between">
+      <header className="flex min-h-11 items-center justify-between gap-3">
         <div className="flex items-center gap-2.5">
           <BrandMark />
-          <span className="text-[17px] font-semibold tracking-[-0.01em]">Workout</span>
+          <span className="text-lg font-semibold tracking-[-0.01em]">Workout</span>
         </div>
         <TopActions />
       </header>
 
       <main className="flex flex-1 flex-col items-center justify-center py-8 text-center">
-        <p className="text-xs font-medium tracking-[0.1em] text-subtle uppercase" suppressHydrationWarning>
+        <p className="text-xs font-medium tracking-[0.06em] text-subtle uppercase" suppressHydrationWarning>
           {formatLongDate(Date.now())}
         </p>
-        <h1 className="mt-3 text-[30px] leading-[1.15] font-semibold tracking-[-0.025em]">
+        <h1 className="mt-3 text-3xl leading-[1.15] font-semibold tracking-[-0.025em]">
           Start a workout
         </h1>
-        <p className="mt-2.5 max-w-[270px] text-[15px] leading-normal text-pretty text-muted">
+        <p className="mt-2.5 max-w-[21.5rem] text-base leading-normal text-pretty text-muted">
           {offline
             ? "Add the first set by hand. It stays on this phone until you reconnect."
             : "Say your first set. The workout starts when you confirm it."}
@@ -75,7 +75,7 @@ export function HomeView({
           onClick={onVoice}
           disabled={voiceBusy || offline}
           aria-label="Log a set by voice"
-          className="mt-11 flex size-[136px] items-center justify-center rounded-full border border-line transition active:scale-[0.98] disabled:opacity-70"
+          className="mt-11 flex size-34 items-center justify-center rounded-full border border-line transition active:scale-[0.98] disabled:opacity-70"
         >
           <span className="flex size-28 items-center justify-center rounded-full bg-inverse text-inverse-ink shadow-lift">
             <MicIcon className="size-10" strokeWidth={1.6} />
@@ -88,14 +88,14 @@ export function HomeView({
         <button
           type="button"
           onClick={onManual}
-          className="mt-5 inline-flex min-h-11 items-center gap-2 rounded-full px-4 text-[15px] font-medium hover:bg-fill-2"
+          className="mt-5 inline-flex min-h-11 items-center gap-2 rounded-full px-4 text-base font-medium hover:bg-fill-2"
         >
-          <KeyboardIcon className="size-[18px]" />
+          <KeyboardIcon className="size-5" />
           Type it instead
         </button>
         <Link
           href="/history/log"
-          className="mt-1 inline-flex min-h-11 items-center rounded-full px-4 text-[15px] font-medium text-muted hover:bg-fill-2"
+          className="mt-1 inline-flex min-h-11 items-center rounded-full px-4 text-base font-medium text-muted hover:bg-fill-2"
         >
           Log a past workout
         </Link>
@@ -106,16 +106,16 @@ export function HomeView({
       {lastWorkout ? (
         <Link
           href={`/history/${lastWorkout._id}`}
-          className="flex items-center gap-3.5 rounded-[18px] border border-line bg-surface p-4 hover:bg-fill-2"
+          className="flex items-center gap-3.5 rounded-[1.25rem] border border-line bg-surface p-4 hover:bg-fill-2"
         >
           <span className="flex min-w-0 flex-1 flex-col gap-1">
-            <span className="text-[11px] font-medium tracking-[0.1em] text-subtle uppercase" suppressHydrationWarning>
+            <span className="text-xs leading-snug font-medium tracking-[0.06em] text-subtle uppercase" suppressHydrationWarning>
               Last workout · {formatShortDate(lastWorkout.startedAt)}
             </span>
-            <span className="truncate text-[15px] font-medium">
+            <span className="truncate text-base font-medium">
               {lastWorkout.exercises.map((exercise) => exercise.name).join(", ") || "No sets"}
             </span>
-            <span className="text-[13px] text-muted">
+            <span className="text-sm text-muted">
               {[
                 pluralize(lastWorkout.exercises.length, "exercise"),
                 pluralize(
@@ -138,16 +138,16 @@ export function HomeView({
 function WeeklySummary({ summary }: { summary: WeekSummary }) {
   const unit = useWeightUnit();
   return (
-    <section aria-label="This week" className="mb-3 rounded-[18px] border border-line bg-surface p-4">
+    <section aria-label="This week" className="mb-3 rounded-[1.25rem] border border-line bg-surface p-4">
       <div className="flex items-baseline justify-between gap-3">
-        <h2 className="text-[11px] font-medium tracking-[0.1em] text-subtle uppercase">This week</h2>
-        <p className="text-[13px] text-muted">{streakLabel(summary.streakWeeks)}</p>
+        <h2 className="text-xs font-medium tracking-[0.06em] text-subtle uppercase">This week</h2>
+        <p className="text-sm text-muted">{streakLabel(summary.streakWeeks)}</p>
       </div>
-      <p className="mt-2 text-[15px] font-medium">
+      <p className="mt-2 text-base font-medium text-pretty">
         {pluralize(summary.workouts, "workout")} · {pluralize(summary.sets, "set")} ·{" "}
         {formatVolumeLb(summary.volumeLb, unit)}
       </p>
-      <p className="mt-0.5 text-[13px] text-muted">
+      <p className="mt-0.5 text-sm text-pretty text-muted">
         Last week · {pluralize(summary.previousWorkouts, "workout")} ·{" "}
         {pluralize(summary.previousSets, "set")} · {formatVolumeLb(summary.previousVolumeLb, unit)}
       </p>

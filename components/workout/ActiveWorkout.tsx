@@ -64,17 +64,18 @@ export function ActiveWorkout({
 
   return (
     <>
-      <div className="px-5 pt-3 pb-[calc(112px+env(safe-area-inset-bottom))]">
+      <div className="px-5 pt-3 pb-[calc(8.5rem+env(safe-area-inset-bottom))]">
         <header className="border-b border-line pb-4">
-          <div className="flex h-11 items-center justify-between">
-            <p className="text-[11px] font-medium tracking-[0.1em] text-subtle uppercase" suppressHydrationWarning>
-              In progress · {formatShortDate(startedAt)}
+          <div className="flex items-center justify-between gap-3">
+            <p className="min-w-0 text-xs leading-snug" suppressHydrationWarning>
+              <span className="font-medium tracking-[0.06em] text-subtle uppercase">In progress</span>
+              <span className="mt-0.5 block text-subtle">{formatShortDate(startedAt)}</span>
             </p>
             <TopActions />
           </div>
           <div className="flex flex-wrap items-end justify-between gap-x-3 gap-y-2">
             <div className="flex flex-col gap-0.5">
-              <p className="font-mono text-[40px] leading-[1.15] font-medium tracking-[-0.04em]">
+              <p className="font-mono text-timer leading-[1.15] font-medium tracking-[-0.04em]">
                 <span className="sr-only">Elapsed </span>
                 <ElapsedClock startedAt={startedAt} />
               </p>
@@ -100,9 +101,9 @@ export function ActiveWorkout({
         </header>
 
         {loadingSets ? (
-          <p className="py-10 text-center text-[15px] text-muted">Loading sets…</p>
+          <p className="py-10 text-center text-base text-muted">Loading sets…</p>
         ) : empty ? (
-          <p className="mx-auto max-w-[280px] py-12 text-center text-[15px] leading-normal text-pretty text-muted">
+          <p className="mx-auto max-w-[21rem] py-12 text-center text-base leading-normal text-pretty text-muted">
             {emptyMessage ?? "No sets yet. Tap the mic and say one, or type it below."}
           </p>
         ) : (

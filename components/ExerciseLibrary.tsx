@@ -81,23 +81,23 @@ export function ExerciseLibrary() {
   return (
     <div className="px-5 pt-3 pb-[calc(32px+env(safe-area-inset-bottom))]">
       <PageHeader backHref="/settings" backLabel="Back to settings" title="Exercises">
-        <p className="mt-1.5 text-[15px] leading-normal text-muted">
+        <p className="mt-1.5 text-base leading-normal text-muted">
           Rename a duplicate, or merge it into the exercise you want to keep. Merging moves every
           set. History and personal records follow those sets.
         </p>
       </PageHeader>
 
       {status === "LoadingFirstPage" ? (
-        <p className="mt-8 text-[15px] text-muted">Loading exercises…</p>
+        <p className="mt-8 text-base text-muted">Loading exercises…</p>
       ) : results.length === 0 ? (
-        <p className="mt-8 text-[15px] text-muted">Exercises appear after you log a set.</p>
+        <p className="mt-8 text-base text-muted">Exercises appear after you log a set.</p>
       ) : (
         <ul className="mt-6 flex flex-col border-t border-line">
           {results.map((exercise) => (
             <li key={exercise._id} className="flex min-h-14 items-center justify-between gap-3 border-b border-line">
               <span className="min-w-0">
-                <span className="block truncate text-[15px] font-medium">{exercise.name}</span>
-                <span className="text-[13px] text-muted">
+                <span className="block truncate text-base font-medium">{exercise.name}</span>
+                <span className="text-sm text-muted">
                   {exercise.setCountCapped
                     ? `${exercise.setCount}+ sets`
                     : pluralize(exercise.setCount, "set")}
@@ -138,11 +138,11 @@ export function ExerciseLibrary() {
           <h2 id="rename-title" className="mt-2 text-xl font-semibold tracking-[-0.02em]">
             Rename {editing?.name}
           </h2>
-          <p className="mt-1.5 text-[15px] leading-normal text-muted">
+          <p className="mt-1.5 text-base leading-normal text-muted">
             A new spelling is saved immediately. If that name is already an exercise, you will be
             asked before anything is merged.
           </p>
-          <label htmlFor="rename-name" className="mt-4 block text-[11px] font-medium tracking-[0.1em] text-subtle uppercase">
+          <label htmlFor="rename-name" className="mt-4 block text-xs font-medium tracking-[0.06em] text-subtle uppercase">
             Name
           </label>
           <input
@@ -154,7 +154,7 @@ export function ExerciseLibrary() {
             className="mt-2 h-12 w-full rounded-xl border border-line bg-background px-3 text-base outline-none focus:border-foreground"
           />
           {error ? (
-            <p role="alert" className="mt-3 text-sm leading-5 text-danger">
+            <p role="alert" className="mt-3 text-sm text-danger">
               {error}
             </p>
           ) : null}
@@ -189,7 +189,7 @@ export function ExerciseLibrary() {
         <h2 id="merge-title" className="mt-2 text-xl font-semibold tracking-[-0.02em]">
           Merge into {conflict?.intoName}?
         </h2>
-        <p className="mt-1.5 text-[15px] leading-normal text-muted">
+        <p className="mt-1.5 text-base leading-normal text-muted">
           {conflict
             ? `${conflict.fromName} has ${
                 conflict.setCountCapped ? `${conflict.setCount}+` : conflict.setCount
@@ -197,7 +197,7 @@ export function ExerciseLibrary() {
             : ""}
         </p>
         {error ? (
-          <p role="alert" className="mt-3 text-sm leading-5 text-danger">
+          <p role="alert" className="mt-3 text-sm text-danger">
             {error}
           </p>
         ) : null}

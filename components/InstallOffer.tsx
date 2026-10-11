@@ -85,16 +85,16 @@ export function InstallOffer({
     return (
       <section aria-labelledby="settings-install" className={`mt-7 ${className}`}>
         <SectionLabel id="settings-install">App</SectionLabel>
-        <div className="overflow-hidden rounded-[18px] border border-line bg-surface">
+        <div className="overflow-hidden rounded-[1.25rem] border border-line bg-surface">
           {kind === "ios-hint" ? (
-            <p className="px-4 py-4 text-[15px] leading-normal text-muted">
+            <p className="px-4 py-4 text-base leading-normal text-muted">
               Install it from Safari: Share, then Add to Home Screen.
             </p>
           ) : (
             <button
               type="button"
               onClick={() => void onInstall()}
-              className="flex min-h-14 w-full items-center px-4 text-left text-[15px] font-medium hover:bg-fill-2"
+              className="flex min-h-14 w-full items-center px-4 text-left text-base font-medium hover:bg-fill-2"
             >
               Install app
             </button>
@@ -106,7 +106,7 @@ export function InstallOffer({
 
   if (kind === "ios-hint") {
     return (
-      <p className={`text-sm leading-5 text-muted ${className}`}>
+      <p className={`text-sm text-muted ${className}`}>
         Add to Home Screen from the Share menu.
       </p>
     );

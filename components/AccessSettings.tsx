@@ -54,9 +54,9 @@ export function AccessSettings() {
   return (
     <section aria-labelledby="settings-access" className="mt-7">
       <SectionLabel id="settings-access">Access</SectionLabel>
-      <div className="overflow-hidden rounded-[18px] border border-line bg-surface">
+      <div className="overflow-hidden rounded-[1.25rem] border border-line bg-surface">
         <form onSubmit={(event) => void onAdd(event)} className="border-b border-line p-4">
-          <label htmlFor="allow-email" className="text-[11px] font-medium tracking-[0.1em] text-subtle uppercase">
+          <label htmlFor="allow-email" className="text-xs font-medium tracking-[0.06em] text-subtle uppercase">
             Add an email
           </label>
           <div className="mt-2 flex gap-2">
@@ -71,7 +71,7 @@ export function AccessSettings() {
               onChange={(event) => setEmail(event.target.value)}
               placeholder="name@example.com"
               maxLength={320}
-              className="min-h-12 min-w-0 flex-1 rounded-xl border border-line bg-background px-3 text-[15px] outline-none focus:border-foreground"
+              className="min-h-12 min-w-0 flex-1 rounded-xl border border-line bg-background px-3 text-base outline-none focus:border-foreground"
             />
             <Button type="submit" disabled={busy !== null}>
               {busy === "add" ? "Adding…" : "Add"}
@@ -80,7 +80,7 @@ export function AccessSettings() {
         </form>
 
         {allowed === undefined ? (
-          <p className="px-4 py-4 text-[15px] text-muted">Loading the allow list…</p>
+          <p className="px-4 py-4 text-base text-muted">Loading the allow list…</p>
         ) : (
           <ul>
             {allowed.map((entry) => (
@@ -89,15 +89,15 @@ export function AccessSettings() {
                 className="flex items-center justify-between gap-3 border-b border-line px-4 py-3 last:border-b-0"
               >
                 <span className="min-w-0">
-                  <span className="block truncate text-[15px] font-medium">{entry.email}</span>
+                  <span className="block truncate text-base font-medium">{entry.email}</span>
                   {entry.isAdmin ? (
-                    <span className="block text-[13px] text-muted">Admin</span>
+                    <span className="block text-sm text-muted">Admin</span>
                   ) : null}
                 </span>
                 {entry.isAdmin ? null : (
                   <button
                     type="button"
-                    className="shrink-0 text-[15px] font-medium text-danger disabled:opacity-50"
+                    className="flex min-h-11 shrink-0 items-center text-base font-medium text-danger disabled:opacity-50"
                     disabled={busy !== null}
                     onClick={() =>
                       void run(`remove:${entry.email}`, () => removeEmail({ email: entry.email }))
@@ -112,23 +112,23 @@ export function AccessSettings() {
         )}
       </div>
 
-      <h3 className="mt-5 mb-1 text-[11px] font-medium tracking-[0.1em] text-subtle uppercase">
+      <h3 className="mt-5 mb-1 text-xs font-medium tracking-[0.06em] text-subtle uppercase">
         Pending requests
       </h3>
-      <div className="overflow-hidden rounded-[18px] border border-line bg-surface">
+      <div className="overflow-hidden rounded-[1.25rem] border border-line bg-surface">
         {pending === undefined ? (
-          <p className="px-4 py-4 text-[15px] text-muted">Loading requests…</p>
+          <p className="px-4 py-4 text-base text-muted">Loading requests…</p>
         ) : pending.length === 0 ? (
-          <p className="px-4 py-4 text-[15px] text-muted">No one is waiting.</p>
+          <p className="px-4 py-4 text-base text-muted">No one is waiting.</p>
         ) : (
           <ul>
             {pending.map((request) => (
               <li key={request._id} className="border-b border-line px-4 py-3.5 last:border-b-0">
-                <p className="truncate text-[15px] font-medium">{request.email}</p>
+                <p className="truncate text-base font-medium">{request.email}</p>
                 {request.note ? (
-                  <p className="mt-1 text-[14px] leading-normal text-pretty text-muted">{request.note}</p>
+                  <p className="mt-1 text-sm leading-normal text-pretty text-muted">{request.note}</p>
                 ) : null}
-                <p className="mt-1 text-[13px] text-subtle">
+                <p className="mt-1 text-sm text-subtle">
                   <time dateTime={new Date(request.createdAt).toISOString()} suppressHydrationWarning>
                     {formatShortDate(request.createdAt)} · {formatTimeOfDay(request.createdAt)}
                   </time>
@@ -158,7 +158,7 @@ export function AccessSettings() {
         )}
       </div>
       {error ? (
-        <p role="alert" className="mt-3 text-sm leading-5 text-danger">
+        <p role="alert" className="mt-3 text-sm text-danger">
           {error}
         </p>
       ) : null}

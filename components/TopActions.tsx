@@ -17,14 +17,14 @@ export function TopActions() {
         aria-label="History"
         className="flex size-11 items-center justify-center rounded-full text-foreground hover:bg-fill-2"
       >
-        <HistoryIcon className="size-[22px]" />
+        <HistoryIcon className="size-6" />
       </Link>
       <Link
         href="/settings"
         aria-label="Settings and account"
         className="flex size-11 items-center justify-center rounded-full hover:bg-fill-2"
       >
-        <span className="flex size-8 items-center justify-center rounded-full bg-line text-[13px] font-semibold text-foreground">
+        <span className="flex size-8 items-center justify-center rounded-full bg-line text-sm font-semibold text-foreground">
           {initial || (
             <svg aria-hidden="true" viewBox="0 0 24 24" className="size-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
               <circle cx="12" cy="8" r="3.5" />

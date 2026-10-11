@@ -61,9 +61,9 @@ export function SettingsScreen() {
 
       <section aria-labelledby="settings-units" className="mt-7">
         <SectionLabel id="settings-units">Weight</SectionLabel>
-        <div className="overflow-hidden rounded-[18px] border border-line bg-surface">
+        <div className="overflow-hidden rounded-[1.25rem] border border-line bg-surface">
           <div className="flex min-h-14 items-center justify-between gap-4 px-4 py-3">
-            <span className="text-[15px] font-medium">Unit</span>
+            <span className="text-base font-medium">Unit</span>
             <div role="group" aria-label="Weight unit" className="flex rounded-full border border-line p-0.5">
               {(["lb", "kg"] as const).map((choice) => (
                 <button
@@ -81,7 +81,7 @@ export function SettingsScreen() {
               ))}
             </div>
           </div>
-          <p className="border-t border-line px-4 py-3 text-[13px] leading-normal text-muted">
+          <p className="border-t border-line px-4 py-3 text-sm leading-normal text-muted">
             Shown in this unit. Saved weights stay in pounds, so a workout logged in pounds still
             means pounds if you switch to kilograms.
             {offline ? " Changing the unit needs a connection." : ""}
@@ -93,7 +93,7 @@ export function SettingsScreen() {
         <SectionLabel id="settings-exercises">Library</SectionLabel>
         <Link
           href="/exercises"
-          className="flex min-h-14 items-center justify-between rounded-[18px] border border-line bg-surface px-4 text-[15px] font-medium hover:bg-fill-2"
+          className="flex min-h-14 items-center justify-between rounded-[1.25rem] border border-line bg-surface px-4 text-base font-medium hover:bg-fill-2"
         >
           Exercises
           <span className="text-sm font-normal text-muted">Rename or combine</span>
@@ -102,9 +102,9 @@ export function SettingsScreen() {
 
       <section aria-labelledby="settings-appearance" className="mt-7">
         <SectionLabel id="settings-appearance">Appearance</SectionLabel>
-        <div className="overflow-hidden rounded-[18px] border border-line bg-surface">
+        <div className="overflow-hidden rounded-[1.25rem] border border-line bg-surface">
           <div className="flex min-h-14 items-center justify-between gap-4 px-4">
-            <span id="dark-mode-label" className="text-[15px] font-medium">
+            <span id="dark-mode-label" className="text-base font-medium">
               Dark mode
             </span>
             <button
@@ -117,12 +117,12 @@ export function SettingsScreen() {
             >
               <span
                 aria-hidden="true"
-                className={`relative h-[31px] w-[51px] rounded-full transition-colors ${
+                className={`relative h-8 w-13 rounded-full transition-colors ${
                   dark ? "bg-foreground" : "bg-line"
                 }`}
               >
                 <span
-                  className={`absolute top-[2px] left-[2px] size-[27px] rounded-full bg-surface shadow-[0_1px_3px_rgb(0_0_0/0.2)] transition-transform ${
+                  className={`absolute top-0.5 left-0.5 size-7 rounded-full bg-surface shadow-[0_1px_3px_rgb(0_0_0/0.2)] transition-transform ${
                     dark ? "translate-x-5" : "translate-x-0"
                   }`}
                 />
@@ -136,15 +136,15 @@ export function SettingsScreen() {
 
       <section aria-labelledby="settings-account" className="mt-7">
         <SectionLabel id="settings-account">Account</SectionLabel>
-        <div className="overflow-hidden rounded-[18px] border border-line bg-surface">
+        <div className="overflow-hidden rounded-[1.25rem] border border-line bg-surface">
           <div className="flex items-center gap-3.5 border-b border-line px-4 py-3.5">
-            <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-line text-[15px] font-semibold">
+            <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-line text-base font-semibold">
               {initial}
             </span>
             <span className="flex min-w-0 flex-col">
-              <span className="truncate text-[15px] font-medium">{name}</span>
+              <span className="truncate text-base font-medium">{name}</span>
               {viewer?.name && viewer.email ? (
-                <span className="truncate text-[13px] text-muted">{viewer.email}</span>
+                <span className="truncate text-sm text-muted">{viewer.email}</span>
               ) : null}
             </span>
           </div>
@@ -152,7 +152,7 @@ export function SettingsScreen() {
             type="button"
             onClick={() => void onSignOut()}
             disabled={signingOut}
-            className="flex min-h-14 w-full items-center px-4 text-left text-[15px] font-medium text-danger hover:bg-fill-2 disabled:opacity-60"
+            className="flex min-h-14 w-full items-center px-4 text-left text-base font-medium text-danger hover:bg-fill-2 disabled:opacity-60"
           >
             {signingOut ? "Signing out…" : "Sign out"}
           </button>

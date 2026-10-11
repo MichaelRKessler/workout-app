@@ -20,9 +20,9 @@ export function PageHeader({
         aria-label={backLabel}
         className="-ml-3 flex size-11 items-center justify-center rounded-full text-foreground hover:bg-fill-2"
       >
-        <ChevronLeftIcon className="size-[22px]" strokeWidth={1.8} />
+        <ChevronLeftIcon className="size-6" strokeWidth={1.8} />
       </Link>
-      <h1 className="mt-1.5 text-[32px] leading-tight font-semibold tracking-[-0.03em]">{title}</h1>
+      <h1 className="mt-1.5 text-title leading-tight font-semibold tracking-[-0.03em]">{title}</h1>
       {children}
     </header>
   );
@@ -30,7 +30,7 @@ export function PageHeader({
 
 export function SectionLabel({ id, children }: { id?: string; children: ReactNode }) {
   return (
-    <h2 id={id} className="mb-1 text-[11px] font-medium tracking-[0.1em] text-subtle uppercase">
+    <h2 id={id} className="mb-1 text-xs font-medium tracking-[0.06em] text-subtle uppercase">
       {children}
     </h2>
   );

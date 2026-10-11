@@ -16,8 +16,8 @@ const variants: Record<NonNullable<ButtonProps["variant"]>, string> = {
 };
 
 const sizes: Record<NonNullable<ButtonProps["size"]>, string> = {
-  md: "min-h-11 px-5 text-[15px]",
-  lg: "min-h-[52px] px-6 text-base",
+  md: "min-h-11 px-5 text-base",
+  lg: "min-h-13 px-6 text-base",
 };
 
 export function Button({

@@ -35,15 +35,15 @@ export function HistoryList() {
       <PageHeader backHref="/" title="History" />
       <Link
         href="/history/log"
-        className="mt-4 inline-flex min-h-11 items-center rounded-full border border-line bg-surface px-4 text-[15px] font-medium hover:bg-fill-2"
+        className="mt-4 inline-flex min-h-11 items-center rounded-full border border-line bg-surface px-4 text-base font-medium hover:bg-fill-2"
       >
         Log a past workout
       </Link>
 
       {status === "LoadingFirstPage" ? (
-        <p className="mt-8 text-[15px] text-muted">Loading history…</p>
+        <p className="mt-8 text-base text-muted">Loading history…</p>
       ) : results.length === 0 ? (
-        <p className="mt-8 max-w-[300px] text-[15px] leading-normal text-muted">
+        <p className="mt-8 max-w-[22.5rem] text-base leading-normal text-muted">
           No finished workouts yet. Finish one and it shows up here.
         </p>
       ) : (
@@ -61,23 +61,23 @@ export function HistoryList() {
                 return (
                   <li
                     key={session._id}
-                    className="flex min-h-[72px] items-center gap-4 border-b border-line py-2.5"
+                    className="flex min-h-18 items-center gap-4 border-b border-line py-2.5"
                   >
                     <Link
                       href={`/history/${session._id}`}
                       aria-label={`Open workout on ${date.toLocaleDateString(undefined, { month: "long", day: "numeric" })}`}
-                      className="flex w-9 shrink-0 flex-col items-center rounded-lg hover:bg-fill-2"
+                      className="flex w-12 shrink-0 flex-col items-center rounded-lg hover:bg-fill-2"
                       suppressHydrationWarning
                     >
-                      <span className="text-[11px] font-semibold tracking-[0.06em] text-subtle uppercase">
+                      <span className="text-xs font-semibold tracking-[0.06em] text-subtle uppercase">
                         {date.toLocaleDateString(undefined, { weekday: "short" })}
                       </span>
-                      <span className="font-mono text-[22px] font-medium tracking-[-0.03em]">
+                      <span className="font-mono text-day font-medium tracking-[-0.03em]">
                         {date.getDate()}
                       </span>
                     </Link>
                     <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                      <span className="truncate text-[15px] font-medium">
+                      <span className="truncate text-base font-medium">
                         {session.exercises.length === 0
                           ? "No sets"
                           : session.exercises.map((exercise, index) => (
@@ -92,7 +92,7 @@ export function HistoryList() {
                               </span>
                             ))}
                       </span>
-                      <Link href={`/history/${session._id}`} className="text-[13px] text-muted hover:underline">
+                      <Link href={`/history/${session._id}`} className="text-sm text-muted hover:underline">
                         {pluralize(session.exercises.length, "exercise")} · {pluralize(setCount, "set")}
                         {length ? ` · ${length}` : ""}
                       </Link>
@@ -102,7 +102,7 @@ export function HistoryList() {
                       aria-label="Open workout"
                       className="flex size-11 shrink-0 items-center justify-center rounded-full text-subtle hover:bg-fill-2"
                     >
-                      <ChevronRightIcon className="size-[18px]" strokeWidth={1.8} />
+                      <ChevronRightIcon className="size-5" strokeWidth={1.8} />
                     </Link>
                   </li>
                 );
