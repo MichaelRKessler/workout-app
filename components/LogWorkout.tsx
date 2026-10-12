@@ -1,8 +1,8 @@
 "use client";
 
 import { FinishedWorkout } from "@/components/WorkoutSummaryCard";
-import { useOfflineLog, type SyncOutcome } from "@/components/OfflineSync";
-import { Toast, type ToastMessage } from "@/components/Toast";
+import { useOfflineLog } from "@/components/OfflineSync";
+import { Toast } from "@/components/Toast";
 import { OpenWorkoutSheet } from "@/components/routines/OpenWorkoutSheet";
 import { useBeginWorkout } from "@/components/routines/useBeginWorkout";
 import { ActiveWorkout } from "@/components/workout/ActiveWorkout";
@@ -17,55 +17,32 @@ import { WorkoutPlanList } from "@/components/workout/WorkoutPlanList";
 import { ListeningOverlay } from "@/components/workout/ListeningOverlay";
 import { ManualEntrySheet } from "@/components/workout/ManualEntrySheet";
 import { StaleWorkoutSheet } from "@/components/workout/StaleWorkoutSheet";
-import { blobToBase64, requestProposal } from "@/components/workout/requestProposal";
-import { useRecorder } from "@/components/workout/useRecorder";
+import { blankPlanItem, toPendingExercise, usePlanEditor } from "@/components/workout/usePlanEditor";
+import { useSetActions, type Toasted } from "@/components/workout/useSetActions";
+import { useVoiceLog } from "@/components/workout/useVoiceLog";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { formatExerciseName } from "@/convex/lib/exerciseName";
 import { plannedCompletedAt } from "@/convex/lib/sessionTiming";
-import { readableError } from "@/lib/errors";
 import { EXAMPLE_EXERCISES } from "@/lib/examples";
 import { useWeightUnit } from "@/components/WeightUnit";
-import { formatDuration, formatPersonalRecord, formatPersonalRecords, pluralize } from "@/lib/format";
+import { formatDuration, pluralize } from "@/lib/format";
 import { summarizeSessions, type WorkoutSummary } from "@/lib/workoutSummary";
 import type { PersonalRecord } from "@/convex/lib/records";
-import { groupSets, type SetLine } from "@/lib/groupSets";
-import {
-  OFFLINE_TYPED_MESSAGE,
-  OFFLINE_VOICE_MESSAGE,
-  QUEUED_SAVE_MESSAGE,
-} from "@/lib/offline/messages";
+import { groupSets } from "@/lib/groupSets";
 import {
   hasPendingFinish,
   mergeVisibleSets,
   pendingNote,
   pendingResumedAt,
 } from "@/lib/offline/outbox";
-import {
-  draftToProposal,
-  proposalToDraft,
-  proposalToSave,
-  reduceVoiceLog,
-  type VoiceDraft,
-} from "@/lib/voice/confirm";
 import { moveItem } from "@/convex/lib/routinePlan";
 import { useBrowserTimeZone } from "@/components/useBrowserTimeZone";
 import { useSessionText } from "@/components/useSessionText";
-import {
-  PENDING_PLAN_EVENT,
-  loadPendingPlan,
-  loadRoutineCache,
-  publishPendingPlan,
-  saveRoutineCache,
-  type PendingPlan,
-  type PendingPlanExercise,
-} from "@/lib/offline/routineCache";
-import { cacheStore, composerTextKey, loadCachedAccess } from "@/lib/offline/storage";
+import { composerTextKey } from "@/lib/offline/storage";
 import { exerciseLink } from "@/lib/exerciseLink";
-import { setFromPrefill } from "@/lib/prefill";
 import { calendarDayBounds, calendarDayKey, groupHistoryDays } from "@/lib/historyDays";
-import { splitWorkoutPlan, type VisiblePlanItem } from "@/lib/workoutPlan";
-import { takeToast } from "@/lib/pendingToast";
+import { splitWorkoutPlan } from "@/lib/workoutPlan";
 import {
   DEFAULT_REST_SECONDS,
   readRestSeconds,
@@ -78,46 +55,9 @@ import {
   restOwnerId,
   unlinkSuperset,
 } from "@/convex/lib/superset";
-import { useMutation, useQuery } from "convex/react";
-import { useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { useQuery } from "convex/react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { readLocal } from "@/lib/localValue";
-
-type Toasted = ToastMessage & { id: number };
-
-/**
- * The Log tab. With no open workout it shows the start screen; the first set
- * confirmed by voice, by typing, or by hand opens one.
- */
-function blankPlanItem(exerciseId: string, name: string): VisiblePlanItem {
-  return {
-    exerciseId,
-    name,
-    targetSets: null,
-    targetReps: null,
-    targetWeightLb: null,
-    targetDurationSec: null,
-    targetDistanceM: null,
-    targetCalories: null,
-    skipped: false,
-    supersetId: null,
-  };
-}
-
-function toPendingExercise(item: VisiblePlanItem): PendingPlanExercise {
-  return {
-    exerciseId: item.exerciseId,
-    name: item.name,
-    targetSets: item.targetSets,
-    targetReps: item.targetReps,
-    targetWeightLb: item.targetWeightLb,
-    targetDurationSec: item.targetDurationSec,
-    targetDistanceM: item.targetDistanceM,
-    targetCalories: item.targetCalories ?? null,
-    restSeconds: null,
-    supersetId: item.supersetId,
-    skipped: item.skipped,
-  };
-}
 
 function combinedNote(existing: string | null | undefined, extra: string | null): string | null {
   if (!extra) {
@@ -132,10 +72,13 @@ function combinedNote(existing: string | null | undefined, extra: string | null)
   return `${existing}\n${extra}`;
 }
 
+/**
+ * The Log tab. With no open workout it shows the start screen; the first set
+ * confirmed by voice, by typing, or by hand opens one.
+ */
 export function LogWorkout() {
   const openSession = useQuery(api.sessions.getOpen);
   const routineList = useQuery(api.routines.list);
-  const setSessionPlan = useMutation(api.sessions.setPlan);
   const beginWorkout = useBeginWorkout();
   const exercises = useQuery(api.exercises.list);
   const sets = useQuery(
@@ -207,33 +150,10 @@ export function LogWorkout() {
   }, [history, latestDay, latestDaySessions, offline, timeZone]);
 
   const unit = useWeightUnit();
-  const [voice, dispatch] = useReducer(reduceVoiceLog, { status: "idle" });
-  const [source, setSource] = useState<"voice" | "text">("voice");
-  const [draft, setDraft] = useState<VoiceDraft | null>(null);
-  const [sheetNotice, setSheetNotice] = useState<string | null>(null);
   // Kept while an exercise's progress page is open.
   const [text, setText] = useSessionText(composerTextKey(log.accountEmail));
   const [homeTyping, setHomeTyping] = useState(false);
-  const [editingPlan, setEditingPlan] = useState(false);
-  const [manual, setManual] = useState<
-    | { key: number; mode: "add"; exerciseName: string }
-    | {
-        key: number;
-        mode: "edit";
-        setId: string;
-        exerciseName: string;
-        reps: number | null;
-        weightLb: number;
-        durationSec: number | null;
-        distanceM: number | null;
-        calories: number | null;
-        rpe: number | null;
-        setType?: SetLine["setType"];
-      }
-    | null
-  >(null);
   const [finishNote, setFinishNote] = useState("");
-  const [manualPending, setManualPending] = useState(false);
   const [finishOpen, setFinishOpen] = useState(false);
   const [finishError, setFinishError] = useState<string | null>(null);
   const [ending, setEnding] = useState(false);
@@ -245,52 +165,46 @@ export function LogWorkout() {
     dayKey: string;
   } | null>(null);
   const [keeping, setKeeping] = useState(false);
-  const [toast, setToast] = useState<Toasted | null>(null);
-  const [repeatingId, setRepeatingId] = useState<string | null>(null);
-  const [loggingPlanId, setLoggingPlanId] = useState<string | null>(null);
-  const [localPlan, setLocalPlan] = useState<PendingPlan | null>(null);
-  const [cachedRoutines, setCachedRoutines] = useState<
-    Array<{ _id: string; name: string }> | null
-  >(null);
-  const attachedPlan = useRef<string | null>(null);
-  const [removingId, setRemovingId] = useState<string | null>(null);
-  const parseAbortRef = useRef<AbortController | null>(null);
+  const knownSession = openSession !== undefined ? openSession : (snapshot?.session ?? null);
 
-  const recorder = useRecorder({
-    onAudio: (blob) => void parseAudio(blob),
-    onError: (message) => dispatch({ type: "failed", message }),
+  const plan = usePlanEditor({
+    openSession,
+    knownSession,
+    snapshotPlan: snapshot?.plan,
+    routineList,
+    offline,
+    showToast: (message) => actions.showToast(message),
   });
+  const { localPlan, activePlan, planName, editingPlan, setEditingPlan, savePlan } = plan;
 
-  const [viewerEmail, setViewerEmail] = useState<string | null>(null);
-
+  const [deviceRest, setDeviceRest] = useState(DEFAULT_REST_SECONDS);
   useEffect(() => {
-    setViewerEmail(loadCachedAccess(cacheStore())?.email ?? null);
+    const read = () =>
+      setDeviceRest(readRestSeconds(readLocal(REST_STORAGE_KEY)));
+    read();
+    window.addEventListener("workout-rest-default", read);
+    return () => window.removeEventListener("workout-rest-default", read);
   }, []);
 
+  const beginError = beginWorkout.error;
+  const clearBeginError = beginWorkout.clearError;
   useEffect(() => {
-    function loadPlan() {
-      const email = loadCachedAccess(cacheStore())?.email ?? viewerEmail;
-      setLocalPlan(loadPendingPlan(cacheStore(), email));
-      setCachedRoutines(loadRoutineCache(cacheStore(), email));
-    }
-    loadPlan();
-    window.addEventListener(PENDING_PLAN_EVENT, loadPlan);
-    return () => window.removeEventListener(PENDING_PLAN_EVENT, loadPlan);
-  }, [viewerEmail]);
-
-  useEffect(() => {
-    if (!routineList) {
+    if (!beginError) {
       return;
     }
-    saveRoutineCache(cacheStore(), viewerEmail, routineList);
-    setCachedRoutines(routineList);
-  }, [routineList, viewerEmail]);
+    showBeginError.current(beginError);
+    clearBeginError();
+  }, [beginError, clearBeginError]);
 
-  useEffect(() => {
-    return () => {
-      parseAbortRef.current?.abort();
-    };
-  }, []);
+  const sessionSets = useMemo(() => {
+    const serverSets =
+      sets ?? (openSession === null ? [] : openSession === undefined ? (snapshot?.sets ?? []) : []);
+    return mergeVisibleSets(serverSets, outbox, {
+      kind: "open",
+      sessionId: knownSession?._id ?? null,
+    });
+  }, [knownSession?._id, openSession, outbox, sets, snapshot?.sets]);
+  const groups = useMemo(() => groupSets(sessionSets), [sessionSets]);
 
   useEffect(() => {
     if (sets) {
@@ -305,7 +219,7 @@ export function LogWorkout() {
     if (openSession && sets === undefined) {
       return;
     }
-    const plan =
+    const remembered =
       openSession && openSession.plan.length > 0
         ? {
             startedAt: openSession.startedAt,
@@ -317,101 +231,64 @@ export function LogWorkout() {
     log.rememberWorkout({
       session: openSession,
       sets: sets ?? [],
-      plan,
+      plan: remembered,
     });
   }, [localPlan, log, openSession, sets]);
 
-  useEffect(() => {
-    if (!openSession || offline || !localPlan) {
-      return;
-    }
-    if (openSession.plan.length > 0) {
-      publishPendingPlan(cacheStore(), viewerEmail, null);
-      setLocalPlan(null);
-      return;
-    }
-    if (attachedPlan.current === openSession._id) {
-      return;
-    }
-    attachedPlan.current = openSession._id;
-    const exercises = localPlan.exercises.map((item) => ({
-      exerciseId: item.exerciseId as Id<"exercises">,
-      ...(item.targetSets != null ? { targetSets: item.targetSets } : {}),
-      ...(item.targetReps != null ? { targetReps: item.targetReps } : {}),
-      ...(item.targetWeightLb != null ? { targetWeightLb: item.targetWeightLb } : {}),
-      ...(item.targetDurationSec != null ? { targetDurationSec: item.targetDurationSec } : {}),
-      ...(item.targetDistanceM != null ? { targetDistanceM: item.targetDistanceM } : {}),
-      ...(item.targetCalories != null ? { targetCalories: item.targetCalories } : {}),
-      ...(item.supersetId ? { supersetId: item.supersetId } : {}),
-      ...(item.skipped ? { skipped: true as const } : {}),
-    }));
-    void setSessionPlan({
-      sessionId: openSession._id,
-      ...(localPlan.name ? { planName: localPlan.name } : {}),
-      ...(localPlan.routineId ? { routineId: localPlan.routineId as Id<"routines"> } : {}),
-      plan: exercises,
-    }).catch(() => {
-      attachedPlan.current = null;
-    });
-  }, [localPlan, offline, openSession, setSessionPlan, viewerEmail]);
-
-  const [deviceRest, setDeviceRest] = useState(DEFAULT_REST_SECONDS);
-  useEffect(() => {
-    const read = () =>
-      setDeviceRest(readRestSeconds(readLocal(REST_STORAGE_KEY)));
-    read();
-    window.addEventListener("workout-rest-default", read);
-    return () => window.removeEventListener("workout-rest-default", read);
-  }, []);
-
-  useEffect(() => {
-    const pending = takeToast();
-    if (pending) {
-      setToast({ id: Date.now(), tone: "info", message: pending });
-    }
-  }, []);
-
-  const beginError = beginWorkout.error;
-  const clearBeginError = beginWorkout.clearError;
-  useEffect(() => {
-    if (!beginError) {
-      return;
-    }
-    setToast({ id: Date.now(), tone: "error", message: beginError });
-    clearBeginError();
-  }, [beginError, clearBeginError]);
-
-  const knownSession = openSession !== undefined ? openSession : (snapshot?.session ?? null);
-  const sessionSets = useMemo(() => {
-    const serverSets =
-      sets ?? (openSession === null ? [] : openSession === undefined ? (snapshot?.sets ?? []) : []);
-    return mergeVisibleSets(serverSets, outbox, {
-      kind: "open",
+  function openTarget() {
+    return {
       sessionId: knownSession?._id ?? null,
-    });
-  }, [knownSession?._id, openSession, outbox, sets, snapshot?.sets]);
-  const groups = useMemo(() => groupSets(sessionSets), [sessionSets]);
-  const activePlan = useMemo((): VisiblePlanItem[] => {
-    if (openSession && openSession.plan.length > 0) {
-      return openSession.plan;
-    }
-    if (localPlan) {
-      return localPlan.exercises;
-    }
-    if (openSession === undefined && snapshot?.plan) {
-      return snapshot.plan.exercises;
-    }
-    return [];
-  }, [localPlan, openSession, snapshot?.plan]);
+      sessionStartedAt: knownSession?.startedAt ?? Date.now(),
+    };
+  }
+
+  const actions = useSetActions({
+    unit,
+    sessionSets,
+    lastExerciseName: groups[groups.length - 1]?.name ?? "",
+    openTarget,
+    // Called from a click, after voiceLog below exists.
+    onOpenForm: () => voiceLog.dismissError(),
+  });
+  const { toast, showToast, showSaved, manual } = actions;
+  const showBeginError = useRef((message: string) => showToast({ tone: "error", message }));
+  showBeginError.current = (message: string) => showToast({ tone: "error", message });
+
+  const voiceLog = useVoiceLog({
+    offline,
+    unit,
+    text,
+    setText,
+    clearToast: actions.clearToast,
+    save: (toSave) => {
+      const target = openTarget();
+      return log.saveSets({
+        placement: "open",
+        sessionId: target.sessionId,
+        sessionStartedAt: target.sessionStartedAt,
+        note: toSave.note,
+        sets: toSave.exercises.flatMap((exercise) =>
+          exercise.sets.map((set) => ({
+            exerciseName: exercise.exerciseName,
+            weightLb: set.weightLb,
+            reps: set.reps,
+            durationSec: set.durationSec,
+            distanceM: set.distanceM,
+            calories: set.calories,
+            rpe: set.rpe,
+            setType: set.setType,
+            ...(exercise.supersetId ? { supersetId: exercise.supersetId } : {}),
+          })),
+        ),
+      });
+    },
+    onSaved: showSaved,
+  });
+  const { voice } = voiceLog;
   const planView = useMemo(
     () => (activePlan.length > 0 ? splitWorkoutPlan(activePlan, groups) : null),
     [activePlan, groups],
   );
-  const planName =
-    (openSession && openSession.plan.length > 0 ? openSession.planName : null) ??
-    localPlan?.name ??
-    (openSession === undefined ? snapshot?.plan?.name : null) ??
-    null;
   const restCue = useMemo(() => {
     if (sessionSets.length === 0 || activePlan.length === 0) {
       return { hold: false, ownerName: null as string | null, onPlan: false };
@@ -519,373 +396,7 @@ export function LogWorkout() {
     } else {
       setEditingPlan(false);
     }
-  }, [workoutOpen]);
-
-  function showToast(message: ToastMessage) {
-    setToast({ ...message, id: Date.now() });
-  }
-
-  function showSaved(saved: SyncOutcome, exerciseName: string) {
-    if (saved.status === "queued") {
-      showToast({ tone: "info", message: QUEUED_SAVE_MESSAGE });
-      return;
-    }
-    const count = saved.setIds.length || saved.clientIds.length;
-    if (count === 0) {
-      return;
-    }
-    const added = `Added ${pluralize(count, "set")} · ${exerciseName}`;
-    const record = formatPersonalRecords(saved.personalRecords, unit);
-    const undoIds = saved.setIds.length > 0 ? saved.setIds : saved.clientIds;
-    showToast({
-      tone: "info",
-      message: record ? `${record}. ${added}` : added,
-      action: { label: "Undo", onClick: () => void undo(undoIds) },
-    });
-  }
-
-  async function undo(ids: string[]) {
-    setToast(null);
-    const removed = await log.removeMany(ids);
-    if (removed.status === "rejected" && removed.error) {
-      showToast({ tone: "error", message: removed.error });
-    }
-  }
-
-  function openTarget() {
-    const session = knownSession;
-    return {
-      sessionId: session?._id ?? null,
-      sessionStartedAt: session?.startedAt ?? Date.now(),
-    };
-  }
-
-  // Voice and typed parsing.
-
-  const voiceBusy =
-    voice.status === "recording" || voice.status === "parsing" || voice.status === "saving";
-
-  async function startVoice() {
-    if (offline) {
-      dispatch({ type: "failed", message: OFFLINE_VOICE_MESSAGE });
-      return;
-    }
-    if (voiceBusy) {
-      return;
-    }
-    setToast(null);
-    parseAbortRef.current?.abort();
-    const started = await recorder.start();
-    if (started) {
-      setSource("voice");
-      setDraft(null);
-      setSheetNotice(null);
-      dispatch({ type: "start-recording" });
-    }
-  }
-
-  function stopVoice() {
-    dispatch({ type: "submit-audio" });
-    recorder.stop();
-  }
-
-  function cancelVoice() {
-    recorder.cancel();
-    parseAbortRef.current?.abort();
-    dispatch({ type: "cancel" });
-  }
-
-  async function parseAudio(blob: Blob) {
-    try {
-      const audioBase64 = await blobToBase64(blob);
-      await parse({ audioBase64, mimeType: blob.type });
-    } catch (error) {
-      dispatch({ type: "failed", message: readableError(error) });
-    }
-  }
-
-  async function submitText() {
-    const value = text.trim();
-    if (offline) {
-      dispatch({ type: "failed", message: OFFLINE_TYPED_MESSAGE });
-      return;
-    }
-    if (value.length === 0 || voiceBusy) {
-      return;
-    }
-    setToast(null);
-    setSource("text");
-    dispatch({ type: "submit-text" });
-    if (await parse({ text: value })) {
-      setText("");
-    }
-  }
-
-  async function parse(body: Parameters<typeof requestProposal>[0]): Promise<boolean> {
-    parseAbortRef.current?.abort();
-    const controller = new AbortController();
-    parseAbortRef.current = controller;
-    try {
-      const proposal = await requestProposal(body, controller.signal);
-      if (controller.signal.aborted) {
-        return false;
-      }
-      setDraft(proposalToDraft(proposal, unit));
-      setSheetNotice(null);
-      dispatch({ type: "parsed", proposal });
-      return true;
-    } catch (error) {
-      if (!controller.signal.aborted) {
-        dispatch({ type: "failed", message: readableError(error) });
-      }
-      return false;
-    }
-  }
-
-  async function confirmDraft() {
-    if (voice.status !== "preview" || !draft) {
-      return;
-    }
-    const edited = draftToProposal(draft, unit);
-    if (!edited) {
-      setSheetNotice("Check each exercise and its sets. Nothing was saved.");
-      return;
-    }
-    const toSave = proposalToSave(voice, { type: "confirm", proposal: edited });
-    if (!toSave) {
-      return;
-    }
-    dispatch({ type: "confirm", proposal: toSave });
-    setSheetNotice(null);
-    const target = openTarget();
-    const saved = await log.saveSets({
-      placement: "open",
-      sessionId: target.sessionId,
-      sessionStartedAt: target.sessionStartedAt,
-      note: toSave.note,
-      sets: toSave.exercises.flatMap((exercise) =>
-          exercise.sets.map((set) => ({
-          exerciseName: exercise.exerciseName,
-          weightLb: set.weightLb,
-          reps: set.reps,
-          durationSec: set.durationSec,
-          distanceM: set.distanceM,
-          calories: set.calories,
-          rpe: set.rpe,
-          setType: set.setType,
-          ...(exercise.supersetId ? { supersetId: exercise.supersetId } : {}),
-        })),
-      ),
-    });
-    if (saved.status === "rejected") {
-      setDraft(proposalToDraft(toSave, unit));
-      dispatch({ type: "save-failed", proposal: toSave });
-      setSheetNotice(saved.error ?? "That set could not be saved");
-      return;
-    }
-    dispatch({ type: "saved" });
-    setDraft(null);
-    showSaved(
-      saved,
-      toSave.exercises.map((exercise) => exercise.exerciseName).join(", "),
-    );
-  }
-
-  function discardDraft() {
-    setDraft(null);
-    setSheetNotice(null);
-    dispatch({ type: "discard" });
-  }
-
-  // Manual sets, repeats, removals, and finishing.
-
-  function openManual(exerciseName?: string) {
-    if (voice.status === "error") {
-      dispatch({ type: "dismiss" });
-    }
-    setToast(null);
-    setManual({
-      key: Date.now(),
-      mode: "add",
-      exerciseName: exerciseName ?? groups[groups.length - 1]?.name ?? "",
-    });
-  }
-
-  function openEdit(set: SetLine) {
-    if (voice.status === "error") {
-      dispatch({ type: "dismiss" });
-    }
-    setToast(null);
-      setManual({
-        key: Date.now(),
-        mode: "edit",
-        setId: set._id,
-        exerciseName: set.exerciseName,
-        reps: set.reps,
-        weightLb: set.weightLb,
-        durationSec: set.durationSec,
-        distanceM: set.distanceM,
-        calories: set.calories ?? null,
-        rpe: set.rpe,
-        setType: set.setType,
-      });
-  }
-
-  async function addManual(set: {
-    exerciseName: string;
-    reps?: number;
-    weightLb: number;
-    durationSec?: number;
-    distanceM?: number;
-    calories?: number;
-    rpe?: number;
-    setType: SetLine["setType"];
-  }) {
-    setManualPending(true);
-    try {
-      const measures = {
-        weightLb: set.weightLb,
-        reps: set.reps ?? null,
-        durationSec: set.durationSec ?? null,
-        distanceM: set.distanceM ?? null,
-        calories: set.calories ?? null,
-        rpe: set.rpe ?? null,
-        setType: set.setType ?? "working",
-      };
-      if (manual?.mode === "edit") {
-        const saved = await log.editSet({
-          setId: manual.setId,
-          clientId: sessionSets.find((item) => item._id === manual.setId)?.clientId,
-          ...measures,
-        });
-        if (saved.status === "rejected") {
-          return saved.error ?? "That set could not be saved";
-        }
-        setManual(null);
-        if (saved.status === "queued") {
-          showToast({ tone: "info", message: QUEUED_SAVE_MESSAGE });
-        } else if (saved.personalRecords[0]) {
-          showToast({
-            tone: "info",
-            message: formatPersonalRecord(saved.personalRecords[0], unit),
-          });
-        }
-        return null;
-      }
-      const target = openTarget();
-      const saved = await log.saveSets({
-        placement: "open",
-        sessionId: target.sessionId,
-        sessionStartedAt: target.sessionStartedAt,
-        note: null,
-        sets: [{ exerciseName: set.exerciseName, ...measures }],
-      });
-      if (saved.status === "rejected") {
-        return saved.error ?? "That set could not be saved";
-      }
-      setManual(null);
-      showSaved(saved, set.exerciseName);
-      return null;
-    } finally {
-      setManualPending(false);
-    }
-  }
-
-  async function repeatSet(group: { exerciseId: string; name: string; sets: SetLine[] }) {
-    const last = group.sets[group.sets.length - 1];
-    if (!last) {
-      return;
-    }
-    setRepeatingId(group.exerciseId);
-    const target = openTarget();
-    const saved = await log.saveSets({
-      placement: "open",
-      sessionId: target.sessionId,
-      sessionStartedAt: target.sessionStartedAt,
-      note: null,
-      sets: [
-        {
-          exerciseName: group.name,
-          weightLb: last.weightLb,
-          reps: last.reps,
-          durationSec: last.durationSec,
-          distanceM: last.distanceM,
-          calories: last.calories ?? null,
-          rpe: last.rpe,
-          ...(last.setType !== undefined ? { setType: last.setType } : {}),
-        },
-      ],
-    });
-    setRepeatingId(null);
-    if (saved.status === "rejected") {
-      showToast({ tone: "error", message: saved.error ?? "That set could not be saved" });
-      return;
-    }
-    showSaved(saved, group.name);
-  }
-
-  async function deleteSet(setId: string) {
-    if (removingId) {
-      return;
-    }
-    const snapshot = sessionSets.find((set) => set._id === setId);
-    setRemovingId(setId);
-    const removed = await log.removeMany([setId]);
-    setRemovingId(null);
-    if (removed.status === "rejected" && removed.error) {
-      showToast({ tone: "error", message: removed.error });
-      return;
-    }
-    if (!snapshot) {
-      if (removed.status === "queued") {
-        showToast({ tone: "info", message: QUEUED_SAVE_MESSAGE });
-      }
-      return;
-    }
-    const target = openTarget();
-    showToast({
-      tone: "info",
-      message:
-        removed.status === "queued"
-          ? `Removed ${snapshot.exerciseName}. ${QUEUED_SAVE_MESSAGE}`
-          : `Removed ${snapshot.exerciseName}`,
-      action: {
-        label: "Undo",
-        onClick: () => void restoreRemovedSet(snapshot, target.sessionId, target.sessionStartedAt, "open"),
-      },
-    });
-  }
-
-  async function restoreRemovedSet(
-    set: SetLine,
-    sessionId: string | null,
-    sessionStartedAt: number,
-    placement: "open" | "completed",
-  ) {
-    setToast(null);
-    const saved = await log.saveSets({
-      placement,
-      sessionId,
-      sessionStartedAt,
-      note: null,
-      sets: [
-        {
-          exerciseName: set.exerciseName,
-          weightLb: set.weightLb,
-          reps: set.reps,
-          durationSec: set.durationSec,
-          distanceM: set.distanceM,
-          calories: set.calories ?? null,
-          rpe: set.rpe,
-          ...(set.setType !== undefined ? { setType: set.setType } : {}),
-          loggedAt: set.loggedAt,
-        },
-      ],
-    });
-    if (saved.status === "rejected") {
-      showToast({ tone: "error", message: saved.error ?? "That set could not be put back" });
-    }
-  }
+  }, [setEditingPlan, workoutOpen]);
 
   async function keepWorkoutGoing() {
     if (!knownSession && sessionSets.length === 0) {
@@ -926,8 +437,7 @@ export function LogWorkout() {
       return;
     }
     setFinishOpen(false);
-    publishPendingPlan(cacheStore(), viewerEmail, null);
-    setLocalPlan(null);
+    plan.clearPlan();
     setFinished({
       summary: summarizeSessions([
         {
@@ -943,90 +453,9 @@ export function LogWorkout() {
     });
   }
 
-  function storedPlanItem(item: PendingPlanExercise) {
-    return {
-      exerciseId: item.exerciseId as Id<"exercises">,
-      ...(item.targetSets != null ? { targetSets: item.targetSets } : {}),
-      ...(item.targetReps != null ? { targetReps: item.targetReps } : {}),
-      ...(item.targetWeightLb != null ? { targetWeightLb: item.targetWeightLb } : {}),
-      ...(item.targetDurationSec != null ? { targetDurationSec: item.targetDurationSec } : {}),
-      ...(item.targetDistanceM != null ? { targetDistanceM: item.targetDistanceM } : {}),
-      ...(item.targetCalories != null ? { targetCalories: item.targetCalories } : {}),
-      ...(item.supersetId ? { supersetId: item.supersetId } : {}),
-      ...(item.skipped ? { skipped: true as const } : {}),
-    };
-  }
-
-  async function savePlan(
-    next: Array<Omit<VisiblePlanItem, "supersetId"> & { supersetId?: string | null }>,
-  ) {
-    const exercises = normalizeSupersetItems(next).map((item) =>
-      toPendingExercise({ ...item, supersetId: item.supersetId ?? null }),
-    );
-    if (!knownSession) {
-      const plan: PendingPlan = {
-        startedAt: localPlan?.startedAt ?? snapshot?.plan?.startedAt ?? Date.now(),
-        name: planName,
-        routineId: localPlan?.routineId ?? snapshot?.plan?.routineId ?? null,
-        exercises,
-      };
-      publishPendingPlan(cacheStore(), viewerEmail, plan);
-      setLocalPlan(plan);
-      return;
-    }
-    if (offline) {
-      showToast({ tone: "info", message: "Reconnect to change this plan." });
-      return;
-    }
-    try {
-      await setSessionPlan({
-        sessionId: knownSession._id as Id<"sessions">,
-        plan: exercises.map(storedPlanItem),
-      });
-    } catch (error) {
-      showToast({ tone: "error", message: readableError(error) });
-    }
-  }
-
-  async function logPlanSet(
-    exerciseId: string,
-    exerciseName: string,
-    set: ReturnType<typeof setFromPrefill>,
-  ) {
-    if (!set) {
-      return;
-    }
-    setLoggingPlanId(exerciseId);
-    const target = openTarget();
-    const saved = await log.saveSets({
-      placement: "open",
-      sessionId: target.sessionId,
-      sessionStartedAt: target.sessionStartedAt,
-      note: null,
-      sets: [
-        {
-          exerciseName,
-          weightLb: set.weightLb,
-          reps: set.reps,
-          durationSec: set.durationSec,
-          distanceM: set.distanceM,
-          calories: set.calories,
-          setType: set.setType,
-        },
-      ],
-    });
-    setLoggingPlanId(null);
-    if (saved.status === "rejected") {
-      showToast({ tone: "error", message: saved.error ?? "That set could not be saved" });
-      return;
-    }
-    showSaved(saved, exerciseName);
-  }
-
   async function discardWorkout() {
     if (!knownSession && sessionSets.length === 0) {
-      publishPendingPlan(cacheStore(), viewerEmail, null);
-      setLocalPlan(null);
+      plan.clearPlan();
       return;
     }
     setEnding(true);
@@ -1039,8 +468,7 @@ export function LogWorkout() {
       showToast({ tone: "error", message: saved.error });
       return;
     }
-    publishPendingPlan(cacheStore(), viewerEmail, null);
-    setLocalPlan(null);
+    plan.clearPlan();
   }
 
   if (!offline && (openSession === undefined || exercises === undefined)) {
@@ -1062,7 +490,7 @@ export function LogWorkout() {
           id: -1,
           tone: "error",
           message: voice.message,
-          action: { label: "Add by hand", onClick: openManual },
+          action: { label: "Add by hand", onClick: () => actions.openManual() },
         }
       : toast;
 
@@ -1089,7 +517,7 @@ export function LogWorkout() {
           setCount={sessionSets.length}
           newestSetId={newestSetId}
           loadingSets={sets === undefined && !offline && knownSession !== null}
-          repeatingId={repeatingId}
+          repeatingId={actions.repeatingId}
           ending={ending}
           editingPlan={editingPlan}
           onEditingPlan={setEditingPlan}
@@ -1098,8 +526,8 @@ export function LogWorkout() {
             offline ? "No sets yet. Add one by hand. Voice needs a connection." : undefined
           }
           idleNote={freshness.idleNote ?? undefined}
-          onRepeat={(group) => void repeatSet(group)}
-          onEditSet={openEdit}
+          onRepeat={(group) => void actions.repeatSet(group)}
+          onEditSet={actions.openEdit}
           onFinish={() => {
             setFinishError(null);
             if (!showStale) {
@@ -1127,18 +555,18 @@ export function LogWorkout() {
                 <WorkoutPlanList
                   name={planName}
                   rows={planView.rows}
-                  loggingId={loggingPlanId}
+                  loggingId={actions.loggingPlanId}
                   setsLoading={sets === undefined && !offline && knownSession !== null}
                   offline={offline}
                   sessionSets={sessionSets}
                   excludeSessionId={knownSession ? (knownSession._id as Id<"sessions">) : undefined}
                   onLog={(exerciseId, exerciseName, set) =>
-                    void logPlanSet(exerciseId, exerciseName, set)
+                    void actions.logPlanSet(exerciseId, exerciseName, set)
                   }
                   onRepeat={(row) =>
-                    void repeatSet({ exerciseId: row.exerciseId, name: row.name, sets: row.sets })
+                    void actions.repeatSet({ exerciseId: row.exerciseId, name: row.name, sets: row.sets })
                   }
-                  repeatingId={repeatingId}
+                  repeatingId={actions.repeatingId}
                   onSkip={(exerciseId, skipped) =>
                     void savePlan(
                       activePlan.map((item) =>
@@ -1151,8 +579,8 @@ export function LogWorkout() {
                   }
                   onLink={(index) => void savePlan(linkWithNext(activePlan, index))}
                   onUnlink={(index) => void savePlan(unlinkSuperset(activePlan, index))}
-                  onEditSet={openEdit}
-                  onNeedForm={(exerciseName) => openManual(exerciseName)}
+                  onEditSet={actions.openEdit}
+                  onNeedForm={(exerciseName) => actions.openManual(exerciseName)}
                   editing={editingPlan}
                 />
                 {planView.extras.length > 0 ? (
@@ -1168,9 +596,9 @@ export function LogWorkout() {
                           sets={group.sets}
                           newestSetId={newestSetId}
                           exerciseHref={exerciseLink(group.exerciseId, "/") ?? undefined}
-                          onRepeat={() => void repeatSet(group)}
-                          repeating={repeatingId === group.exerciseId}
-                          onEditSet={openEdit}
+                          onRepeat={() => void actions.repeatSet(group)}
+                          repeating={actions.repeatingId === group.exerciseId}
+                          onEditSet={actions.openEdit}
                           footer={
                             editingPlan ? (
                               <button
@@ -1199,11 +627,11 @@ export function LogWorkout() {
           composer={{
             text,
             onTextChange: setText,
-            onSubmitText: () => void submitText(),
-            parsingText: voice.status === "parsing" && source === "text",
-            onVoice: () => void startVoice(),
-            onManual: openManual,
-            busy: voiceBusy,
+            onSubmitText: () => void voiceLog.submitText(),
+            parsingText: voice.status === "parsing" && voiceLog.source === "text",
+            onVoice: () => void voiceLog.startVoice(),
+            onManual: () => actions.openManual(),
+            busy: voiceLog.busy,
             offline,
           }}
         />
@@ -1214,12 +642,12 @@ export function LogWorkout() {
           <HomeView
             lastWorkout={lastWorkout}
             weekSummary={weekSummary}
-            routines={routineList ?? cachedRoutines ?? undefined}
-            voiceBusy={voiceBusy}
+            routines={routineList ?? plan.cachedRoutines ?? undefined}
+            voiceBusy={voiceLog.busy}
             offline={offline}
             typing={homeTyping}
             repeating={beginWorkout.pending}
-            onVoice={() => void startVoice()}
+            onVoice={() => void voiceLog.startVoice()}
             onType={() => setHomeTyping(true)}
             onRepeat={(sessionIds) => void beginWorkout.repeatWorkouts(sessionIds)}
             onStartRoutine={(routineId) => void beginWorkout.startRoutine(routineId)}
@@ -1230,11 +658,11 @@ export function LogWorkout() {
                 autoFocus
                 text={text}
                 onTextChange={setText}
-                onSubmitText={() => void submitText()}
-                parsingText={voice.status === "parsing" && source === "text"}
-                onVoice={() => void startVoice()}
-                onManual={() => openManual()}
-                busy={voiceBusy}
+                onSubmitText={() => void voiceLog.submitText()}
+                parsingText={voice.status === "parsing" && voiceLog.source === "text"}
+                onVoice={() => void voiceLog.startVoice()}
+                onManual={() => actions.openManual()}
+                busy={voiceLog.busy}
                 offline={offline}
                 onClose={() => setHomeTyping(false)}
               />
@@ -1257,33 +685,33 @@ export function LogWorkout() {
         raised={showWorkout || homeTyping}
         onDismiss={() => {
           if (voice.status === "error") {
-            dispatch({ type: "dismiss" });
+            voiceLog.dismissError();
           } else {
-            setToast(null);
+            actions.clearToast();
           }
         }}
       />
 
-      {voice.status === "recording" || (voice.status === "parsing" && source === "voice") ? (
+      {voice.status === "recording" || (voice.status === "parsing" && voiceLog.source === "voice") ? (
         <ListeningOverlay
           status={voice.status}
-          analyser={recorder.analyser}
-          onStop={stopVoice}
-          onCancel={cancelVoice}
+          analyser={voiceLog.analyser}
+          onStop={voiceLog.stopVoice}
+          onCancel={voiceLog.cancelVoice}
         />
       ) : null}
 
       <ConfirmSheet
         open={voice.status === "preview" || voice.status === "saving"}
-        draft={draft}
-        source={source}
+        draft={voiceLog.draft}
+        source={voiceLog.source}
         saving={voice.status === "saving"}
-        notice={sheetNotice}
+        notice={voiceLog.sheetNotice}
         excludeSessionId={knownSession ? (knownSession._id as Id<"sessions">) : undefined}
-        onChange={setDraft}
-        onDiscard={discardDraft}
-        onConfirm={() => void confirmDraft()}
-        onRecordAgain={() => void startVoice()}
+        onChange={voiceLog.setDraft}
+        onDiscard={voiceLog.discardDraft}
+        onConfirm={() => void voiceLog.confirmDraft()}
+        onRecordAgain={() => void voiceLog.startVoice()}
       />
 
       {manual ? (
@@ -1309,20 +737,20 @@ export function LogWorkout() {
           truncatedLibrary={exercises?.truncated ?? false}
           sessionSets={sessionSets}
           excludeSessionId={knownSession ? (knownSession._id as Id<"sessions">) : undefined}
-          pending={manualPending}
+          pending={actions.manualPending}
           planTargets={activePlan.map((item) => ({
             name: item.name,
             targetSets: item.targetSets,
             targetReps: item.targetReps,
           }))}
-          onClose={() => setManual(null)}
-          onAdd={addManual}
+          onClose={actions.closeManual}
+          onAdd={actions.addManual}
           onDelete={
             manual.mode === "edit"
               ? () => {
                   const setId = manual.setId;
-                  setManual(null);
-                  void deleteSet(setId);
+                  actions.closeManual();
+                  void actions.deleteSet(setId);
                 }
               : undefined
           }

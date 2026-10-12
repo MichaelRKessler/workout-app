@@ -56,7 +56,7 @@ export function Composer({
         <div className="flex h-14 min-w-0 flex-1 items-center gap-1 rounded-full border border-input bg-surface px-1.5 shadow-float focus-within:border-foreground">
           <button
             type="button"
-            onClick={onManual}
+            onClick={() => onManual()}
             aria-label="Add a set by hand"
             className="flex size-11 shrink-0 items-center justify-center rounded-full bg-fill-2 text-foreground hover:bg-fill"
           >
