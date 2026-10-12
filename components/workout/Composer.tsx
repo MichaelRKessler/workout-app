@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowUpIcon, MicIcon, PlusIcon, Spinner } from "@/components/icons";
+import { ArrowUpIcon, CloseIcon, MicIcon, PlusIcon, Spinner } from "@/components/icons";
 import { MAX_WORKOUT_TEXT_LENGTH } from "@/lib/voice/proposal";
 import { FormEvent } from "react";
 
@@ -15,6 +15,7 @@ export function Composer({
   busy,
   offline = false,
   autoFocus = false,
+  onClose,
 }: {
   text: string;
   onTextChange: (value: string) => void;
@@ -25,6 +26,8 @@ export function Composer({
   busy: boolean;
   offline?: boolean;
   autoFocus?: boolean;
+  /** Shown on Home, where the composer opens on demand: a close button and Escape. */
+  onClose?: () => void;
 }) {
   const hasText = text.trim().length > 0;
 
@@ -37,6 +40,18 @@ export function Composer({
 
   return (
     <div className="bg-background px-4 pt-3 pb-[calc(16px+env(safe-area-inset-bottom))]">
+      {onClose ? (
+        <div className="mx-auto mb-2 flex max-w-lg justify-end">
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close typing"
+            className="flex size-11 items-center justify-center rounded-full text-muted hover:bg-fill-2"
+          >
+            <CloseIcon className="size-5" />
+          </button>
+        </div>
+      ) : null}
       <form onSubmit={onSubmit} className="mx-auto flex max-w-lg items-center gap-2.5">
         <div className="flex h-14 min-w-0 flex-1 items-center gap-1 rounded-full border border-input bg-surface px-1.5 shadow-float focus-within:border-foreground">
           <button
@@ -54,6 +69,12 @@ export function Composer({
             id="composer"
             value={text}
             onChange={(event) => onTextChange(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Escape" && onClose) {
+                event.preventDefault();
+                onClose();
+              }
+            }}
             placeholder={offline ? "Add a set by hand" : "Type a set…"}
             autoComplete="off"
             enterKeyHint="send"

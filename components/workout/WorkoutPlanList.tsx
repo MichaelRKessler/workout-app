@@ -13,7 +13,7 @@ import { cleanSupersetId, supersetBlocks, supersetNextId } from "@/convex/lib/su
 import { exerciseLink } from "@/lib/exerciseLink";
 import { describeSet, formatRoutineTarget, formatSetShort } from "@/lib/format";
 import type { SetLine } from "@/lib/groupSets";
-import { planLogOffer, planLogSpeech, type LoggedPlanSet } from "@/lib/planLog";
+import { lastTimeSpeech, planLogOffer, planLogSpeech, type LoggedPlanSet } from "@/lib/planLog";
 import { formatSuggestion, suggestionAlreadyShown, suggestNext } from "@/lib/suggestion";
 import Link from "next/link";
 
@@ -188,7 +188,7 @@ function PlanRowView({
   const detail = [target, progress.label].filter((part) => part !== null).join(" · ");
   const progressHref = exerciseLink(row.exerciseId, "/");
   const name = progressHref ? (
-    <Link href={progressHref} className="truncate text-base font-semibold tracking-[-0.01em] hover:underline">
+    <Link href={progressHref} className="truncate text-base font-semibold tracking-[-0.01em] underline decoration-line underline-offset-4 hover:decoration-current">
       {row.name}
     </Link>
   ) : (
@@ -357,7 +357,11 @@ function PlanLogButton({
         type="button"
         disabled={!ready || logging}
         aria-label={
-          primary ? planLogSpeech(row.name, primary.label, primary.set, unit) : `Add a set of ${row.name}`
+          logging
+            ? undefined
+            : primary
+              ? planLogSpeech(row.name, primary.label, primary.set, unit)
+              : `Add a set of ${row.name}`
         }
         onClick={() => {
           if (!ready) {
@@ -377,6 +381,7 @@ function PlanLogButton({
         <button
           type="button"
           disabled={logging}
+          aria-label={lastTimeSpeech(row.name, offer.lastTime.set, unit)}
           onClick={() => {
             if (offer.lastTime) {
               onLog(row.exerciseId, row.name, offer.lastTime.set);

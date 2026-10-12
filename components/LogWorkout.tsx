@@ -1236,6 +1236,7 @@ export function LogWorkout() {
                 onManual={() => openManual()}
                 busy={voiceBusy}
                 offline={offline}
+                onClose={() => setHomeTyping(false)}
               />
             </div>
           ) : null}

@@ -82,6 +82,12 @@ function action(set: LoggedPlanSet, unit: WeightUnit, prefix: string): PlanLogAc
   return { set, label: `${prefix} ${compact}` };
 }
 
+/** Spoken label for the "Last time" button: the verb and the exercise, not just the numbers. */
+export function lastTimeSpeech(exerciseName: string, set: LoggedPlanSet, unit: WeightUnit): string {
+  const compact = formatSetShort(set, unit).replaceAll("×", " × ");
+  return `Log ${compact} of ${exerciseName}, same as last time`;
+}
+
 /** Spoken label for the main button, including the exercise name. */
 export function planLogSpeech(exerciseName: string, actionLabel: string, set: LoggedPlanSet, unit: WeightUnit): string {
   return `${actionLabel} of ${exerciseName}, ${describeSet(set, unit)}`;

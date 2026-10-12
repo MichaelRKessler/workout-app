@@ -121,7 +121,7 @@ export function ExerciseLibrary() {
                 <span className="min-w-0">
                   <Link
                     href={exerciseLink(exercise._id, "/exercises") ?? `/exercises/${exercise._id}`}
-                    className="block truncate text-base font-medium hover:underline"
+                    className="block truncate text-base font-medium underline decoration-line underline-offset-4 hover:decoration-current"
                   >
                     {exercise.name}
                   </Link>
