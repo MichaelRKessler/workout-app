@@ -9,7 +9,12 @@ import {
   publishPendingPlan,
   type CachedRoutine,
 } from "@/lib/offline/routineCache";
-import { cacheStore, loadCachedAccess } from "@/lib/offline/storage";
+import {
+  browserStore,
+  cacheStore,
+  loadCachedAccess,
+  OfflineStorageError,
+} from "@/lib/offline/storage";
 import { useMutation, useQuery } from "convex/react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
@@ -75,12 +80,22 @@ export function useBeginWorkout() {
   }
 
   function startCached(routine: CachedRoutine) {
-    publishPendingPlan(cacheStore(), email, {
-      startedAt: Date.now(),
-      name: routine.name,
-      routineId: routine._id,
-      exercises: routine.exercises.map((exercise) => ({ ...exercise, skipped: false })),
-    });
+    // The log screen reads this plan back, so a write that fails must stop
+    // here rather than open an empty workout.
+    try {
+      publishPendingPlan(browserStore(), email, {
+        startedAt: Date.now(),
+        name: routine.name,
+        routineId: routine._id,
+        exercises: routine.exercises.map((exercise) => ({ ...exercise, skipped: false })),
+      });
+    } catch (caught) {
+      if (!(caught instanceof OfflineStorageError)) {
+        throw caught;
+      }
+      setError("This phone couldn't save the routine to start it offline. Reconnect to start it.");
+      return;
+    }
     router.push("/");
   }
 
