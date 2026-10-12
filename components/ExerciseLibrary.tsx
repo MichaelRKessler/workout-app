@@ -23,6 +23,7 @@ type LibraryItem = {
   setCountCapped: boolean;
   muscleGroup: MuscleGroup;
   muscleSource: "saved" | "suggested";
+  mergingInto: string | null;
 };
 
 type Conflict = {

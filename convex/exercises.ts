@@ -1,7 +1,7 @@
 import { paginationOptsValidator, paginationResultValidator } from "convex/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { internalMutation } from "./_generated/server";
 import { isEmailAllowed, normalizeEmail } from "./lib/accessControl";
@@ -471,6 +471,12 @@ async function countSets(
   };
 }
 
+/** The kept exercise's name while a merge is still moving this one's sets. */
+async function mergingIntoName(ctx: QueryCtx, exercise: Doc<"exercises">) {
+  const target = exercise.mergingInto ? await ctx.db.get("exercises", exercise.mergingInto) : null;
+  return target && target.userId === exercise.userId ? target.name : null;
+}
+
 /** Every exercise, with a set count. Pages follow the name index. */
 export const browse = authedQuery({
   args: { paginationOpts: paginationOptsValidator },
@@ -484,14 +490,13 @@ export const browse = authedQuery({
     const page = await Promise.all(
       result.page.map(async (exercise) => {
         const counts = await countSets(ctx, ctx.userId, exercise._id);
-        const target = exercise.mergingInto ? await ctx.db.get("exercises", exercise.mergingInto) : null;
         return {
           _id: exercise._id,
           name: exercise.name,
           setCount: counts.setCount,
           setCountCapped: counts.setCountCapped,
           ...presentMuscle(exercise),
-          mergingInto: target && target.userId === ctx.userId ? target.name : null,
+          mergingInto: await mergingIntoName(ctx, exercise),
         };
       }),
     );
@@ -524,6 +529,7 @@ export const byMuscle = authedQuery({
         name: exercise.name,
         ...(await countSets(ctx, ctx.userId, exercise._id)),
         ...presentMuscle(exercise),
+        mergingInto: await mergingIntoName(ctx, exercise),
       })),
     );
     return { exercises, truncated };
