@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  EMPTY_SESSION_CLOSE_MS,
   STALE_CLOSE_MS,
   STALE_END_MARGIN_MS,
   STALE_PROMPT_MS,
@@ -58,9 +59,12 @@ test("one hour since the last set stays open no matter when the workout started"
   );
 
   const emptyStart = now - STALE_CLOSE_MS;
+  assert.equal(EMPTY_SESSION_CLOSE_MS, 24 * 60 * 60 * 1000);
   assert.equal(workoutLooksStale(now, emptyStart, null, null), false);
-  assert.equal(shouldCloseAbandoned(now - 1, emptyStart, null, null), false);
-  assert.equal(shouldCloseAbandoned(now, emptyStart, null, null), true);
+  assert.equal(shouldCloseAbandoned(now, emptyStart, null, null), false);
+  const emptyClose = emptyStart + EMPTY_SESSION_CLOSE_MS;
+  assert.equal(shouldCloseAbandoned(emptyClose - 1, emptyStart, null, null), false);
+  assert.equal(shouldCloseAbandoned(emptyClose, emptyStart, null, null), true);
 });
 
 test("finishing an active workout uses now, and a stale one uses the last set plus the margin", () => {

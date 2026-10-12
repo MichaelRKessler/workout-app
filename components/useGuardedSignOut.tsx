@@ -34,7 +34,7 @@ export function useGuardedSignOut(): {
 } {
   const { signOut } = useAuthActions();
   const router = useRouter();
-  const { offline, readPending, syncPending } = useOfflineLog();
+  const { offline, readPending, syncPending, accountEmail } = useOfflineLog();
   const [phase, setPhase] = useState<Phase>("idle");
   const [blocked, setBlocked] = useState<Blocked | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -58,7 +58,11 @@ export function useGuardedSignOut(): {
       leaving.current = false;
       return;
     }
-    clearOfflineStorage(browserStore());
+    try {
+      clearOfflineStorage(browserStore(), accountEmail);
+    } catch {
+      // The session is already signed out. A storage error must not trap this page.
+    }
     try {
       await clearShellCache();
     } catch {

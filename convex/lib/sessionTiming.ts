@@ -10,8 +10,14 @@
 /** Ask "Still working out?" after this much inactivity. */
 export const STALE_PROMPT_MS = 2 * 60 * 60 * 1000;
 
-/** Finish or discard an open workout after this much inactivity. */
+/** Finish an open workout that has sets after this much inactivity. */
 export const STALE_CLOSE_MS = 4 * 60 * 60 * 1000;
+
+/**
+ * Empty workouts wait a day. A phone that started one and then went offline
+ * can still sync its sets before the cron deletes the workout.
+ */
+export const EMPTY_SESSION_CLOSE_MS = 24 * 60 * 60 * 1000;
 
 /**
  * Abandoned workouts end this long after the last set, so History includes
@@ -49,7 +55,8 @@ export function shouldCloseAbandoned(
   lastSetAt: number | null,
   resumedAt: number | null,
 ): boolean {
-  return idleMs(now, startedAt, lastSetAt, resumedAt) >= STALE_CLOSE_MS;
+  const limit = lastSetAt === null ? EMPTY_SESSION_CLOSE_MS : STALE_CLOSE_MS;
+  return idleMs(now, startedAt, lastSetAt, resumedAt) >= limit;
 }
 
 export function abandonedCompletedAt(

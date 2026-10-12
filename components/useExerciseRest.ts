@@ -8,7 +8,7 @@ import {
   readRememberedRest,
   rememberRest,
 } from "@/lib/exerciseRest";
-import { browserStore } from "@/lib/offline/storage";
+import { browserStore, OfflineStorageError } from "@/lib/offline/storage";
 import { useMutation, useQuery } from "convex/react";
 import { useEffect, useState } from "react";
 
@@ -16,7 +16,7 @@ import { useEffect, useState } from "react";
 export function useExerciseRest(name: string | null) {
   const server = useQuery(api.exercises.restForName, name ? { name } : "skip");
   const setRest = useMutation(api.exercises.setRest);
-  const { offline, queueExerciseRest } = useOfflineLog();
+  const { offline, queueExerciseRest, accountEmail } = useOfflineLog();
   const [local, setLocal] = useState<number | null | undefined>(undefined);
 
   useEffect(() => {
@@ -25,24 +25,37 @@ export function useExerciseRest(name: string | null) {
       return;
     }
     const store = browserStore();
-    const pending = pendingRestForName(store, name);
-    if (pending !== undefined) {
-      setLocal(pending);
-      return;
+    try {
+      const pending = pendingRestForName(store, accountEmail, name);
+      if (pending !== undefined) {
+        setLocal(pending);
+        return;
+      }
+      setLocal(readRememberedRest(store, accountEmail, name));
+    } catch (error) {
+      if (!(error instanceof OfflineStorageError)) {
+        throw error;
+      }
+      setLocal(undefined);
     }
-    setLocal(readRememberedRest(store, name));
-  }, [name]);
+  }, [accountEmail, name]);
 
   useEffect(() => {
     if (!name || server === undefined) {
       return;
     }
-    if (pendingRestForName(browserStore(), name) !== undefined) {
-      return;
+    try {
+      if (pendingRestForName(browserStore(), accountEmail, name) !== undefined) {
+        return;
+      }
+      rememberRest(browserStore(), accountEmail, name, server);
+    } catch (error) {
+      if (!(error instanceof OfflineStorageError)) {
+        throw error;
+      }
     }
-    rememberRest(browserStore(), name, server);
     setLocal(server);
-  }, [name, server]);
+  }, [accountEmail, name, server]);
 
   const restSeconds = local !== undefined ? local : server !== undefined ? server : null;
 
@@ -51,7 +64,15 @@ export function useExerciseRest(name: string | null) {
       return;
     }
     const store = browserStore();
-    rememberRest(store, name, seconds);
+    let stored = true;
+    try {
+      rememberRest(store, accountEmail, name, seconds);
+    } catch (error) {
+      stored = false;
+      if (!(error instanceof OfflineStorageError)) {
+        throw error;
+      }
+    }
     setLocal(seconds);
     if (offline) {
       queueExerciseRest(name, seconds);
@@ -59,7 +80,9 @@ export function useExerciseRest(name: string | null) {
     }
     try {
       await setRest({ name, restSeconds: seconds });
-      clearPendingRest(store, name);
+      if (stored) {
+        clearPendingRest(store, accountEmail, name);
+      }
     } catch {
       queueExerciseRest(name, seconds);
     }

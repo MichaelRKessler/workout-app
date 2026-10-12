@@ -1,13 +1,23 @@
 "use client";
 
+import { PendingChanges } from "@/components/PendingChanges";
 import { useConnectivity } from "@/components/useConnectivity";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import { isClientId } from "@/convex/lib/clientIds";
 import type { PersonalRecord } from "@/convex/lib/records";
 import { readableError } from "@/lib/errors";
-import { loadPendingRests, queueRest, savePendingRests, type PendingRest } from "@/lib/exerciseRest";
+import {
+  clearPendingRest,
+  loadPendingRests,
+  queueRest,
+  savePendingRests,
+  type PendingRest,
+} from "@/lib/exerciseRest";
 import { pluralize } from "@/lib/format";
+import { holdChanges, prepareBatch, splitBatch } from "@/lib/offline/batch";
+import { resolveDocumentId } from "@/lib/offline/documentId";
+import { withQueueLock } from "@/lib/offline/lock";
+import { mergeOutboxes } from "@/lib/offline/merge";
 import { OFFLINE_BANNER } from "@/lib/offline/messages";
 import {
   applySyncResult,
@@ -17,15 +27,19 @@ import {
   enqueueBody,
   enqueueSets,
   firstSyncError,
+  knownServerIds,
   nextBatch,
+  parseOutbox,
   pendingChangeCount,
   pendingExerciseNames,
   queueAction,
   queueDelete,
   queueEdit,
   reconcileOutbox,
+  releaseOpenSession,
   removePendingBody,
   removePendingSet,
+  resolveSessionClientId,
   type Outbox,
   type PendingBody,
   type PendingEdit,
@@ -36,10 +50,20 @@ import {
   type SyncResult,
 } from "@/lib/offline/outbox";
 import {
+  clearAllErrors,
+  clearItemError,
+  discardPendingItem,
+  listPendingItems,
+} from "@/lib/offline/pendingItems";
+import { RETRY_BASE_MS, nextRetryDelay } from "@/lib/offline/retry";
+import {
+  accountKey,
   browserStore,
   loadOutbox,
   loadSnapshot,
+  OfflineStorageError,
   offlineWritesSuspended,
+  peekOutboxRaw,
   saveOutbox,
   saveSnapshot,
   type WorkoutSnapshot,
@@ -57,7 +81,6 @@ import {
 } from "react";
 
 const SYNC_TIMEOUT_MS = 8000;
-const RETRY_MS = 15000;
 
 export type SaveSetInput = {
   exerciseName: string;
@@ -135,6 +158,12 @@ type OfflineLog = {
   saveBody: (entry: Omit<PendingBody, "syncError" | "echoed">) => Promise<SyncOutcome>;
   /** Drops a weigh-in that has not been saved on the server yet. */
   discardPendingBody: (clientId: string) => void;
+  accountEmail: string | null;
+  storageWarning: string | null;
+  pendingItems: ReturnType<typeof listPendingItems>;
+  retryPending: (id: string) => void;
+  retryAll: () => void;
+  discardPending: (id: string) => void;
 };
 
 const OfflineContext = createContext<OfflineLog | null>(null);
@@ -168,7 +197,8 @@ export function OfflineSyncProvider({
   const [snapshot, setSnapshot] = useState<WorkoutSnapshot | null>(null);
   const [flushError, setFlushError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
-  const [restPending, setRestPending] = useState(0);
+  const [rests, setRests] = useState<PendingRest[]>([]);
+  const [storageWarning, setStorageWarning] = useState<string | null>(null);
 
   const outboxRef = useRef(outbox);
   const serialRef = useRef("");
@@ -189,6 +219,9 @@ export function OfflineSyncProvider({
   const discardRef = useRef(discardSession);
   const setExerciseRestRef = useRef(setExerciseRest);
   const snapshotSerial = useRef("");
+  const lockDepth = useRef(0);
+  const retryDelayRef = useRef(RETRY_BASE_MS);
+  const nextRetryAtRef = useRef(0);
 
   emailRef.current = email;
   offlineRef.current = offline;
@@ -198,7 +231,7 @@ export function OfflineSyncProvider({
   discardRef.current = discardSession;
   setExerciseRestRef.current = setExerciseRest;
 
-  const persist = useCallback((next: Outbox) => {
+  const publish = useCallback((next: Outbox) => {
     const serial = JSON.stringify(next);
     outboxRef.current = next;
     if (serial === serialRef.current) {
@@ -206,31 +239,139 @@ export function OfflineSyncProvider({
     }
     serialRef.current = serial;
     setOutbox(next);
-    if (loadedRef.current) {
-      saveOutbox(browserStore(), emailRef.current, next);
+  }, []);
+
+  const withLock = useCallback(async <T,>(fn: () => Promise<T>): Promise<T> => {
+    if (lockDepth.current > 0) {
+      return await fn();
+    }
+    return await withQueueLock(emailRef.current, async () => {
+      lockDepth.current += 1;
+      try {
+        return await fn();
+      } finally {
+        lockDepth.current -= 1;
+      }
+    });
+  }, []);
+
+  const writeThrough = useCallback(
+    (next: Outbox) => {
+      publish(next);
+      if (!loadedRef.current || offlineWritesSuspended()) {
+        return;
+      }
+      try {
+        const store = browserStore();
+        if (sameStoredQueue(peekOutboxRaw(store, emailRef.current), next)) {
+          setStorageWarning(null);
+          return;
+        }
+        saveOutbox(store, emailRef.current, next);
+        setStorageWarning(null);
+      } catch (error) {
+        if (error instanceof OfflineStorageError) {
+          setStorageWarning(storageWarningText(offlineRef.current));
+          return;
+        }
+        throw error;
+      }
+    },
+    [publish],
+  );
+
+  const readMerged = useCallback((): Outbox => {
+    try {
+      return mergeOutboxes(loadOutbox(browserStore(), emailRef.current), outboxRef.current);
+    } catch (error) {
+      if (error instanceof OfflineStorageError) {
+        setStorageWarning(storageWarningText(offlineRef.current));
+        return outboxRef.current;
+      }
+      throw error;
     }
   }, []);
+
+  const persist = useCallback(
+    (next: Outbox) => {
+      publish(next);
+      if (!loadedRef.current || offlineWritesSuspended()) {
+        return;
+      }
+      void withLock(async () => {
+        writeThrough(readMerged());
+      });
+    },
+    [publish, readMerged, withLock, writeThrough],
+  );
 
   const ensureLoaded = useCallback(() => {
     if (loadedRef.current && hydratedEmail.current === emailRef.current) {
       return;
     }
-    const stored = loadOutbox(browserStore(), emailRef.current);
-    const snap = loadSnapshot(browserStore(), emailRef.current);
-    serialRef.current = JSON.stringify(stored);
-    outboxRef.current = stored;
-    setOutbox(stored);
-    snapshotSerial.current = JSON.stringify(snap);
-    setSnapshot(snap);
+    const emailAtLoad = emailRef.current;
+    try {
+      const stored = loadOutbox(browserStore(), emailAtLoad);
+      const snap = loadSnapshot(browserStore(), emailAtLoad);
+      serialRef.current = JSON.stringify(stored);
+      outboxRef.current = stored;
+      setOutbox(stored);
+      snapshotSerial.current = JSON.stringify(snap);
+      setSnapshot(snap);
+      setRests(loadPendingRests(browserStore(), emailAtLoad));
+      setStorageWarning(null);
+    } catch (error) {
+      if (!(error instanceof OfflineStorageError)) {
+        throw error;
+      }
+      if (hydratedEmail.current !== emailAtLoad) {
+        serialRef.current = JSON.stringify(emptyOutbox());
+        outboxRef.current = emptyOutbox();
+        setOutbox(emptyOutbox());
+        setRests([]);
+      }
+      setStorageWarning(storageWarningText(offlineRef.current));
+      loadedRef.current = true;
+      hydratedEmail.current = emailAtLoad;
+      setReady(true);
+      return;
+    }
     loadedRef.current = true;
-    hydratedEmail.current = emailRef.current;
-    setRestPending(loadPendingRests(browserStore()).length);
+    hydratedEmail.current = emailAtLoad;
     setReady(true);
-  }, []);
+    void withLock(async () => {
+      if (emailRef.current !== emailAtLoad) {
+        return;
+      }
+      writeThrough(readMerged());
+    });
+  }, [readMerged, withLock, writeThrough]);
 
   useEffect(() => {
     ensureLoaded();
   }, [email, ensureLoaded]);
+
+  useEffect(() => {
+    function onStorage(event: StorageEvent) {
+      if (!queueStorageKey(event.key, emailRef.current) || !loadedRef.current) {
+        return;
+      }
+      void withLock(async () => {
+        writeThrough(readMerged());
+        try {
+          setRests(loadPendingRests(browserStore(), emailRef.current));
+        } catch (error) {
+          if (error instanceof OfflineStorageError) {
+            setStorageWarning(storageWarningText(offlineRef.current));
+            return;
+          }
+          throw error;
+        }
+      });
+    }
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, [readMerged, withLock, writeThrough]);
 
   const record = useCallback((result: SyncResult) => {
     for (const item of result.sets) {
@@ -257,74 +398,145 @@ export function OfflineSyncProvider({
         return;
       }
       record(result);
-      persist(applySyncResult(outboxRef.current, result).outbox);
+      const next = applySyncResult(outboxRef.current, result).outbox;
+      if (lockDepth.current > 0) {
+        writeThrough(next);
+      } else {
+        persist(next);
+      }
+      retryDelayRef.current = RETRY_BASE_MS;
+      nextRetryAtRef.current = 0;
       setFlushError(null);
     },
-    [persist, record],
+    [persist, record, writeThrough],
   );
 
-  const sendBatch = useCallback(async (depth = 0) => {
-    if (depth > 10 || offlineRef.current || offlineWritesSuspended()) {
-      return;
-    }
-    const batch = nextBatch(outboxRef.current);
-    if (!batchHasWork(batch)) {
-      return;
-    }
-    const gen = flushSerial.current + 1;
-    flushSerial.current = gen;
-    const invocation = acceptRef
-      .current(batchPayload(batch))
-      .then(
-        (raw) => ({ kind: "ok" as const, raw: toSyncResult(raw) }),
-        (error: unknown) => ({ kind: "error" as const, error }),
-      );
-    const outcome = await Promise.race([
-      invocation,
-      delay(SYNC_TIMEOUT_MS).then(() => ({ kind: "timeout" as const })),
-    ]);
-    if (outcome.kind === "ok") {
-      applyRaw(gen, outcome.raw);
-      if (batchHasWork(nextBatch(outboxRef.current)) && !offlineRef.current) {
-        await sendBatch(depth + 1);
+  const postBatch = useCallback(
+    async (batch: SyncBatch, depth: number): Promise<"ok" | "stop"> => {
+      if (depth > 16) {
+        writeThrough(withSyncError(outboxRef.current, batch, "That change could not be saved"));
+        return "ok";
       }
-      return;
-    }
-    if (outcome.kind === "timeout") {
-      void invocation.then((later) => {
-        if (later.kind === "ok") {
-          applyRaw(gen, later.raw);
+      const prepared = prepareBatch(outboxRef.current, batch);
+      if (prepared.held.length > 0) {
+        writeThrough(holdChanges(outboxRef.current, prepared.held));
+      }
+      if (!batchHasWork(prepared.batch)) {
+        return "ok";
+      }
+      const gen = flushSerial.current + 1;
+      flushSerial.current = gen;
+      const invocation = acceptRef
+        .current(batchPayload(prepared.batch))
+        .then(
+          (raw) => ({ kind: "ok" as const, raw: toSyncResult(raw) }),
+          (error: unknown) => ({ kind: "error" as const, error }),
+        );
+      const outcome = await Promise.race([
+        invocation,
+        delay(SYNC_TIMEOUT_MS).then(() => ({ kind: "timeout" as const })),
+      ]);
+      if (outcome.kind === "ok") {
+        applyRaw(gen, outcome.raw);
+        return "ok";
+      }
+      if (outcome.kind === "timeout") {
+        void invocation.then((later) => {
+          if (later.kind === "ok") {
+            applyRaw(gen, later.raw);
+          }
+        });
+        return "stop";
+      }
+      if (isValidationError(outcome.error)) {
+        const parts = splitBatch(prepared.batch);
+        if (!parts) {
+          writeThrough(
+            withSyncError(outboxRef.current, prepared.batch, readableError(outcome.error)),
+          );
+          return "ok";
+        }
+        const first = await postBatch(parts[0], depth + 1);
+        const second = await postBatch(parts[1], depth + 1);
+        return first === "stop" || second === "stop" ? "stop" : "ok";
+      }
+      nextRetryAtRef.current = Date.now() + retryDelayRef.current;
+      retryDelayRef.current = nextRetryDelay(retryDelayRef.current);
+      setFlushError(readableError(outcome.error));
+      return "stop";
+    },
+    [applyRaw, writeThrough],
+  );
+
+  const sendBatch = useCallback(
+    async (respectBackoff: boolean, depth = 0) => {
+      if (depth > 12 || offlineRef.current || offlineWritesSuspended()) {
+        return;
+      }
+      if (respectBackoff && Date.now() < nextRetryAtRef.current) {
+        return;
+      }
+      await withLock(async () => {
+        const merged = readMerged();
+        const prepared = prepareBatch(merged, nextBatch(merged));
+        const held = holdChanges(merged, prepared.held);
+        writeThrough(held);
+        if (!batchHasWork(prepared.batch)) {
+          return;
+        }
+        const status = await postBatch(prepared.batch, 0);
+        if (status !== "ok" || offlineRef.current) {
+          return;
+        }
+        if (batchHasWork(nextBatch(outboxRef.current))) {
+          await sendBatch(false, depth + 1);
         }
       });
-      return;
-    }
-    if (isValidationError(outcome.error)) {
-      failBatch(outboxRef.current, batch, readableError(outcome.error), persist);
-      return;
-    }
-    setFlushError(readableError(outcome.error));
-  }, [applyRaw, persist]);
+    },
+    [postBatch, readMerged, withLock, writeThrough],
+  );
 
-  const flush = useCallback(() => {
-    const run = tailRef.current.then(() => sendBatch());
-    tailRef.current = run.then(
-      () => undefined,
-      () => undefined,
-    );
-    return run;
-  }, [sendBatch]);
+  const flush = useCallback(
+    (respectBackoff = false) => {
+      const run = tailRef.current.then(() => sendBatch(respectBackoff));
+      tailRef.current = run.then(
+        () => undefined,
+        () => undefined,
+      );
+      return run;
+    },
+    [sendBatch],
+  );
 
   const refreshRests = useCallback(() => {
-    const count = loadPendingRests(browserStore()).length;
-    setRestPending(count);
-    return count;
-  }, []);
+    try {
+      const pending = loadPendingRests(browserStore(), emailRef.current);
+      setRests(pending);
+      return pending.length;
+    } catch (error) {
+      if (error instanceof OfflineStorageError) {
+        setStorageWarning(storageWarningText(offlineRef.current));
+        return rests.length;
+      }
+      throw error;
+    }
+  }, [rests.length]);
 
   const flushRests = useCallback(async () => {
-    if (offlineRef.current || offlineWritesSuspended()) {
-      return loadPendingRests(browserStore()).length;
+    let pending: PendingRest[];
+    try {
+      pending = loadPendingRests(browserStore(), emailRef.current);
+    } catch (error) {
+      if (error instanceof OfflineStorageError) {
+        setStorageWarning(storageWarningText(offlineRef.current));
+        return rests.length;
+      }
+      throw error;
     }
-    const pending = loadPendingRests(browserStore());
+    if (offlineRef.current || offlineWritesSuspended()) {
+      setRests(pending);
+      return pending.length;
+    }
     const left: PendingRest[] = [];
     for (const item of pending) {
       try {
@@ -333,17 +545,34 @@ export function OfflineSyncProvider({
         left.push(item);
       }
     }
-    savePendingRests(browserStore(), left);
-    setRestPending(left.length);
+    try {
+      savePendingRests(browserStore(), emailRef.current, left);
+      setStorageWarning(null);
+    } catch (error) {
+      if (!(error instanceof OfflineStorageError)) {
+        throw error;
+      }
+      setStorageWarning(storageWarningText(offlineRef.current));
+    }
+    setRests(left);
     return left.length;
-  }, []);
+  }, [rests.length]);
 
   const queueExerciseRest = useCallback(
     (name: string, restSeconds: number | null) => {
       if (offlineWritesSuspended()) {
         return;
       }
-      queueRest(browserStore(), name, restSeconds);
+      try {
+        queueRest(browserStore(), emailRef.current, name, restSeconds);
+        setStorageWarning(null);
+      } catch (error) {
+        if (error instanceof OfflineStorageError) {
+          setStorageWarning(storageWarningText(offlineRef.current));
+          return;
+        }
+        throw error;
+      }
       refreshRests();
     },
     [refreshRests],
@@ -351,12 +580,12 @@ export function OfflineSyncProvider({
 
   const readPending = useCallback(() => {
     ensureLoaded();
-    return pendingChangeCount(outboxRef.current) + loadPendingRests(browserStore()).length;
-  }, [ensureLoaded]);
+    return pendingChangeCount(outboxRef.current) + refreshRests();
+  }, [ensureLoaded, refreshRests]);
 
   const syncPending = useCallback(async () => {
     ensureLoaded();
-    const restsWaiting = loadPendingRests(browserStore()).length;
+    const restsWaiting = refreshRests();
     if (pendingChangeCount(outboxRef.current) === 0 && restsWaiting === 0) {
       return 0;
     }
@@ -368,29 +597,29 @@ export function OfflineSyncProvider({
     }
     const restsLeft = await flushRests();
     return pendingChangeCount(outboxRef.current) + restsLeft;
-  }, [ensureLoaded, flush, flushRests]);
+  }, [ensureLoaded, flush, flushRests, refreshRests]);
 
   useEffect(() => {
     if (!autoSync || offline || !ready) {
       return;
     }
-    if (pendingChangeCount(outbox) === 0 && restPending === 0) {
+    if (pendingChangeCount(outbox) === 0 && rests.length === 0) {
       return;
     }
     if (pendingChangeCount(outbox) > 0) {
       void flush();
     }
-    if (restPending > 0) {
+    if (rests.length > 0) {
       void flushRests();
     }
     const timer = window.setInterval(() => {
       if (pendingChangeCount(outboxRef.current) > 0) {
-        void flush();
+        void flush(true);
       }
       void flushRests();
-    }, RETRY_MS);
+    }, RETRY_BASE_MS);
     return () => window.clearInterval(timer);
-  }, [autoSync, flush, flushRests, offline, outbox, ready, restPending]);
+  }, [autoSync, flush, flushRests, offline, outbox, ready, rests.length]);
 
   const wait = useCallback(async () => {
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -445,8 +674,12 @@ export function OfflineSyncProvider({
       }
       const sessionClientId = resolveSessionClientId(
         outboxRef.current,
-        input.sessionId,
-        input.sessionClientId,
+        {
+          sessionId: input.sessionId,
+          explicit: input.sessionClientId,
+          placement: input.placement,
+        },
+        newClientId,
       );
       const enqueued = enqueueSets(outboxRef.current, {
         placement: input.placement,
@@ -546,13 +779,15 @@ export function OfflineSyncProvider({
       ensureLoaded();
       let next = outboxRef.current;
       const deleteIds: string[] = [];
+      const known = knownServerIds(next);
       for (const id of ids) {
         const pending = findPending(next, id, id.startsWith("pending:") ? id.slice("pending:".length) : id);
         if (pending && pending.ackedSetId === null) {
           next = removePendingSet(next, pending.clientId);
           continue;
         }
-        const serverId = pending?.ackedSetId ?? (id.startsWith("pending:") ? null : id);
+        const candidate = pending?.ackedSetId ?? (id.startsWith("pending:") ? null : id);
+        const serverId = candidate ? resolveDocumentId(candidate, known) : null;
         if (!serverId) {
           continue;
         }
@@ -599,6 +834,9 @@ export function OfflineSyncProvider({
           delay(SYNC_TIMEOUT_MS).then(() => ({ kind: "timeout" as const })),
         ]);
         if (raced.kind === "ok") {
+          if (kind === "complete" || kind === "discard") {
+            persist(releaseOpenSession(outboxRef.current));
+          }
           return outcome("synced", null, input.sessionId, raced.personalRecords, raced.completedAt);
         }
         if (raced.kind === "error") {
@@ -606,17 +844,23 @@ export function OfflineSyncProvider({
         }
       }
       const actionId = newClientId();
-      const sessionClientId = resolveSessionClientId(outboxRef.current, input.sessionId);
-      persist(
-        queueAction(outboxRef.current, {
-          actionId,
-          sessionId: input.sessionId,
-          sessionClientId,
-          kind,
-          note: input.note ?? null,
-          requestedAt: input.requestedAt,
-        }),
+      const sessionClientId = resolveSessionClientId(
+        outboxRef.current,
+        { sessionId: input.sessionId, placement: "open" },
+        newClientId,
       );
+      let queued = queueAction(outboxRef.current, {
+        actionId,
+        sessionId: input.sessionId,
+        sessionClientId,
+        kind,
+        note: input.note ?? null,
+        requestedAt: input.requestedAt,
+      });
+      if (kind === "complete" || kind === "discard") {
+        queued = releaseOpenSession(queued);
+      }
+      persist(queued);
       if (offlineRef.current) {
         return outcome("queued", null, input.sessionId);
       }
@@ -654,12 +898,58 @@ export function OfflineSyncProvider({
     [ensureLoaded, persist],
   );
 
+  const retryPending = useCallback(
+    (id: string) => {
+      ensureLoaded();
+      retryDelayRef.current = RETRY_BASE_MS;
+      nextRetryAtRef.current = 0;
+      if (id.startsWith("rest:")) {
+        void flushRests();
+        return;
+      }
+      persist(clearItemError(outboxRef.current, id));
+      void flush();
+    },
+    [ensureLoaded, flush, flushRests, persist],
+  );
+
+  const retryAll = useCallback(() => {
+    ensureLoaded();
+    retryDelayRef.current = RETRY_BASE_MS;
+    nextRetryAtRef.current = 0;
+    persist(clearAllErrors(outboxRef.current));
+    void flush();
+    void flushRests();
+  }, [ensureLoaded, flush, flushRests, persist]);
+
+  const discardPending = useCallback(
+    (id: string) => {
+      ensureLoaded();
+      if (id.startsWith("rest:")) {
+        try {
+          clearPendingRest(browserStore(), emailRef.current, id.slice("rest:".length));
+        } catch (error) {
+          if (!(error instanceof OfflineStorageError)) {
+            throw error;
+          }
+          setStorageWarning(storageWarningText(offlineRef.current));
+        }
+        refreshRests();
+        return;
+      }
+      persist(discardPendingItem(outboxRef.current, id));
+    },
+    [ensureLoaded, persist, refreshRests],
+  );
+
+  const pendingItems = useMemo(() => listPendingItems(outbox, rests), [outbox, rests]);
+
   const value = useMemo<OfflineLog>(
     () => ({
       offline,
       outbox,
       snapshot,
-      pendingCount: pendingChangeCount(outbox) + restPending,
+      pendingCount: pendingChangeCount(outbox) + rests.length,
       syncError: firstSyncError(outbox) ?? flushError,
       pendingNames: pendingExerciseNames(outbox),
       saveSets,
@@ -675,23 +965,35 @@ export function OfflineSyncProvider({
       queueExerciseRest,
       saveBody,
       discardPendingBody,
+      accountEmail: email,
+      storageWarning,
+      pendingItems,
+      retryPending,
+      retryAll,
+      discardPending,
     }),
     [
+      discardPending,
       discardPendingBody,
       editSet,
+      email,
       flushError,
       offline,
       outbox,
+      pendingItems,
       readPending,
       rememberWorkout,
       removeMany,
       reconcile,
+      rests.length,
+      retryAll,
+      retryPending,
       runAction,
       saveBody,
       saveSets,
       queueExerciseRest,
-      restPending,
       snapshot,
+      storageWarning,
       syncPending,
     ],
   );
@@ -700,20 +1002,40 @@ export function OfflineSyncProvider({
 }
 
 export function OfflineBanner() {
-  const { offline, pendingCount, syncError, pendingNames } = useOfflineLog();
-  if (!offline && pendingCount === 0 && !syncError) {
+  const log = useOfflineLog();
+  const { offline, pendingCount, syncError, pendingNames, storageWarning } = log;
+  const [review, setReview] = useState(false);
+  if (!offline && pendingCount === 0 && !syncError && !storageWarning) {
     return null;
   }
+  const showReview = pendingCount > 0 || syncError !== null || storageWarning !== null;
   return (
-    <div
-      role="status"
-      className="sticky top-0 z-30 bg-inverse px-5 py-2 pt-[max(0.5rem,env(safe-area-inset-top))] text-sm text-inverse-ink"
-    >
-      {offline ? <p>{OFFLINE_BANNER}</p> : null}
-      {!offline && pendingCount > 0 ? <p>Saving {pluralize(pendingCount, "change")}…</p> : null}
-      {offline && pendingNames.length > 0 ? <p>Waiting: {pendingNames.join(", ")}</p> : null}
-      {syncError ? <p>{syncError}</p> : null}
-    </div>
+    <>
+      <div
+        role="status"
+        className="sticky top-0 z-30 bg-inverse px-5 py-2 pt-[max(0.5rem,env(safe-area-inset-top))] text-sm text-inverse-ink"
+      >
+        {offline ? <p>{OFFLINE_BANNER}</p> : null}
+        {!offline && pendingCount > 0 ? <p>Saving {pluralize(pendingCount, "change")}…</p> : null}
+        {offline && pendingNames.length > 0 ? <p>Waiting: {pendingNames.join(", ")}</p> : null}
+        {storageWarning ? <p>{storageWarning}</p> : null}
+        {syncError ? <p>{syncError}</p> : null}
+        {showReview ? (
+          <button type="button" className="mt-1 underline underline-offset-2" onClick={() => setReview(true)}>
+            Review pending changes
+          </button>
+        ) : null}
+      </div>
+      <PendingChanges
+        open={review}
+        onClose={() => setReview(false)}
+        items={log.pendingItems}
+        storageWarning={storageWarning}
+        onRetry={log.retryPending}
+        onRetryAll={log.retryAll}
+        onDiscard={log.discardPending}
+      />
+    </>
   );
 }
 
@@ -797,30 +1119,6 @@ function findPending(outbox: Outbox, setId: string, clientId?: string | null): P
   });
 }
 
-function resolveSessionClientId(
-  outbox: Outbox,
-  sessionId: string | null,
-  explicit?: string,
-): string {
-  if (explicit && isClientId(explicit)) {
-    return explicit;
-  }
-  if (sessionId === null) {
-    if (outbox.openSessionClientId && isClientId(outbox.openSessionClientId)) {
-      return outbox.openSessionClientId;
-    }
-    return newClientId();
-  }
-  const existing = outbox.sets.find((set) => set.sessionId === sessionId);
-  if (existing && isClientId(existing.sessionClientId)) {
-    return existing.sessionClientId;
-  }
-  if (isClientId(sessionId)) {
-    return sessionId;
-  }
-  return newClientId();
-}
-
 function newClientId(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
     return crypto.randomUUID().replaceAll("-", "");
@@ -830,6 +1128,7 @@ function newClientId(): string {
 
 function batchPayload(batch: SyncBatch) {
   return {
+    clientNow: Date.now(),
     sets: batch.sets.map((set) => ({
       clientId: set.clientId,
       revision: set.revision,
@@ -931,18 +1230,13 @@ function toSyncResult(raw: {
   };
 }
 
-function failBatch(
-  current: Outbox,
-  batch: SyncBatch,
-  message: string,
-  persist: (next: Outbox) => void,
-) {
+function withSyncError(current: Outbox, batch: SyncBatch, message: string): Outbox {
   const setIds = new Set(batch.sets.map((set) => set.clientId));
   const editIds = new Set(batch.edits.map((edit) => edit.editId));
   const deleteIds = new Set(batch.deletes.map((deletion) => deletion.deleteId));
   const actionIds = new Set(batch.actions.map((action) => action.actionId));
   const bodyIds = new Set(batch.body.map((entry) => entry.clientId));
-  persist({
+  return {
     ...current,
     sets: current.sets.map((set) =>
       setIds.has(set.clientId) && set.echoedRevision !== set.revision ? { ...set, syncError: message } : set,
@@ -961,7 +1255,41 @@ function failBatch(
     body: current.body.map((entry) =>
       bodyIds.has(entry.clientId) && !entry.echoed ? { ...entry, syncError: message } : entry,
     ),
-  });
+  };
+}
+
+function sameStoredQueue(raw: string | null, next: Outbox): boolean {
+  if (raw === null) {
+    return false;
+  }
+  try {
+    const stored = JSON.stringify(parseOutbox(JSON.parse(raw) as unknown));
+    return stored === JSON.stringify(parseOutbox(next));
+  } catch {
+    return false;
+  }
+}
+
+function storageWarningText(offline: boolean): string {
+  return offline
+    ? "This phone couldn't store changes. Stay here until you're back online, or they'll be lost."
+    : "This phone couldn't store changes. They're still here and will be sent, but they aren't saved on the phone.";
+}
+
+function queueStorageKey(key: string | null, email: string | null): boolean {
+  if (!key) {
+    return false;
+  }
+  const account = accountKey(email);
+  return (
+    key === `workout-account:${account}:outbox` ||
+    key === `workout-account:${account}:pending-rest` ||
+    key === `workout-account:${account}:exercise-rest` ||
+    key === `workout-offline:outbox:${account}` ||
+    key === "workout-offline:outbox" ||
+    key === "workout-offline:pending-rest" ||
+    key === "workout-offline:exercise-rest"
+  );
 }
 
 function isValidationError(error: unknown): boolean {

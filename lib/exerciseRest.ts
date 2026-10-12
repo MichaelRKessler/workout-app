@@ -1,9 +1,10 @@
 import { formatExerciseName } from "../convex/lib/exerciseName";
-import type { KeyValueStore } from "./offline/storage";
-
-const PREFIX = "workout-offline:";
-const PENDING_KEY = `${PREFIX}pending-rest`;
-const REMEMBERED_KEY = `${PREFIX}exercise-rest`;
+import {
+  migrateAccountStorage,
+  pendingRestKey,
+  rememberedRestKey,
+  type KeyValueStore,
+} from "./offline/storage";
 
 export type PendingRest = {
   name: string;
@@ -58,52 +59,60 @@ function writeList(store: KeyValueStore, key: string, rests: PendingRest[]): voi
   store.set(key, JSON.stringify(rests));
 }
 
-export function loadPendingRests(store: KeyValueStore): PendingRest[] {
-  return readList(store, PENDING_KEY);
+export function loadPendingRests(store: KeyValueStore, email: string | null): PendingRest[] {
+  migrateAccountStorage(store, email);
+  return readList(store, pendingRestKey(email));
 }
 
-export function savePendingRests(store: KeyValueStore, rests: PendingRest[]): void {
-  writeList(store, PENDING_KEY, rests);
+export function savePendingRests(store: KeyValueStore, email: string | null, rests: PendingRest[]): void {
+  writeList(store, pendingRestKey(email), rests);
 }
 
 /** Queues one exercise rest change. A later change for the same name replaces it. */
 export function queueRest(
   store: KeyValueStore,
+  email: string | null,
   name: string,
   restSeconds: number | null,
 ): PendingRest[] {
   const key = normalized(name);
   if (!key) {
-    return loadPendingRests(store);
+    return loadPendingRests(store, email);
   }
-  const next = loadPendingRests(store).filter((item) => normalized(item.name) !== key);
+  const next = loadPendingRests(store, email).filter((item) => normalized(item.name) !== key);
   next.push({ name: key, restSeconds });
-  savePendingRests(store, next);
+  savePendingRests(store, email, next);
   return next;
 }
 
-export function clearPendingRest(store: KeyValueStore, name: string): void {
+export function clearPendingRest(store: KeyValueStore, email: string | null, name: string): void {
   const key = normalized(name);
   if (!key) {
     return;
   }
   savePendingRests(
     store,
-    loadPendingRests(store).filter((item) => normalized(item.name) !== key),
+    email,
+    loadPendingRests(store, email).filter((item) => normalized(item.name) !== key),
   );
 }
 
-export function pendingRestForName(store: KeyValueStore, name: string): number | null | undefined {
+export function pendingRestForName(
+  store: KeyValueStore,
+  email: string | null,
+  name: string,
+): number | null | undefined {
   const key = normalized(name);
   if (!key) {
     return undefined;
   }
-  const match = loadPendingRests(store).find((item) => normalized(item.name) === key);
+  const match = loadPendingRests(store, email).find((item) => normalized(item.name) === key);
   return match ? match.restSeconds : undefined;
 }
 
 export function rememberRest(
   store: KeyValueStore,
+  email: string | null,
   name: string,
   restSeconds: number | null,
 ): void {
@@ -111,17 +120,23 @@ export function rememberRest(
   if (!key) {
     return;
   }
-  const next = readList(store, REMEMBERED_KEY).filter((item) => normalized(item.name) !== key);
+  migrateAccountStorage(store, email);
+  const next = readList(store, rememberedRestKey(email)).filter((item) => normalized(item.name) !== key);
   next.push({ name: key, restSeconds });
-  writeList(store, REMEMBERED_KEY, next);
+  writeList(store, rememberedRestKey(email), next);
 }
 
-/** Undefined when this device has not seen a rest for the exercise. */
-export function readRememberedRest(store: KeyValueStore, name: string): number | null | undefined {
+/** Undefined when this account has not seen a rest for the exercise. */
+export function readRememberedRest(
+  store: KeyValueStore,
+  email: string | null,
+  name: string,
+): number | null | undefined {
   const key = normalized(name);
   if (!key) {
     return undefined;
   }
-  const match = readList(store, REMEMBERED_KEY).find((item) => normalized(item.name) === key);
+  migrateAccountStorage(store, email);
+  const match = readList(store, rememberedRestKey(email)).find((item) => normalized(item.name) === key);
   return match ? match.restSeconds : undefined;
 }
