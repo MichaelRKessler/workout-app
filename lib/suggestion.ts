@@ -6,6 +6,7 @@ import { formatWeightAmount, roundWeight, type WeightUnit } from "../convex/lib/
 const MAX_WEIGHT_LB = 2000;
 const MAX_REPS = 999;
 
+/** Calories are not an input. A set's calorie count never changes the next weight. */
 export type SuggestionSet = {
   reps?: number | null;
   weightLb: number;

@@ -344,6 +344,16 @@ function ExerciseConfirmBlock({
                   onChange={(duration) => updateSet(setIndex, { duration })}
                 />
               ) : null}
+              {set.kind !== "strength" || set.calories.trim().length > 0 ? (
+                <Field
+                  label="Calories"
+                  value={set.calories}
+                  inputMode="numeric"
+                  disabled={saving}
+                  wide
+                  onChange={(calories) => updateSet(setIndex, { calories })}
+                />
+              ) : null}
               <Field
                 label="RPE"
                 value={set.rpe}
@@ -408,16 +418,18 @@ function Field({
   value,
   inputMode,
   disabled,
+  wide = false,
   onChange,
 }: {
   label: string;
   value: string;
   inputMode: "numeric" | "decimal" | "text";
   disabled: boolean;
+  wide?: boolean;
   onChange: (value: string) => void;
 }) {
   return (
-    <label className="flex flex-col gap-1">
+    <label className={`flex flex-col gap-1 ${wide ? "col-span-2" : ""}`}>
       <span className="text-xs font-medium tracking-[0.06em] text-subtle uppercase">{label}</span>
       <input
         value={value}
@@ -450,6 +462,7 @@ function blankSet(): DraftSet {
     weight: "0",
     duration: "",
     distance: "",
+    calories: "",
     rpe: "",
     weightLb: 0,
     setType: "working",

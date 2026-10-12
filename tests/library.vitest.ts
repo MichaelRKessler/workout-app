@@ -112,6 +112,7 @@ describe("units, notes, and multi-exercise saves", () => {
       weightLb: 135,
       durationSec: null,
       distanceM: null,
+      calories: null,
       rpe: null,
     });
   });

@@ -1,6 +1,6 @@
 import type { Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
-import { achievedRecord, type PersonalRecord } from "./records";
+import { achievedRecord, caloriesRecord, listRecords, type PersonalRecord } from "./records";
 import type { SetType } from "./setType";
 import { EXERCISE_RECORD_SCAN, recordPoint } from "./workouts";
 
@@ -8,10 +8,12 @@ type PerformedSet = {
   _id: Id<"sets">;
   exerciseId: Id<"exercises">;
   exerciseName: string;
+  sessionId: string;
   reps: number | null;
   weightLb: number;
   durationSec: number | null;
   distanceM: number | null;
+  calories: number | null;
   setType: SetType;
   loggedAt: number;
 };
@@ -41,12 +43,12 @@ export async function loadAchievedRecords(
     }
   }
 
-  const records = await Promise.all(
+  const grouped = await Promise.all(
     exerciseOrder.map(async (exerciseId) => {
       const created = byExercise.get(exerciseId);
       const first = created?.[0];
       if (!created || !first) {
-        return null;
+        return [];
       }
       const earlier = await ctx.db
         .query("sets")
@@ -62,8 +64,14 @@ export async function loadAchievedRecords(
         }
         previous.push(recordPoint(set));
       }
-      return achievedRecord(first.exerciseName, created.map((set) => recordPoint(set)), previous);
+      const createdPoints = created.map((set) =>
+        recordPoint({ ...set, sessionId: set.sessionId }),
+      );
+      return listRecords(
+        achievedRecord(first.exerciseName, createdPoints, previous),
+        caloriesRecord(first.exerciseName, createdPoints, previous),
+      );
     }),
   );
-  return records.filter((record): record is PersonalRecord => record !== null);
+  return grouped.flat();
 }

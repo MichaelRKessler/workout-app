@@ -62,6 +62,17 @@ describe("suggested next weight", () => {
     expect(formatSuggestion({ kind: "reps", reps: 14 }, "lb")).toBe("Try 14 reps today");
   });
 
+  test("calories on a set do not change the next weight", () => {
+    const withCalories = [
+      { reps: 5, weightLb: 135, calories: 80 },
+      { reps: 5, weightLb: 135, calories: 90 },
+    ];
+    expect(suggestNext(withCalories, options)).toEqual({ kind: "weight", weightLb: 140 });
+    expect(
+      suggestNext([{ weightLb: 0, durationSec: 1800, distanceM: 19312, calories: 450 }], options),
+    ).toBeNull();
+  });
+
   test("a kilogram default is 2.5 kg, not a conversion of 5 lb", () => {
     const next = suggestNext([{ reps: 8, weightLb: toPounds(60, "kg") }], {
       enabled: true,

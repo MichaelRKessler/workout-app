@@ -12,6 +12,7 @@ export type SetExportRow = {
   weightLb: number;
   durationSec: number | null;
   distanceM: number | null;
+  calories: number | null;
   rpe: number | null;
   note: string | null;
   superset: string | null;
@@ -40,6 +41,7 @@ export type RoutineExportRow = {
   targetWeightLb: number | null;
   targetDurationSec: number | null;
   targetDistanceM: number | null;
+  targetCalories: number | null;
   restSeconds: number | null;
 };
 
@@ -57,6 +59,7 @@ const SET_HEADER = [
   "display_unit",
   "duration_sec",
   "distance_m",
+  "calories",
   "rpe",
   "note",
   "superset",
@@ -96,6 +99,7 @@ const ROUTINE_HEADER = [
   "target_weight_kg",
   "target_duration_sec",
   "target_distance_m",
+  "target_calories",
   "rest_seconds",
   "weight_unit",
 ];
@@ -147,6 +151,7 @@ export function setsCsv(rows: SetExportRow[], unit: WeightUnit, timeZone?: strin
       ...weightCells(row.weightLb, unit),
       row.durationSec,
       row.distanceM,
+      row.calories,
       row.rpe,
       row.note,
       row.superset,
@@ -198,6 +203,7 @@ export function routinesCsv(rows: RoutineExportRow[], unit: WeightUnit): string 
       row.targetWeightLb === null ? null : fromPounds(row.targetWeightLb, "kg"),
       row.targetDurationSec,
       row.targetDistanceM,
+      row.targetCalories,
       row.restSeconds,
       unit,
     ]),

@@ -12,7 +12,7 @@ import { normalizeNote } from "./lib/measures";
 import { muscleCounts, muscleGroupValidator, resolveMuscleGroup, type MuscleGroup } from "./lib/muscleGroup";
 import { countsTowardVolume } from "./lib/setType";
 import {
-  personalRecordForBatch,
+  announcedRecords,
   personalRecordValidator,
   volumeLb,
   type PersonalRecord,
@@ -68,6 +68,7 @@ const setDetailValidator = v.object({
   weightLb: v.number(),
   durationSec: v.union(v.number(), v.null()),
   distanceM: v.union(v.number(), v.null()),
+  calories: v.union(v.number(), v.null()),
   rpe: v.union(v.number(), v.null()),
   setType: v.union(
     v.literal("warmup"),
@@ -87,6 +88,7 @@ const planItemValidator = v.object({
   targetWeightLb: v.union(v.number(), v.null()),
   targetDurationSec: v.union(v.number(), v.null()),
   targetDistanceM: v.union(v.number(), v.null()),
+  targetCalories: v.union(v.number(), v.null()),
   skipped: v.boolean(),
   supersetId: v.union(v.string(), v.null()),
 });
@@ -242,6 +244,7 @@ export const getOpen = authedQuery({
         targetWeightLb: item.targetWeightLb,
         targetDurationSec: item.targetDurationSec,
         targetDistanceM: item.targetDistanceM,
+        targetCalories: item.targetCalories,
         skipped: skipped.get(item.exerciseId) ?? false,
         supersetId: item.supersetId,
       })),
@@ -335,6 +338,7 @@ export const setPlan = authedMutation({
         targetWeightLb: v.optional(v.number()),
         targetDurationSec: v.optional(v.number()),
         targetDistanceM: v.optional(v.number()),
+        targetCalories: v.optional(v.number()),
         skipped: v.optional(v.boolean()),
         supersetId: v.optional(v.string()),
       }),
@@ -396,7 +400,11 @@ export const complete = authedMutation({
       note,
     });
     const sets = await loadSessionSets(ctx, session._id);
-    const personalRecords = await loadAchievedRecords(ctx, ctx.userId, sets);
+    const personalRecords = await loadAchievedRecords(
+      ctx,
+      ctx.userId,
+      sets.map((set) => ({ ...set, sessionId: session._id })),
+    );
     return { completedAt, personalRecords };
   },
 });
@@ -493,6 +501,7 @@ const pastExerciseValidator = v.object({
       weightLb: v.optional(v.number()),
       durationSec: v.optional(v.number()),
       distanceM: v.optional(v.number()),
+      calories: v.optional(v.number()),
       rpe: v.optional(v.number()),
     }),
   ),
@@ -580,24 +589,20 @@ export const logPast = authedMutation({
           ...(set.reps !== undefined ? { reps: set.reps } : {}),
           ...(set.durationSec !== undefined ? { durationSec: set.durationSec } : {}),
           ...(set.distanceM !== undefined ? { distanceM: set.distanceM } : {}),
+          ...(set.calories !== undefined ? { calories: set.calories } : {}),
           ...(set.rpe !== undefined ? { rpe: set.rpe } : {}),
         });
         offset += 1;
-        created.push(recordPoint(set));
+        created.push(recordPoint({ ...set, sessionId }));
       }
       const recent = await loadRecentSetsForExercise(ctx, ctx.userId, exerciseId);
       const previous = recent
         .filter((set) => set.sessionId !== sessionId)
         .slice(0, EXERCISE_RECORD_SCAN)
         .map((set) => recordPoint(set));
-      const record = personalRecordForBatch(
-        stored?.name ?? exercise.name,
-        created,
-        previous,
+      personalRecords.push(
+        ...announcedRecords(stored?.name ?? exercise.name, created, previous).records,
       );
-      if (record) {
-        personalRecords.push(record);
-      }
     }
 
     return { sessionId, personalRecords };
@@ -732,7 +737,9 @@ export const listDay = authedQuery({
     const personalRecords = await loadAchievedRecords(
       ctx,
       ctx.userId,
-      detailed.flatMap((session) => session.sets),
+      detailed.flatMap((session) =>
+        session.sets.map((set) => ({ ...set, sessionId: session._id })),
+      ),
     );
     return { sessions: detailed, personalRecords, truncated };
   },
@@ -856,9 +863,11 @@ const weeklySummaryValidator = v.object({
   workouts: v.number(),
   sets: v.number(),
   volumeLb: v.number(),
+  calories: v.number(),
   previousWorkouts: v.number(),
   previousSets: v.number(),
   previousVolumeLb: v.number(),
+  previousCalories: v.number(),
   streakWeeks: v.number(),
   /** Working sets this week, warm-ups excluded, one count per exercise's muscle. */
   muscles: v.array(
@@ -899,8 +908,8 @@ export const weeklySummary = authedQuery({
     const lastWeek = args.weekStarts.length - 2;
     const weekHasWorkout = args.weekStarts.map(() => false);
     const totals = [
-      { workouts: 0, sets: 0, volumeLb: 0 },
-      { workouts: 0, sets: 0, volumeLb: 0 },
+      { workouts: 0, sets: 0, volumeLb: 0, calories: 0 },
+      { workouts: 0, sets: 0, volumeLb: 0, calories: 0 },
     ];
     const setsByExercise = new Map<Id<"exercises">, number>();
 
@@ -927,6 +936,13 @@ export const weeklySummary = authedQuery({
       bucket.workouts += 1;
       bucket.sets += sets.filter((set) => countsTowardVolume(set)).length;
       bucket.volumeLb = Math.round((bucket.volumeLb + volumeLb(sets)) * 100) / 100;
+      bucket.calories += sets.reduce((sum, set) => {
+        if (!countsTowardVolume(set)) {
+          return sum;
+        }
+        const calories = set.calories ?? 0;
+        return calories > 0 ? sum + calories : sum;
+      }, 0);
       if (index !== thisWeek) {
         continue;
       }
@@ -952,9 +968,11 @@ export const weeklySummary = authedQuery({
       workouts: totals[0]?.workouts ?? 0,
       sets: totals[0]?.sets ?? 0,
       volumeLb: totals[0]?.volumeLb ?? 0,
+      calories: totals[0]?.calories ?? 0,
       previousWorkouts: totals[1]?.workouts ?? 0,
       previousSets: totals[1]?.sets ?? 0,
       previousVolumeLb: totals[1]?.volumeLb ?? 0,
+      previousCalories: totals[1]?.calories ?? 0,
       streakWeeks: workoutStreak(weekHasWorkout),
       muscles: muscleCounts(groupCounts),
     };

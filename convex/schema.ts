@@ -56,6 +56,8 @@ export default defineSchema({
           targetWeightLb: v.optional(v.number()),
           targetDurationSec: v.optional(v.number()),
           targetDistanceM: v.optional(v.number()),
+          // Optional so workouts saved before calories still validate.
+          targetCalories: v.optional(v.number()),
           skipped: v.optional(v.boolean()),
           // Optional so workouts saved before supersets still validate.
           // Shared by adjacent exercises. Absent means this exercise stands alone.
@@ -77,6 +79,8 @@ export default defineSchema({
     weightLb: v.number(),
     durationSec: v.optional(v.number()),
     distanceM: v.optional(v.number()),
+    // Optional so sets saved before calories still validate. Whole kcal.
+    calories: v.optional(v.number()),
     rpe: v.optional(v.number()),
     // Unused. Optional so sets saved before we stopped writing it still validate.
     order: v.optional(v.number()),
@@ -114,6 +118,8 @@ export default defineSchema({
         targetWeightLb: v.optional(v.number()),
         targetDurationSec: v.optional(v.number()),
         targetDistanceM: v.optional(v.number()),
+        // Optional so routines saved before calories still validate.
+        targetCalories: v.optional(v.number()),
         // Optional so routines saved before supersets still validate.
         supersetId: v.optional(v.string()),
       }),

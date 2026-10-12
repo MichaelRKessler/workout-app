@@ -12,6 +12,7 @@ export type CachedRoutineExercise = {
   targetWeightLb: number | null;
   targetDurationSec: number | null;
   targetDistanceM: number | null;
+  targetCalories?: number | null;
   restSeconds: number | null;
   supersetId: string | null;
 };
@@ -175,6 +176,7 @@ function parseExercise(value: unknown): CachedRoutineExercise | null {
     targetWeightLb: numberOrNull(exercise.targetWeightLb),
     targetDurationSec: numberOrNull(exercise.targetDurationSec),
     targetDistanceM: numberOrNull(exercise.targetDistanceM),
+    targetCalories: numberOrNull(exercise.targetCalories),
     restSeconds: typeof exercise.restSeconds === "number" ? exercise.restSeconds : null,
     supersetId: typeof exercise.supersetId === "string" && exercise.supersetId.length > 0
       ? exercise.supersetId

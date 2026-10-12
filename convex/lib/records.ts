@@ -19,15 +19,17 @@ export const personalRecordValidator = v.object({
     v.literal("reps"),
     v.literal("duration"),
     v.literal("distance"),
+    v.literal("calories"),
   ),
   reps: v.union(v.number(), v.null()),
   weightLb: v.number(),
   epleyLb: v.union(v.number(), v.null()),
   durationSec: v.union(v.number(), v.null()),
   distanceM: v.union(v.number(), v.null()),
+  calories: v.union(v.number(), v.null()),
 });
 
-export type RecordKind = "weight" | "epley" | "both" | "reps" | "duration" | "distance";
+export type RecordKind = "weight" | "epley" | "both" | "reps" | "duration" | "distance" | "calories";
 
 export type PersonalRecord = {
   exerciseName: string;
@@ -37,6 +39,7 @@ export type PersonalRecord = {
   epleyLb: number | null;
   durationSec: number | null;
   distanceM: number | null;
+  calories: number | null;
 };
 
 type SetPoint = {
@@ -44,7 +47,9 @@ type SetPoint = {
   weightLb: number;
   durationSec?: number | null;
   distanceM?: number | null;
+  calories?: number | null;
   setType?: SetType | null;
+  sessionId?: string;
 };
 
 /**
@@ -52,6 +57,9 @@ type SetPoint = {
  * Weighted sets can beat the heaviest load, the best Epley estimate, or both.
  * Bodyweight sets (0 lb) can beat the most reps. The first set of either kind counts.
  * Ties do not.
+ * Calories are not part of that per-set check. The most calories in one
+ * session is `caloriesRecord`: working and failure sets sum, warm-ups and
+ * drops are excluded, and the total must beat every earlier session.
  */
 function recordBase(
   exerciseName: string,
@@ -67,6 +75,7 @@ function recordBase(
     epleyLb,
     durationSec: set.durationSec ?? null,
     distanceM: set.distanceM ?? null,
+    calories: null,
   };
 }
 
@@ -240,6 +249,129 @@ export function personalRecordForBatch(
   return latest;
 }
 
+/**
+ * Most calories for one exercise in a single workout session.
+ * Working and failure sets sum. Warm-ups and drop sets are excluded, the same
+ * as other record metrics. The total must be strictly greater than every
+ * earlier session. Ties do not count. The first session with any
+ * record-eligible calories is a record.
+ * Sets already logged in a created session count toward that session's total
+ * and toward the best it has to beat, so a later set announces a record only
+ * when the session total goes up. Duration and distance records stay on their
+ * own per-set rules.
+ */
+export function caloriesRecord(
+  exerciseName: string,
+  created: SetPoint[],
+  previous: SetPoint[],
+): PersonalRecord | null {
+  const createdOrder: string[] = [];
+  const createdIds = new Set<string>();
+  const createdSets = new Map<string, SetPoint[]>();
+  for (const set of created) {
+    const sessionId = sessionKey(set, "created");
+    const group = createdSets.get(sessionId);
+    if (group) {
+      group.push(set);
+    } else {
+      createdSets.set(sessionId, [set]);
+      createdOrder.push(sessionId);
+    }
+    createdIds.add(sessionId);
+  }
+
+  const earlierTotals = new Map<string, number>();
+  for (const set of previous) {
+    const sessionId = sessionKey(set, "earlier");
+    if (createdIds.has(sessionId)) {
+      const group = createdSets.get(sessionId);
+      if (group) {
+        group.push(set);
+      }
+      earlierTotals.set(sessionId, (earlierTotals.get(sessionId) ?? 0) + countableCalories(set));
+      continue;
+    }
+    earlierTotals.set(sessionId, (earlierTotals.get(sessionId) ?? 0) + countableCalories(set));
+  }
+
+  let best = 0;
+  for (const total of earlierTotals.values()) {
+    if (total > best) {
+      best = total;
+    }
+  }
+
+  let latest: PersonalRecord | null = null;
+  for (const sessionId of createdOrder) {
+    const total = (createdSets.get(sessionId) ?? []).reduce(
+      (sum, set) => sum + countableCalories(set),
+      0,
+    );
+    if (total > best) {
+      latest = {
+        exerciseName,
+        kind: "calories",
+        reps: null,
+        weightLb: 0,
+        epleyLb: null,
+        durationSec: null,
+        distanceM: null,
+        calories: total,
+      };
+      best = total;
+    }
+  }
+  return latest;
+}
+
+/** The strength, time, or distance record when there is one. Otherwise calories. */
+export function headlineRecord(
+  primary: PersonalRecord | null,
+  calories: PersonalRecord | null,
+): PersonalRecord | null {
+  return primary ?? calories;
+}
+
+/** Both records, with the per-set record first. */
+export function listRecords(
+  primary: PersonalRecord | null,
+  calories: PersonalRecord | null,
+): PersonalRecord[] {
+  const records: PersonalRecord[] = [];
+  if (primary) {
+    records.push(primary);
+  }
+  if (calories) {
+    records.push(calories);
+  }
+  return records;
+}
+
+export function announcedRecords(
+  exerciseName: string,
+  created: SetPoint[],
+  previous: SetPoint[],
+): { headline: PersonalRecord | null; records: PersonalRecord[] } {
+  const primary = personalRecordForBatch(exerciseName, created, previous);
+  const calories = caloriesRecord(exerciseName, created, previous);
+  return {
+    headline: headlineRecord(primary, calories),
+    records: listRecords(primary, calories),
+  };
+}
+
+function sessionKey(set: SetPoint, fallback: string): string {
+  return set.sessionId && set.sessionId.length > 0 ? set.sessionId : fallback;
+}
+
+function countableCalories(set: SetPoint): number {
+  if (!countsTowardRecord(set)) {
+    return 0;
+  }
+  const calories = set.calories ?? 0;
+  return calories > 0 ? calories : 0;
+}
+
 export type Effort = {
   setId: string;
   sessionId: string;
@@ -258,8 +390,15 @@ type EffortSet = {
   weightLb: number;
   durationSec?: number | null;
   distanceM?: number | null;
+  calories?: number | null;
   loggedAt: number;
   setType?: SetType | null;
+};
+
+export type CalorieEffort = {
+  sessionId: string;
+  calories: number;
+  loggedAt: number;
 };
 
 function toEffort(set: EffortSet, epleyLb: number | null): Effort {
@@ -285,6 +424,8 @@ export function summarizeEfforts(sets: EffortSet[]): {
   bestBodyweight: Effort | null;
   bestDuration: Effort | null;
   bestDistance: Effort | null;
+  /** Best session total. An earlier tie wins. Warm-ups and drops are excluded. */
+  bestCalories: CalorieEffort | null;
 } {
   let bestWeight: Effort | null = null;
   let bestEpley: Effort | null = null;
@@ -376,7 +517,49 @@ export function summarizeEfforts(sets: EffortSet[]): {
     }
   }
 
-  return { bestWeight, bestEpley, bestBodyweight, bestDuration, bestDistance };
+  return {
+    bestWeight,
+    bestEpley,
+    bestBodyweight,
+    bestDuration,
+    bestDistance,
+    bestCalories: bestSessionCalories(sets),
+  };
+}
+
+/** Record-eligible calories, summed per session. The highest total wins; an earlier tie stays. */
+function bestSessionCalories(sets: EffortSet[]): CalorieEffort | null {
+  const totals = new Map<string, CalorieEffort>();
+  for (const set of sets) {
+    const calories = countableCalories(set);
+    if (calories <= 0) {
+      continue;
+    }
+    const existing = totals.get(set.sessionId);
+    if (existing) {
+      existing.calories += calories;
+      if (set.loggedAt < existing.loggedAt) {
+        existing.loggedAt = set.loggedAt;
+      }
+    } else {
+      totals.set(set.sessionId, {
+        sessionId: set.sessionId,
+        calories,
+        loggedAt: set.loggedAt,
+      });
+    }
+  }
+  let best: CalorieEffort | null = null;
+  for (const total of totals.values()) {
+    if (
+      best === null ||
+      total.calories > best.calories ||
+      (total.calories === best.calories && total.loggedAt < best.loggedAt)
+    ) {
+      best = { ...total };
+    }
+  }
+  return best;
 }
 
 export type TrendSetSnap = {
@@ -399,6 +582,8 @@ export type TrendPoint = {
   reps: number | null;
   durationSec: number | null;
   distanceM: number | null;
+  /** Record-eligible calories in the workout. Null when none were logged. */
+  calories: number | null;
   bestEpleySet: TrendSetSnap | null;
   bestWeightSet: TrendSetSnap | null;
   bestRepsSet: TrendSetSnap | null;
@@ -436,6 +621,10 @@ export function trendFromSets(
     }
     if (countsTowardRecord(set)) {
       considerRecord(existing, set);
+      const calories = set.calories ?? 0;
+      if (calories > 0) {
+        existing.calories = (existing.calories ?? 0) + calories;
+      }
       const value = trendValue(set, unit);
       if (value !== null && (existing.value === null || value > existing.value)) {
         existing.value = value;
@@ -538,6 +727,7 @@ function blankTrendPoint(sessionId: string, startedAt: number): TrendPoint {
     reps: null,
     durationSec: null,
     distanceM: null,
+    calories: null,
     bestEpleySet: null,
     bestWeightSet: null,
     bestRepsSet: null,

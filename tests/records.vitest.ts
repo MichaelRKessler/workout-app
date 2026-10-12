@@ -1,6 +1,8 @@
 import { describe, expect, test } from "vitest";
 import {
   achievedRecord,
+  announcedRecords,
+  caloriesRecord,
   epleyOneRepMax,
   personalRecordForBatch,
   personalRecordForSet,
@@ -138,6 +140,127 @@ describe("best efforts and volume", () => {
     );
     expect(distanceTrend.unit).toBe("m");
     expect(distanceTrend.points.map((point) => point.value)).toEqual([1000, 2000]);
+    expect(distanceTrend.points.map((point) => point.calories)).toEqual([null, null]);
+  });
+
+  test("the most calories in a session is a record, and it does not change time or distance", () => {
+    const bike = (
+      sessionId: string,
+      calories: number,
+      extra: { setType?: "warmup" | "drop" | "failure" | "working"; distanceM?: number; durationSec?: number } = {},
+    ) => ({
+      weightLb: 0,
+      durationSec: extra.durationSec ?? 1800,
+      distanceM: extra.distanceM ?? 19312,
+      calories,
+      sessionId,
+      setType: extra.setType,
+    });
+
+    expect(caloriesRecord("bike", [bike("s1", 450)], [])).toMatchObject({
+      kind: "calories",
+      calories: 450,
+    });
+    expect(caloriesRecord("bike", [bike("s2", 450)], [bike("s1", 450)])).toBeNull();
+    expect(caloriesRecord("bike", [bike("s2", 500)], [bike("s1", 450)])).toMatchObject({
+      calories: 500,
+    });
+    expect(
+      caloriesRecord(
+        "bike",
+        [
+          bike("s1", 100, { setType: "warmup" }),
+          bike("s1", 50, { setType: "drop" }),
+          bike("s1", 200, { setType: "failure" }),
+          bike("s1", 250),
+        ],
+        [],
+      ),
+    ).toMatchObject({ calories: 450 });
+    expect(caloriesRecord("bike", [bike("s1", 200)], [bike("s1", 250)])).toMatchObject({
+      calories: 450,
+    });
+    expect(
+      caloriesRecord("bike", [bike("s1", 900, { setType: "warmup" })], [bike("s1", 450)]),
+    ).toBeNull();
+    expect(
+      caloriesRecord("bike", [bike("morning", 450), bike("evening", 200)], []),
+    ).toMatchObject({ calories: 450 });
+    expect(
+      caloriesRecord("bike", [bike("morning", 450), bike("evening", 600)], []),
+    ).toMatchObject({ calories: 600 });
+
+    const faster = announcedRecords(
+      "bike",
+      [bike("s2", 500, { durationSec: 400 })],
+      [bike("s1", 100, { durationSec: 500 })],
+    );
+    expect(faster.records.map((record) => record.kind)).toEqual(["distance", "calories"]);
+    expect(faster.headline?.kind).toBe("distance");
+
+    const sameRide = announcedRecords(
+      "bike",
+      [bike("s2", 500, { durationSec: 500 })],
+      [bike("s1", 100, { durationSec: 400 })],
+    );
+    expect(sameRide.records.map((record) => record.kind)).toEqual(["calories"]);
+    expect(sameRide.headline?.kind).toBe("calories");
+    expect(
+      personalRecordForSet("bike", { weightLb: 0, distanceM: 19312, durationSec: 500, calories: 900 }, [
+        { weightLb: 0, distanceM: 19312, durationSec: 400 },
+      ]),
+    ).toBeNull();
+
+    expect(
+      volumeLb([
+        { reps: 5, weightLb: 100, calories: 300 },
+        { weightLb: 0, durationSec: 60, calories: 450 },
+      ]),
+    ).toBe(500);
+
+    const efforts = summarizeEfforts([
+      { _id: "warm", sessionId: "a", weightLb: 0, durationSec: 600, calories: 900, loggedAt: 1, setType: "warmup" },
+      { _id: "ride", sessionId: "a", weightLb: 0, durationSec: 1800, distanceM: 19312, calories: 200, loggedAt: 2 },
+      { _id: "extra", sessionId: "a", weightLb: 0, durationSec: 600, calories: 250, loggedAt: 3 },
+      { _id: "later", sessionId: "b", weightLb: 0, durationSec: 1800, distanceM: 19312, calories: 400, loggedAt: 4 },
+    ]);
+    expect(efforts.bestCalories).toEqual({ sessionId: "a", calories: 450, loggedAt: 2 });
+    expect(efforts.bestDistance?.distanceM).toBe(19312);
+
+    const trend = trendFromSets(
+      [
+        {
+          _id: "ride",
+          sessionId: "a",
+          weightLb: 0,
+          durationSec: 1800,
+          distanceM: 19312,
+          calories: 450,
+          loggedAt: 2,
+          sessionStartedAt: 1,
+        },
+        {
+          _id: "warm",
+          sessionId: "a",
+          weightLb: 0,
+          durationSec: 300,
+          calories: 80,
+          loggedAt: 1,
+          sessionStartedAt: 1,
+          setType: "warmup",
+        },
+      ],
+      10,
+    );
+    expect(trend.unit).toBe("m");
+    expect(trend.points[0]?.calories).toBe(450);
+    expect(trend.points[0]?.volumeLb).toBe(0);
+    expect(trend.points[0]?.bestDistanceSet).toEqual({
+      reps: null,
+      weightLb: 0,
+      durationSec: 1800,
+      distanceM: 19312,
+    });
   });
 
   test("the trend is one point per workout, oldest first", () => {

@@ -7,6 +7,7 @@ import {
   THREE_MONTHS_MS,
   availableMetrics,
   buildSeries,
+  defaultChartMetric,
   chartDomain,
   dateTickBoxes,
   defaultChartRange,
@@ -330,6 +331,78 @@ test("personal records are the days that beat every earlier day", () => {
   );
   assert.deepEqual(metrics, ["epley", "weight", "volume"]);
   assert.deepEqual(availableMetrics([], "lb", "body"), ["body"]);
+});
+
+test("calories add up for the day and open a cardio chart", () => {
+  const morning = Date.UTC(2026, 9, 11, 14);
+  const evening = Date.UTC(2026, 9, 11, 20);
+  const next = Date.UTC(2026, 9, 12, 14);
+  const rides = [
+    {
+      sessionId: "am",
+      startedAt: morning,
+      value: 19312,
+      distanceM: 19312,
+      volumeLb: 0,
+      calories: 450,
+    },
+    {
+      sessionId: "pm",
+      startedAt: evening,
+      value: 8000,
+      distanceM: 8000,
+      volumeLb: 0,
+      calories: 200,
+    },
+    {
+      sessionId: "next",
+      startedAt: next,
+      value: 10000,
+      distanceM: 10000,
+      volumeLb: 0,
+      calories: 700,
+    },
+  ];
+  const series = buildSeries(rides, "calories", "m", "UTC");
+  assert.deepEqual(
+    series.map((point) => point.value),
+    [650, 700],
+  );
+  assert.deepEqual(
+    series.map((point) => point.pr),
+    [true, true],
+  );
+  const cardio = availableMetrics(rides, "m", "effort");
+  assert.deepEqual(cardio, ["calories", "distance"]);
+  assert.equal(defaultChartMetric(cardio, "m"), "calories");
+  assert.equal(defaultChartMetric(["time"], "sec"), "time");
+
+  const lifting = availableMetrics(
+    [
+      {
+        sessionId: "a",
+        startedAt: morning,
+        value: 200,
+        epleyLb: 200,
+        topWeightLb: 185,
+        volumeLb: 3000,
+        calories: 120,
+      },
+    ],
+    "lb",
+    "effort",
+  );
+  assert.deepEqual(lifting, ["epley", "weight", "volume", "calories"]);
+  assert.equal(defaultChartMetric(lifting, "lb"), "epley");
+  assert.equal(formatChartValue(450, "calories", "lb"), "450 cal");
+  assert.equal(
+    formatChartSet(
+      { reps: null, weightLb: 0, durationSec: 1800, distanceM: 19312 },
+      "calories",
+      "lb",
+    ),
+    null,
+  );
 });
 
 test("a layoff splits the line, and the curve and trend stay defined", () => {

@@ -13,6 +13,31 @@ const previous = [
 ];
 
 describe("set form prefill", () => {
+  test("last time copies calories onto the next set", () => {
+    expect(
+      prefillValues(
+        "bike",
+        [
+          {
+            exerciseName: "bike",
+            reps: null,
+            weightLb: 0,
+            durationSec: 1800,
+            distanceM: 19312,
+            calories: 450,
+          },
+        ],
+        null,
+      ),
+    ).toMatchObject({
+      kind: "distance",
+      duration: "30:00",
+      distance: "12 mi",
+      calories: "450",
+      source: "session",
+    });
+  });
+
   test("the open workout's last set of that exercise wins", () => {
     expect(prefillValues("bench press", session, previous)).toEqual({
       kind: "strength",
@@ -20,6 +45,7 @@ describe("set form prefill", () => {
       weight: "155",
       duration: "",
       distance: "",
+      calories: "",
       rpe: "",
       setType: "working",
       source: "session",
@@ -34,6 +60,7 @@ describe("set form prefill", () => {
       weight: "145",
       duration: "",
       distance: "",
+      calories: "",
       rpe: "",
       setType: "working",
       source: "previous",
@@ -46,6 +73,7 @@ describe("set form prefill", () => {
       weight: "0",
       duration: "",
       distance: "",
+      calories: "",
       rpe: "",
       setType: "working",
       source: "default",
@@ -56,6 +84,7 @@ describe("set form prefill", () => {
       weight: "0",
       duration: "",
       distance: "",
+      calories: "",
       rpe: "",
       setType: "working",
       source: "default",
@@ -70,6 +99,7 @@ describe("set form prefill", () => {
       weight: "95",
       duration: "",
       distance: "",
+      calories: "",
       rpe: "",
       setType: "working",
       source: "routine",

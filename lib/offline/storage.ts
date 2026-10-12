@@ -260,6 +260,7 @@ function parseSnapshotPlan(value: unknown): PendingPlan | null {
       targetDurationSec:
         typeof exercise.targetDurationSec === "number" ? exercise.targetDurationSec : null,
       targetDistanceM: typeof exercise.targetDistanceM === "number" ? exercise.targetDistanceM : null,
+      targetCalories: typeof exercise.targetCalories === "number" ? exercise.targetCalories : null,
       restSeconds: typeof exercise.restSeconds === "number" ? exercise.restSeconds : null,
       supersetId:
         typeof exercise.supersetId === "string" && exercise.supersetId.length > 0
@@ -318,6 +319,7 @@ function parseSetLine(value: unknown): SetLine | null {
     weightLb: set.weightLb,
     durationSec: typeof set.durationSec === "number" ? set.durationSec : null,
     distanceM: typeof set.distanceM === "number" ? set.distanceM : null,
+    calories: typeof set.calories === "number" ? set.calories : null,
     rpe: typeof set.rpe === "number" ? set.rpe : null,
     ...(isSetType(set.setType) ? { setType: set.setType } : {}),
     loggedAt: set.loggedAt,

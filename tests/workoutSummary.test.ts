@@ -70,9 +70,51 @@ test("timed sets use their duration, and warm-ups stay out of sets and volume", 
   assert.equal(summary.exerciseCount, 2);
   assert.equal(summary.volumeLb, 0);
   assert.equal(summary.distanceM, 2000);
+  assert.equal(summary.calories, 0);
   // The warm-up still takes the assumed 30 seconds of the clock.
   assert.equal(summary.activeMs, ASSUMED_SET_MS + 150_000);
   assert.equal(summary.restMs, 5 * MINUTE - ASSUMED_SET_MS - 150_000);
+});
+
+test("calories total the ride and stay out of lifting volume", () => {
+  const summary = summarizeSessions([
+    {
+      startedAt: 0,
+      completedAt: 40 * MINUTE,
+      sets: [
+        {
+          exerciseId: "bike",
+          reps: null,
+          weightLb: 0,
+          durationSec: 300,
+          calories: 40,
+          setType: "warmup",
+          loggedAt: MINUTE,
+        },
+        {
+          exerciseId: "bike",
+          reps: null,
+          weightLb: 0,
+          durationSec: 1800,
+          distanceM: 19312,
+          calories: 450,
+          loggedAt: 31 * MINUTE,
+        },
+        {
+          exerciseId: "bench",
+          reps: 5,
+          weightLb: 135,
+          calories: 20,
+          setType: "drop",
+          loggedAt: 40 * MINUTE,
+        },
+      ],
+    },
+  ]);
+  assert.equal(summary.calories, 470);
+  assert.equal(summary.volumeLb, 5 * 135);
+  assert.equal(summary.setCount, 2);
+  assert.equal(summary.warmupCount, 1);
 });
 
 test("a past workout with no length omits the clock, and two sessions do not share a rest gap", () => {

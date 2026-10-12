@@ -3,6 +3,8 @@ import { roundWeight } from "./units";
 
 export const MAX_DURATION_SEC = 24 * 60 * 60;
 export const MAX_DISTANCE_M = 200_000;
+/** Whole kilocalories. A blank field means the set has no calorie count. */
+export const MAX_CALORIES = 20_000;
 export const MAX_NOTE_LENGTH = 500;
 export const M_PER_KM = 1000;
 export const M_PER_MI = 1609.344;
@@ -14,6 +16,7 @@ export type MeasureInput = {
   weightLb?: number | null;
   durationSec?: number | null;
   distanceM?: number | null;
+  calories?: number | null;
   rpe?: number | null;
   setType?: SetType | null;
 };
@@ -24,6 +27,7 @@ export type NormalizedSet = {
   weightLb: number;
   durationSec?: number;
   distanceM?: number;
+  calories?: number;
   rpe?: number;
   setType: SetType;
 };
@@ -47,6 +51,7 @@ export function normalizeStoredSet(input: MeasureInput): NormalizedSet {
   const reps = optionalReps(input.reps);
   const durationSec = optionalDuration(input.durationSec);
   const distanceM = optionalDistance(input.distanceM);
+  const calories = optionalCalories(input.calories);
   const rpe = optionalRpe(input.rpe);
   const weightLb = optionalWeight(input.weightLb);
 
@@ -59,6 +64,7 @@ export function normalizeStoredSet(input: MeasureInput): NormalizedSet {
     weightLb,
     ...(durationSec !== undefined ? { durationSec } : {}),
     ...(distanceM !== undefined ? { distanceM } : {}),
+    ...(calories !== undefined ? { calories } : {}),
     ...(rpe !== undefined ? { rpe } : {}),
     setType: resolvedSetType(input.setType),
   };
@@ -135,6 +141,27 @@ export function parseClock(value: string): number | null {
   return total;
 }
 
+export function formatCalories(calories: number): string {
+  return `${Math.round(calories)} cal`;
+}
+
+/** Whole kilocalories. A blank or zero means unset. Units like kcal are optional. */
+export function parseCaloriesInput(value: string): number | null {
+  const trimmed = value.trim().toLowerCase().replace(/,/g, "");
+  if (!trimmed) {
+    return null;
+  }
+  const match = /^(\d+)\s*(k?cal|cals?|calories)?$/.exec(trimmed);
+  if (!match) {
+    return null;
+  }
+  const amount = Number(match[1]);
+  if (!Number.isInteger(amount) || amount < 1 || amount > MAX_CALORIES) {
+    return null;
+  }
+  return amount;
+}
+
 export function formatDistance(meters: number): string {
   const miles = meters / M_PER_MI;
   const milesRounded = roundWeight(miles);
@@ -187,6 +214,16 @@ function optionalDuration(value: number | null | undefined): number | undefined 
   }
   if (!Number.isInteger(value) || value < 1 || value > MAX_DURATION_SEC) {
     throw new Error("Time must be from 1 second to 24 hours");
+  }
+  return value;
+}
+
+function optionalCalories(value: number | null | undefined): number | undefined {
+  if (value === undefined || value === null || value === 0) {
+    return undefined;
+  }
+  if (!Number.isInteger(value) || value < 1 || value > MAX_CALORIES) {
+    throw new Error("Calories must be a whole number from 1 to 20000");
   }
   return value;
 }

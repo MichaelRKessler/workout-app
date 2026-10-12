@@ -22,6 +22,7 @@ test("set export includes pounds, kilograms, and the display unit", () => {
         weightLb: 30,
         durationSec: null,
         distanceM: null,
+        calories: 450,
         rpe: 8,
         note: "easy, \"then\" hard",
         superset: "arms",
@@ -34,6 +35,8 @@ test("set export includes pounds, kilograms, and the display unit", () => {
   assert.ok(header?.includes("weight_lb"));
   assert.ok(header?.includes("weight_kg"));
   assert.ok(header?.includes("display_unit"));
+  assert.ok(header?.includes("calories"));
+  assert.ok(row?.includes("450"));
   assert.ok(row?.includes("Curl"));
   assert.ok(row?.includes("kg"));
   assert.ok(row?.includes("\"easy, \"\"then\"\" hard\""));
@@ -73,6 +76,7 @@ test("body and routine files keep their own units", () => {
         targetWeightLb: 30,
         targetDurationSec: null,
         targetDistanceM: null,
+        targetCalories: null,
         restSeconds: 90,
       },
     ],

@@ -9,7 +9,7 @@ import { useWeightUnit } from "@/components/WeightUnit";
 import { TrendChart } from "@/components/workout/TrendChart";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import { formatClock, formatDistance } from "@/convex/lib/measures";
+import { formatCalories, formatClock, formatDistance } from "@/convex/lib/measures";
 import { SetTypeTag } from "@/components/SetTypePicker";
 import { formatSetShort, formatShortDate, formatVolumeLb, formatWeightLb, pluralize } from "@/lib/format";
 import { usePaginatedQuery, useQuery } from "convex/react";
@@ -166,6 +166,7 @@ function Records({
     bestBodyweight: { reps: number | null } | null;
     bestDuration: { durationSec: number | null; weightLb: number } | null;
     bestDistance: { distanceM: number | null; durationSec: number | null } | null;
+    bestCalories: { calories: number } | null;
   };
   unit: "lb" | "kg";
 }) {
@@ -206,7 +207,14 @@ function Records({
           {detail.bestDistance.durationSec ? ` in ${formatClock(detail.bestDistance.durationSec)}` : ""}
         </p>
       ) : null}
-      {!hasStrength && !detail.bestDuration && !detail.bestDistance ? <p>No sets yet.</p> : null}
+      {detail.bestCalories ? (
+        <p>
+          <SectionInline>Most calories</SectionInline> {formatCalories(detail.bestCalories.calories)}
+        </p>
+      ) : null}
+      {!hasStrength && !detail.bestDuration && !detail.bestDistance && !detail.bestCalories ? (
+        <p>No sets yet.</p>
+      ) : null}
     </div>
   );
 }

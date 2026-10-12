@@ -619,3 +619,58 @@ test("a queued weigh-in counts as pending and an old outbox has no body entries"
   assert.deepEqual(older.body, []);
   assert.equal(pendingChangeCount(older), 0);
 });
+
+test("a queued ride keeps calories, and an older queue without them still loads", () => {
+  const queued = enqueueSets(emptyOutbox(), {
+    placement: "open",
+    sessionId: null,
+    sessionClientId: "sessionclient",
+    sessionStartedAt: NOW,
+    note: null,
+    now: NOW,
+    sets: [
+      {
+        clientId: "bike0001",
+        exerciseName: "Bike",
+        reps: null,
+        weightLb: 0,
+        durationSec: 1800,
+        distanceM: 19312,
+        calories: 450,
+        rpe: null,
+      },
+    ],
+  });
+  assert.equal(queued.outbox.sets[0]?.set.calories, 450);
+
+  const legacy = parseOutbox({
+    sets: [
+      {
+        clientId: "oldset",
+        revision: 1,
+        removed: false,
+        placement: "open",
+        sessionId: null,
+        sessionClientId: "sessionclient",
+        sessionStartedAt: NOW,
+        note: null,
+        set: {
+          exerciseName: "Bench press",
+          reps: 5,
+          weightLb: 135,
+          durationSec: null,
+          distanceM: null,
+          rpe: null,
+          loggedAt: NOW,
+        },
+        syncError: null,
+        echoedRevision: null,
+        ackedSetId: null,
+      },
+    ],
+    edits: [],
+    deletes: [],
+    actions: [],
+  });
+  assert.equal(legacy.sets[0]?.set.calories, null);
+});

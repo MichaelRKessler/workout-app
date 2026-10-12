@@ -4,7 +4,7 @@ import { insertBodyEntry, type BodyWrite } from "./bodyEntries";
 import { isClientId } from "./clientIds";
 import { formatExerciseName } from "./exerciseName";
 import { combineNotes, normalizeNote, type NormalizedSet } from "./measures";
-import { personalRecordForBatch, type PersonalRecord } from "./records";
+import { announcedRecords, type PersonalRecord } from "./records";
 import { plannedCompletedAt } from "./sessionTiming";
 import { resolvedSetType, type SetType } from "./setType";
 import { cleanSupersetId, mergeSupersetMembers, withStoredSuperset } from "./superset";
@@ -36,6 +36,7 @@ export type OfflineSetInput = {
   weightLb: number;
   durationSec?: number;
   distanceM?: number;
+  calories?: number;
   rpe?: number;
   setType?: SetType;
   loggedAt: number;
@@ -51,6 +52,7 @@ export type OfflineEditInput = {
   weightLb: number;
   durationSec?: number;
   distanceM?: number;
+  calories?: number;
   rpe?: number;
   setType?: SetType;
 };
@@ -212,13 +214,18 @@ async function personalRecordForSet(
   exerciseName: string,
   setId: Id<"sets">,
   normalized: NormalizedSet,
+  sessionId: Id<"sessions">,
 ): Promise<PersonalRecord | null> {
   const recent = await loadRecentSetsForExercise(ctx, userId, exerciseId);
   const previous = recent
     .filter((set) => set._id !== setId)
     .slice(0, EXERCISE_RECORD_SCAN)
     .map((set) => recordPoint(set));
-  return personalRecordForBatch(exerciseName, [recordPoint(normalized)], previous);
+  return announcedRecords(
+    exerciseName,
+    [recordPoint({ ...normalized, sessionId })],
+    previous,
+  ).headline;
 }
 
 function setDocument(
@@ -422,6 +429,7 @@ export async function acceptOfflineBatch(
           exercise?.name ?? formatted.name,
           setId,
           normalized,
+          sessionId,
         );
         if (item.note) {
           const list = notes.get(sessionId) ?? [];
@@ -454,6 +462,7 @@ export async function acceptOfflineBatch(
         exercise?.name ?? formatted.name,
         existing._id,
         normalized,
+        existing.sessionId,
       );
       setResults.push({
         clientId: item.clientId,
@@ -559,6 +568,7 @@ export async function acceptOfflineBatch(
         exercise?.name ?? "Exercise",
         set._id,
         normalized,
+        set.sessionId,
       );
       editResults.push({
         editId: item.editId,
