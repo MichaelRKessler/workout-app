@@ -14,6 +14,41 @@ test("a routine target is what Log set saves, and last time stays beside it", ()
   assert.equal(offer.lastTime?.set.weightLb, 215);
 });
 
+test("a reps-only target takes its weight from last time, not bodyweight", () => {
+  const repsOnly = { reps: 5, weightLb: null, durationSec: null, distanceM: null, calories: null };
+  const same = planLogOffer("bench press", [], [{ reps: 5, weightLb: 225 }], repsOnly, "lb");
+  assert.equal(same.primary?.label, "Log 5 × 225");
+  assert.equal(same.primary?.set.weightLb, 225);
+  assert.equal(same.lastTime, null);
+
+  const moreReps = planLogOffer("bench press", [], [{ reps: 8, weightLb: 205 }], repsOnly, "lb");
+  assert.equal(moreReps.primary?.label, "Log 5 × 205");
+  assert.equal(moreReps.lastTime?.label, "Last time: 8 × 205");
+
+  const inWorkout = planLogOffer(
+    "bench press",
+    [{ exerciseName: "bench press", reps: 5, weightLb: 235 }],
+    [{ reps: 5, weightLb: 225 }],
+    repsOnly,
+    "lb",
+  );
+  assert.equal(inWorkout.primary?.set.weightLb, 235);
+});
+
+test("a reps-only target with no history stays bodyweight", () => {
+  const repsOnly = { reps: 20, weightLb: null, durationSec: null, distanceM: null, calories: null };
+  const offer = planLogOffer("push-ups", [], null, repsOnly, "lb");
+  assert.equal(offer.primary?.set.reps, 20);
+  assert.equal(offer.primary?.set.weightLb, 0);
+});
+
+test("a target weight of 0 is kept as bodyweight even with weighted history", () => {
+  const bodyweight = { reps: 10, weightLb: 0, durationSec: null, distanceM: null, calories: null };
+  const offer = planLogOffer("dips", [], [{ reps: 10, weightLb: 45 }], bodyweight, "lb");
+  assert.equal(offer.primary?.set.weightLb, 0);
+  assert.equal(offer.lastTime?.set.weightLb, 45);
+});
+
 test("last time is hidden when it matches the target", () => {
   const offer = planLogOffer("bench press", [], [{ reps: 5, weightLb: 225 }], routine, "lb");
   assert.equal(offer.primary?.label, "Log 5 × 225");

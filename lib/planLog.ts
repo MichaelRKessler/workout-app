@@ -44,8 +44,14 @@ export function planLogOffer(
   unit: WeightUnit,
 ): PlanLogOffer {
   const history = prefillValues(exerciseName, sessionSets, previousSets, null);
-  const routine = prefillValues(exerciseName, [], null, routineTarget);
   const historySet = history.source === "default" ? null : setFromPrefill(history);
+  // A target is often reps alone ("Bench 3×5"). Its weight comes from the last
+  // set, not 0, or the button would offer a bodyweight set.
+  const target =
+    routineTarget && routineTarget.weightLb == null && historySet
+      ? { ...routineTarget, weightLb: historySet.weightLb }
+      : routineTarget;
+  const routine = prefillValues(exerciseName, [], null, target);
   const routineSet = routine.source === "routine" ? setFromPrefill(routine) : null;
 
   if (routineSet) {
