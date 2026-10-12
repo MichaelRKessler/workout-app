@@ -26,6 +26,15 @@ import {
   type WeightUnit,
 } from "@/convex/lib/units";
 import { resolvedSetType, type SetType } from "@/convex/lib/setType";
+import {
+  CALORIES_MESSAGE,
+  MAX_RPE,
+  MIN_RPE,
+  REPS_MESSAGE,
+  RPE_BLANK_MESSAGE,
+  timeMessage,
+  wholeInRange,
+} from "@/convex/lib/setLimits";
 import type { SetLine } from "@/lib/groupSets";
 import { parseReps } from "@/lib/numbers";
 import { prefillValues, type PrefillSource } from "@/lib/prefill";
@@ -264,7 +273,7 @@ export function ManualEntrySheet({
     if (caloriesText.length > 0) {
       const parsed = parseCaloriesInput(caloriesText);
       if (parsed === null) {
-        setError("Calories must be a whole number from 1 to 20000.");
+        setError(CALORIES_MESSAGE);
         return;
       }
       calories = parsed;
@@ -272,8 +281,8 @@ export function ManualEntrySheet({
 
     const rpeText = values.rpe.trim();
     const rpe = rpeText.length === 0 ? undefined : Number(rpeText);
-    if (rpe !== undefined && (!Number.isInteger(rpe) || rpe < 1 || rpe > 10)) {
-      setError("RPE must be a whole number from 1 to 10, or blank.");
+    if (rpe !== undefined && !wholeInRange(rpe, MIN_RPE, MAX_RPE)) {
+      setError(RPE_BLANK_MESSAGE);
       return;
     }
 
@@ -287,7 +296,7 @@ export function ManualEntrySheet({
     if (values.kind === "timed") {
       const durationSec = parseClock(values.duration);
       if (durationSec === null) {
-        setError("Time must be from 1 second to 24 hours, like 90 or 1:30.");
+        setError(timeMessage("90 or 1:30"));
         return;
       }
       logged.durationSec = durationSec;
@@ -301,7 +310,7 @@ export function ManualEntrySheet({
       if (values.duration.trim().length > 0) {
         const durationSec = parseClock(values.duration);
         if (durationSec === null) {
-          setError("Time must be from 1 second to 24 hours, like 90 or 7:30.");
+          setError(timeMessage("90 or 7:30"));
           return;
         }
         logged.durationSec = durationSec;
@@ -309,7 +318,7 @@ export function ManualEntrySheet({
     } else {
       const reps = parseReps(values.reps);
       if (reps === null) {
-        setError("Reps must be a whole number from 1 to 999.");
+        setError(REPS_MESSAGE);
         return;
       }
       logged.reps = reps;

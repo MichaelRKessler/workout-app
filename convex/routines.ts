@@ -262,6 +262,7 @@ export const begin = authedMutation({
       userId: ctx.userId,
       status: "open",
       startedAt: Date.now(),
+      setCount: 0,
       planName: routine.name,
       routineId: routine._id,
       plan,

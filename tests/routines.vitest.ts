@@ -58,6 +58,22 @@ async function finishWorkout(
     if (set.loggedAt !== undefined) {
       await t.run(async (ctx) => {
         await ctx.db.patch("sets", saved.setId, { loggedAt: set.loggedAt });
+        const session = await ctx.db.get("sessions", sessionId);
+        if (session) {
+          const sets = await ctx.db
+            .query("sets")
+            .withIndex("by_session_and_exercise", (q) => q.eq("sessionId", sessionId))
+            .take(500);
+          let last: number | undefined;
+          for (const stored of sets) {
+            if (last === undefined || stored.loggedAt > last) {
+              last = stored.loggedAt;
+            }
+          }
+          await ctx.db.patch("sessions", sessionId, {
+            ...(last !== undefined ? { lastSetAt: last } : {}),
+          });
+        }
       });
     }
   }

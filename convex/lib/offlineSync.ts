@@ -5,7 +5,9 @@ import { clampToWindow, clockOffsetMs, correctClientTime } from "./clockSkew";
 import { isClientId } from "./clientIds";
 import { formatExerciseName } from "./exerciseName";
 import { combineNotes, normalizeNote, type NormalizedSet } from "./measures";
-import { announcedRecords, recordAfterEdit, type PersonalRecord } from "./records";
+import { invalidateExercises, recordEditedSet, recordInsertedSets } from "./exerciseStats";
+import { announcedRecords, type PersonalRecord } from "./records";
+import { newestLoggedAt, noteSetsRemoved } from "./sessionActivity";
 import { plannedCompletedAt } from "./sessionTiming";
 import { resolvedSetType, type SetType } from "./setType";
 import { cleanSupersetId, mergeSupersetMembers, withStoredSuperset } from "./superset";
@@ -209,42 +211,26 @@ async function openSession(
     .first();
 }
 
-async function newestLoggedAt(
-  ctx: MutationCtx,
-  sessionId: Id<"sessions">,
-): Promise<number | null> {
-  const sets = await ctx.db
-    .query("sets")
-    .withIndex("by_session_and_exercise", (q) => q.eq("sessionId", sessionId))
-    .take(500);
-  let newest: number | null = null;
-  for (const set of sets) {
-    if (newest === null || set.loggedAt > newest) {
-      newest = set.loggedAt;
-    }
-  }
-  return newest;
-}
-
-async function personalRecordForSet(
+async function movedSetRecord(
   ctx: MutationCtx,
   userId: Id<"users">,
-  exerciseId: Id<"exercises">,
+  fromId: Id<"exercises">,
+  intoId: Id<"exercises">,
   exerciseName: string,
   loggedAt: number,
   normalized: NormalizedSet,
   sessionId: Id<"sessions">,
-  before: ReturnType<typeof recordPoint> | null,
 ): Promise<PersonalRecord | null> {
-  const earlierRows = await loadSetsBefore(ctx, userId, exerciseId, loggedAt);
-  const earlier = earlierRows
-    .filter((set) => set.userId === userId && set.exerciseId === exerciseId)
+  await invalidateExercises(ctx, userId, [fromId, intoId]);
+  const earlier = await loadSetsBefore(ctx, userId, intoId, loggedAt);
+  const previous = earlier
+    .filter((set) => set.userId === userId && set.exerciseId === intoId)
     .map((set) => recordPoint(set));
-  const next = recordPoint({ ...normalized, sessionId });
-  if (before) {
-    return recordAfterEdit(exerciseName, before, next, earlier);
-  }
-  return announcedRecords(exerciseName, [next], earlier).headline;
+  return announcedRecords(
+    exerciseName,
+    [recordPoint({ ...normalized, sessionId })],
+    previous,
+  ).headline;
 }
 
 function setDocument(
@@ -286,7 +272,7 @@ async function saveFinishOnCompleted(
     }
   }
   const requested = acceptedTime(item.requestedAt, offsetMs, now);
-  const lastSetAt = await newestLoggedAt(ctx, session._id);
+  const lastSetAt = await newestLoggedAt(ctx, session);
   if (
     requested !== null &&
     lastSetAt !== null &&
@@ -423,6 +409,7 @@ export async function acceptOfflineBatch(
       userId,
       status: item.placement === "completed" ? "completed" : "open",
       startedAt,
+      setCount: 0,
       ...(item.placement === "completed" ? { completedAt: startedAt } : {}),
       ...(isClientId(item.sessionClientId) ? { clientId: item.sessionClientId } : {}),
     });
@@ -430,6 +417,20 @@ export async function acceptOfflineBatch(
     rememberSession(key, item.sessionClientId, sessionId);
     return sessionId;
   }
+
+  const freshSets: Array<{
+    setId: Id<"sets">;
+    sessionId: Id<"sessions">;
+    exerciseId: Id<"exercises">;
+    exerciseName: string;
+    loggedAt: number;
+    normalized: NormalizedSet;
+  }> = [];
+  const droppedSets: Array<{
+    sessionId: Id<"sessions">;
+    exerciseId: Id<"exercises">;
+    loggedAt: number;
+  }> = [];
 
   for (const item of args.sets) {
     try {
@@ -440,6 +441,11 @@ export async function acceptOfflineBatch(
       if (item.removed) {
         await rememberRemoval(ctx, userId, item.clientId, now);
         if (existing) {
+          droppedSets.push({
+            sessionId: existing.sessionId,
+            exerciseId: existing.exerciseId,
+            loggedAt: existing.loggedAt,
+          });
           await ctx.db.delete("sets", existing._id);
         }
         setResults.push({
@@ -523,16 +529,14 @@ export async function acceptOfflineBatch(
         if (createdStart !== undefined && loggedAt < createdStart) {
           createdSessions.set(sessionId, loggedAt);
         }
-        const personalRecord = await personalRecordForSet(
-          ctx,
-          userId,
+        freshSets.push({
+          setId,
+          sessionId,
           exerciseId,
-          exercise?.name ?? formatted.name,
+          exerciseName: exercise?.name ?? formatted.name,
           loggedAt,
           normalized,
-          sessionId,
-          null,
-        );
+        });
         if (item.note) {
           const list = notes.get(sessionId) ?? [];
           list.push(item.note);
@@ -545,7 +549,7 @@ export async function acceptOfflineBatch(
           status: "applied",
           setId,
           sessionId,
-          personalRecord,
+          personalRecord: null,
           message: null,
         });
         continue;
@@ -557,16 +561,28 @@ export async function acceptOfflineBatch(
         setDocument(existing, exerciseId, normalized, item.clientId, item.revision),
       );
       rememberSuperset(existing.sessionId, exerciseId, item.supersetId);
-      const personalRecord = await personalRecordForSet(
-        ctx,
-        userId,
-        exerciseId,
-        exercise?.name ?? formatted.name,
-        existing.loggedAt,
-        normalized,
-        existing.sessionId,
-        existing.exerciseId === exerciseId ? recordPoint(existing) : null,
-      );
+      const personalRecord =
+        existing.exerciseId === exerciseId
+          ? await recordEditedSet(
+              ctx,
+              userId,
+              exerciseId,
+              exercise?.name ?? formatted.name,
+              existing.loggedAt,
+              existing.sessionId,
+              recordPoint(existing),
+              recordPoint({ ...normalized, sessionId: existing.sessionId }),
+            )
+          : await movedSetRecord(
+              ctx,
+              userId,
+              existing.exerciseId,
+              exerciseId,
+              exercise?.name ?? formatted.name,
+              existing.loggedAt,
+              normalized,
+              existing.sessionId,
+            );
       setResults.push({
         clientId: item.clientId,
         revision: item.revision,
@@ -587,6 +603,57 @@ export async function acceptOfflineBatch(
         message: messageOf(error),
       });
     }
+  }
+
+  const freshByExercise = new Map<Id<"exercises">, typeof freshSets>();
+  for (const item of freshSets) {
+    const list = freshByExercise.get(item.exerciseId) ?? [];
+    list.push(item);
+    freshByExercise.set(item.exerciseId, list);
+  }
+  for (const group of freshByExercise.values()) {
+    const first = group[0];
+    if (!first) {
+      continue;
+    }
+    const recorded = await recordInsertedSets(
+      ctx,
+      userId,
+      first.exerciseId,
+      first.exerciseName,
+      group.map((item) => ({
+        _id: item.setId,
+        sessionId: item.sessionId,
+        loggedAt: item.loggedAt,
+        reps: item.normalized.reps,
+        weightLb: item.normalized.weightLb,
+        durationSec: item.normalized.durationSec,
+        distanceM: item.normalized.distanceM,
+        calories: item.normalized.calories,
+        setType: item.normalized.setType,
+      })),
+    );
+    for (const item of recorded.perSet) {
+      const result = setResults.find((row) => row.setId === item.setId);
+      if (result) {
+        result.personalRecord = item.personalRecord;
+      }
+    }
+  }
+  if (droppedSets.length > 0) {
+    const droppedSessions = new Set(droppedSets.map((set) => set.sessionId));
+    for (const sessionId of droppedSessions) {
+      await noteSetsRemoved(
+        ctx,
+        sessionId,
+        droppedSets.filter((set) => set.sessionId === sessionId).map((set) => set.loggedAt),
+      );
+    }
+    await invalidateExercises(
+      ctx,
+      userId,
+      droppedSets.map((set) => set.exerciseId),
+    );
   }
 
   for (const [sessionId, labels] of supersetLabels) {
@@ -664,15 +731,15 @@ export async function acceptOfflineBatch(
         set._id,
         setDocument(set, set.exerciseId, normalized, set.clientId, set.clientRevision),
       );
-      const personalRecord = await personalRecordForSet(
+      const personalRecord = await recordEditedSet(
         ctx,
         userId,
         set.exerciseId,
         exercise?.name ?? "Exercise",
         set.loggedAt,
-        normalized,
         set.sessionId,
         recordPoint(set),
+        recordPoint({ ...normalized, sessionId: set.sessionId }),
       );
       editResults.push({
         editId: item.editId,
@@ -709,6 +776,8 @@ export async function acceptOfflineBatch(
         await rememberRemoval(ctx, userId, set.clientId, now);
       }
       await ctx.db.delete("sets", set._id);
+      await noteSetsRemoved(ctx, set.sessionId, [set.loggedAt]);
+      await invalidateExercises(ctx, userId, [set.exerciseId]);
       deleteResults.push({
         deleteId: item.deleteId,
         status: "applied",
@@ -813,7 +882,7 @@ export async function acceptOfflineBatch(
         });
         continue;
       }
-      const lastSetAt = await newestLoggedAt(ctx, session._id);
+      const lastSetAt = await newestLoggedAt(ctx, session);
       if (lastSetAt === null) {
         throw userError("Log at least one set before finishing");
       }

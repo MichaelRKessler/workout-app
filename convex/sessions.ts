@@ -6,18 +6,15 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { internalMutation } from "./_generated/server";
 import { authedMutation, authedQuery } from "./lib/customFunctions";
 import { loadAchievedRecords } from "./lib/achievedRecords";
+import { invalidateExercises, recordInsertedSets } from "./lib/exerciseStats";
+import { newestLoggedAt } from "./lib/sessionActivity";
 import { assertDayWindow, assertMonthWindow } from "./lib/dayWindow";
 import { formatExerciseName } from "./lib/exerciseName";
 import { normalizeNote } from "./lib/measures";
 import { muscleCounts, muscleGroupValidator, resolveMuscleGroup, type MuscleGroup } from "./lib/muscleGroup";
-import { countsTowardVolume } from "./lib/setType";
+import { countsTowardVolume, persistedSetType } from "./lib/setType";
 import { userError } from "./lib/errors";
-import {
-  announcedRecords,
-  personalRecordValidator,
-  volumeLb,
-  type PersonalRecord,
-} from "./lib/records";
+import { personalRecordValidator, volumeLb, type PersonalRecord } from "./lib/records";
 import {
   abandonedCompletedAt,
   plannedCompletedAt,
@@ -37,10 +34,8 @@ import {
   MAX_SETS_PER_SESSION,
   getOrCreateExercise,
   getOwnedSession,
-  loadSetsBefore,
   normalizeSetInput,
   presentSet,
-  recordPoint,
   requireOpenSession,
   requireWritableSession,
 } from "./lib/workouts";
@@ -141,7 +136,14 @@ async function loadSessionSets(ctx: QueryCtx | MutationCtx, sessionId: Id<"sessi
     ...presentSet(set),
     loggedAt: set.loggedAt,
     clientId: set.clientId ?? null,
+    recordStamps: set.recordStamps,
   }));
+}
+
+function publicSessionSet<T extends { recordStamps?: unknown }>(set: T) {
+  const { recordStamps, ...rest } = set;
+  void recordStamps;
+  return rest;
 }
 
 function summarizeExercises(
@@ -184,23 +186,6 @@ function summarizeExercises(
   return summaries;
 }
 
-async function newestLoggedAt(
-  ctx: QueryCtx | MutationCtx,
-  sessionId: Id<"sessions">,
-): Promise<number | null> {
-  const sets = await ctx.db
-    .query("sets")
-    .withIndex("by_session_and_exercise", (q) => q.eq("sessionId", sessionId))
-    .take(500);
-  let newest: number | null = null;
-  for (const set of sets) {
-    if (newest === null || set.loggedAt > newest) {
-      newest = set.loggedAt;
-    }
-  }
-  return newest;
-}
-
 export const getOpen = authedQuery({
   args: {},
   returns: v.union(
@@ -232,7 +217,7 @@ export const getOpen = authedQuery({
       _id: session._id,
       startedAt: session.startedAt,
       resumedAt: session.resumedAt ?? null,
-      lastSetAt: await newestLoggedAt(ctx, session._id),
+      lastSetAt: await newestLoggedAt(ctx, session),
       note: session.note ?? null,
       planName: session.planName ?? null,
       routineId: session.routineId ?? null,
@@ -297,6 +282,7 @@ export const start = authedMutation({
       userId: ctx.userId,
       status: "open",
       startedAt: Date.now(),
+      setCount: 0,
     });
   },
 });
@@ -317,6 +303,7 @@ export const repeat = authedMutation({
     const sessionId = await ctx.db.insert("sessions", {
       userId: ctx.userId,
       status: "open",
+      setCount: 0,
       startedAt: Date.now(),
       plan,
     });
@@ -382,7 +369,7 @@ export const complete = authedMutation({
   }),
   handler: async (ctx, args) => {
     const session = await requireOpenSession(ctx, ctx.userId, args.sessionId);
-    const lastSetAt = await newestLoggedAt(ctx, session._id);
+    const lastSetAt = await newestLoggedAt(ctx, session);
     if (lastSetAt === null) {
       throw userError("Log at least one set before finishing");
     }
@@ -570,6 +557,7 @@ export const logPast = authedMutation({
       status: "completed",
       startedAt,
       completedAt: startedAt,
+      setCount: 0,
       ...(note ? { note } : {}),
     });
 
@@ -578,30 +566,53 @@ export const logPast = authedMutation({
     for (const exercise of validated) {
       const exerciseId = await getOrCreateExercise(ctx, ctx.userId, exercise.name);
       const stored = await ctx.db.get("exercises", exerciseId);
-      const created: Array<ReturnType<typeof recordPoint>> = [];
+      const created: Array<{
+        _id: Id<"sets">;
+        sessionId: Id<"sessions">;
+        loggedAt: number;
+        reps?: number;
+        weightLb: number;
+        durationSec?: number;
+        distanceM?: number;
+        calories?: number;
+        setType?: "warmup" | "working" | "drop" | "failure";
+      }> = [];
       for (const set of exercise.sets) {
-        await ctx.db.insert("sets", {
+        const loggedAt = startedAt + offset;
+        const setId = await ctx.db.insert("sets", {
           userId: ctx.userId,
           sessionId,
           exerciseId,
           weightLb: set.weightLb,
-          loggedAt: startedAt + offset,
+          loggedAt,
           ...(set.reps !== undefined ? { reps: set.reps } : {}),
           ...(set.durationSec !== undefined ? { durationSec: set.durationSec } : {}),
           ...(set.distanceM !== undefined ? { distanceM: set.distanceM } : {}),
           ...(set.calories !== undefined ? { calories: set.calories } : {}),
           ...(set.rpe !== undefined ? { rpe: set.rpe } : {}),
+          ...persistedSetType(set.setType),
         });
         offset += 1;
-        created.push(recordPoint({ ...set, sessionId }));
+        created.push({
+          _id: setId,
+          sessionId,
+          loggedAt,
+          weightLb: set.weightLb,
+          ...(set.reps !== undefined ? { reps: set.reps } : {}),
+          ...(set.durationSec !== undefined ? { durationSec: set.durationSec } : {}),
+          ...(set.distanceM !== undefined ? { distanceM: set.distanceM } : {}),
+          ...(set.calories !== undefined ? { calories: set.calories } : {}),
+          setType: set.setType,
+        });
       }
-      const earlier = await loadSetsBefore(ctx, ctx.userId, exerciseId, startedAt);
-      const previous = earlier
-        .filter((set) => set.userId === ctx.userId && set.exerciseId === exerciseId)
-        .map((set) => recordPoint(set));
-      personalRecords.push(
-        ...announcedRecords(stored?.name ?? exercise.name, created, previous).records,
+      const recorded = await recordInsertedSets(
+        ctx,
+        ctx.userId,
+        exerciseId,
+        stored?.name ?? exercise.name,
+        created,
       );
+      personalRecords.push(...recorded.records);
     }
 
     return { sessionId, personalRecords };
@@ -740,7 +751,14 @@ export const listDay = authedQuery({
         session.sets.map((set) => ({ ...set, sessionId: session._id })),
       ),
     );
-    return { sessions: detailed, personalRecords, truncated };
+    return {
+      sessions: detailed.map((session) => ({
+        ...session,
+        sets: session.sets.map((set) => publicSessionSet(set)),
+      })),
+      personalRecords,
+      truncated,
+    };
   },
 });
 
@@ -772,25 +790,34 @@ export const removeDay = authedMutation({
       throw userError("No finished workouts on this day");
     }
 
-    const plans: Array<{ sessionId: Id<"sessions">; setIds: Array<Id<"sets">> }> = [];
+    const plans: Array<{
+      sessionId: Id<"sessions">;
+      setIds: Array<Id<"sets">>;
+      exerciseIds: Array<Id<"exercises">>;
+    }> = [];
     for (const session of sessions) {
       if (session.userId !== ctx.userId || session.status !== "completed") {
         throw userError("Workout not found");
       }
+      const owned = await collectOwnedSets(ctx, session);
       plans.push({
         sessionId: session._id,
-        setIds: await collectOwnedSetIds(ctx, session),
+        setIds: owned.map((set) => set._id),
+        exerciseIds: owned.map((set) => set.exerciseId),
       });
     }
 
     let sets = 0;
+    const exerciseIds: Array<Id<"exercises">> = [];
     for (const plan of plans) {
       for (const setId of plan.setIds) {
         await ctx.db.delete("sets", setId);
         sets += 1;
       }
+      exerciseIds.push(...plan.exerciseIds);
       await ctx.db.delete("sessions", plan.sessionId);
     }
+    await invalidateExercises(ctx, ctx.userId, exerciseIds);
     return { workouts: plans.length, sets };
   },
 });
@@ -830,17 +857,6 @@ async function deleteFinishedSession(
   ctx: MutationCtx,
   session: { _id: Id<"sessions">; userId: Id<"users"> },
 ): Promise<void> {
-  const setIds = await collectOwnedSetIds(ctx, session);
-  for (const setId of setIds) {
-    await ctx.db.delete("sets", setId);
-  }
-  await ctx.db.delete("sessions", session._id);
-}
-
-async function collectOwnedSetIds(
-  ctx: QueryCtx | MutationCtx,
-  session: { _id: Id<"sessions">; userId: Id<"users"> },
-): Promise<Array<Id<"sets">>> {
   const sets = await ctx.db
     .query("sets")
     .withIndex("by_session_and_exercise", (q) => q.eq("sessionId", session._id))
@@ -848,14 +864,35 @@ async function collectOwnedSetIds(
   if (sets.length > 2000) {
     throw userError("This workout has too many sets to delete");
   }
-  const ids: Array<Id<"sets">> = [];
+  const exerciseIds: Array<Id<"exercises">> = [];
   for (const set of sets) {
     if (set.userId !== session.userId) {
       throw userError("Workout not found");
     }
-    ids.push(set._id);
+    exerciseIds.push(set.exerciseId);
+    await ctx.db.delete("sets", set._id);
   }
-  return ids;
+  await ctx.db.delete("sessions", session._id);
+  await invalidateExercises(ctx, session.userId, exerciseIds);
+}
+
+async function collectOwnedSets(
+  ctx: QueryCtx | MutationCtx,
+  session: { _id: Id<"sessions">; userId: Id<"users"> },
+) {
+  const sets = await ctx.db
+    .query("sets")
+    .withIndex("by_session_and_exercise", (q) => q.eq("sessionId", session._id))
+    .take(2001);
+  if (sets.length > 2000) {
+    throw userError("This workout has too many sets to delete");
+  }
+  for (const set of sets) {
+    if (set.userId !== session.userId) {
+      throw userError("Workout not found");
+    }
+  }
+  return sets;
 }
 
 const weeklySummaryValidator = v.object({
@@ -1000,7 +1037,7 @@ export const get = authedQuery({
       completedAt: session.completedAt ?? null,
       note: session.note ?? null,
       exercises: summarizeExercises(sets, session.plan),
-      sets,
+      sets: sets.map((set) => publicSessionSet(set)),
     };
   },
 });
@@ -1053,10 +1090,16 @@ export const closeStale = internalMutation({
 
 async function closeAbandonedSession(
   ctx: MutationCtx,
-  session: { _id: Id<"sessions">; startedAt: number; resumedAt?: number },
+  session: {
+    _id: Id<"sessions">;
+    startedAt: number;
+    resumedAt?: number;
+    setCount?: number;
+    lastSetAt?: number;
+  },
   now: number,
 ): Promise<"finished" | "discarded" | "kept"> {
-  const lastSetAt = await newestLoggedAt(ctx, session._id);
+  const lastSetAt = await newestLoggedAt(ctx, session);
   const resumedAt = session.resumedAt ?? null;
   if (!shouldCloseAbandoned(now, session.startedAt, lastSetAt, resumedAt)) {
     return "kept";

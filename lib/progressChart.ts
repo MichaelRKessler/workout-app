@@ -466,13 +466,21 @@ export function formatYTick(value: number, kind: "number" | "time"): string {
   return String(Math.round(value * 10) / 10);
 }
 
+const chartDateFormatters = new Map<string, Intl.DateTimeFormat>();
+
 export function formatChartDate(timestamp: number, timeZone: string, withWeekday = false): string {
-  return new Intl.DateTimeFormat("en-US", {
-    timeZone,
-    weekday: withWeekday ? "short" : undefined,
-    month: "short",
-    day: "numeric",
-  }).format(timestamp);
+  const key = `${timeZone}:${withWeekday ? "weekday" : "day"}`;
+  let formatter = chartDateFormatters.get(key);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat("en-US", {
+      timeZone,
+      weekday: withWeekday ? "short" : undefined,
+      month: "short",
+      day: "numeric",
+    });
+    chartDateFormatters.set(key, formatter);
+  }
+  return formatter.format(timestamp);
 }
 
 const CHART_MINUS = "−";

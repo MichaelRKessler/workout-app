@@ -1,6 +1,7 @@
 import type { Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
-import { achievedRecord, caloriesRecord, listRecords, type PersonalRecord } from "./records";
+import { stampsOrScan } from "./exerciseStats";
+import { achievedRecord, caloriesRecord, listRecords, type PersonalRecord, type RecordStamp } from "./records";
 import type { SetType } from "./setType";
 import { EXERCISE_RECORD_SCAN, recordPoint } from "./workouts";
 
@@ -16,6 +17,7 @@ type PerformedSet = {
   calories: number | null;
   setType: SetType;
   loggedAt: number;
+  recordStamps?: RecordStamp[];
 };
 
 /**
@@ -50,27 +52,29 @@ export async function loadAchievedRecords(
       if (!created || !first) {
         return [];
       }
-      const earlier = await ctx.db
-        .query("sets")
-        .withIndex("by_user_exercise_and_logged", (q) =>
-          q.eq("userId", userId).eq("exerciseId", exerciseId).lt("loggedAt", first.loggedAt),
-        )
-        .order("desc")
-        .take(EXERCISE_RECORD_SCAN);
-      const previous: Array<ReturnType<typeof recordPoint>> = [];
-      for (const set of earlier) {
-        if (set.userId !== userId || set.exerciseId !== exerciseId) {
-          continue;
-        }
-        previous.push(recordPoint(set));
-      }
       const createdPoints = created.map((set) =>
         recordPoint({ ...set, sessionId: set.sessionId }),
       );
-      return listRecords(
-        achievedRecord(first.exerciseName, createdPoints, previous),
-        caloriesRecord(first.exerciseName, createdPoints, previous),
-      );
+      return await stampsOrScan(ctx, userId, exerciseId, first.exerciseName, created, async () => {
+        const earlier = await ctx.db
+          .query("sets")
+          .withIndex("by_user_exercise_and_logged", (q) =>
+            q.eq("userId", userId).eq("exerciseId", exerciseId).lt("loggedAt", first.loggedAt),
+          )
+          .order("desc")
+          .take(EXERCISE_RECORD_SCAN);
+        const previous: Array<ReturnType<typeof recordPoint>> = [];
+        for (const set of earlier) {
+          if (set.userId !== userId || set.exerciseId !== exerciseId) {
+            continue;
+          }
+          previous.push(recordPoint(set));
+        }
+        return listRecords(
+          achievedRecord(first.exerciseName, createdPoints, previous),
+          caloriesRecord(first.exerciseName, createdPoints, previous),
+        );
+      });
     }),
   );
   return grouped.flat();

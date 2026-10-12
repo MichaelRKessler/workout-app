@@ -10,17 +10,29 @@ export function epleyOneRepMax(weightLb: number, reps: number): number | null {
   return Math.round(weightLb * (1 + reps / 30) * 100) / 100;
 }
 
+export const recordKindValidator = v.union(
+  v.literal("weight"),
+  v.literal("epley"),
+  v.literal("both"),
+  v.literal("reps"),
+  v.literal("duration"),
+  v.literal("distance"),
+  v.literal("calories"),
+);
+
+export const recordStampValidator = v.object({
+  kind: recordKindValidator,
+  reps: v.union(v.number(), v.null()),
+  weightLb: v.number(),
+  epleyLb: v.union(v.number(), v.null()),
+  durationSec: v.union(v.number(), v.null()),
+  distanceM: v.union(v.number(), v.null()),
+  calories: v.union(v.number(), v.null()),
+});
+
 export const personalRecordValidator = v.object({
   exerciseName: v.string(),
-  kind: v.union(
-    v.literal("weight"),
-    v.literal("epley"),
-    v.literal("both"),
-    v.literal("reps"),
-    v.literal("duration"),
-    v.literal("distance"),
-    v.literal("calories"),
-  ),
+  kind: recordKindValidator,
   reps: v.union(v.number(), v.null()),
   weightLb: v.number(),
   epleyLb: v.union(v.number(), v.null()),
@@ -30,6 +42,17 @@ export const personalRecordValidator = v.object({
 });
 
 export type RecordKind = "weight" | "epley" | "both" | "reps" | "duration" | "distance" | "calories";
+
+/** A record written on the set that earned it. The exercise name is stored on the exercise. */
+export type RecordStamp = {
+  kind: RecordKind;
+  reps: number | null;
+  weightLb: number;
+  epleyLb: number | null;
+  durationSec: number | null;
+  distanceM: number | null;
+  calories: number | null;
+};
 
 export type PersonalRecord = {
   exerciseName: string;
@@ -41,6 +64,18 @@ export type PersonalRecord = {
   distanceM: number | null;
   calories: number | null;
 };
+
+export function stampFromRecord(record: PersonalRecord): RecordStamp {
+  return {
+    kind: record.kind,
+    reps: record.reps,
+    weightLb: record.weightLb,
+    epleyLb: record.epleyLb,
+    durationSec: record.durationSec,
+    distanceM: record.distanceM,
+    calories: record.calories,
+  };
+}
 
 type SetPoint = {
   reps?: number | null;
@@ -755,6 +790,63 @@ export function achievedRecord(
     };
   }
   return latest;
+}
+
+/**
+ * Day view from the stamps written when each set was logged. Same combination
+ * rules as `achievedRecord`: load and the Epley estimate become one "both"
+ * line, and the best calorie stamp is the session record.
+ */
+export function recordsFromStamps(exerciseName: string, groups: RecordStamp[][]): PersonalRecord[] {
+  let latest: PersonalRecord | null = null;
+  let sawWeight = false;
+  let sawEpley = false;
+  let heaviest = 0;
+  let heaviestReps: number | null = null;
+  let bestEpley = 0;
+  let calories: PersonalRecord | null = null;
+  for (const stamps of groups) {
+    for (const stamp of stamps) {
+      const record: PersonalRecord = { exerciseName, ...stamp };
+      if (stamp.kind === "calories") {
+        if (!calories || (stamp.calories ?? 0) > (calories.calories ?? 0)) {
+          calories = record;
+        }
+        continue;
+      }
+      latest = record;
+      if (record.kind === "weight" || record.kind === "both") {
+        sawWeight = true;
+        if (record.weightLb >= heaviest) {
+          heaviest = record.weightLb;
+          heaviestReps = record.reps;
+        }
+      }
+      if ((record.kind === "epley" || record.kind === "both") && record.epleyLb !== null) {
+        sawEpley = true;
+        if (record.epleyLb >= bestEpley) {
+          bestEpley = record.epleyLb;
+        }
+      }
+    }
+  }
+  if (
+    latest &&
+    sawWeight &&
+    sawEpley &&
+    latest.kind !== "reps" &&
+    latest.kind !== "duration" &&
+    latest.kind !== "distance"
+  ) {
+    latest = {
+      ...latest,
+      kind: "both",
+      weightLb: heaviest,
+      reps: heaviestReps,
+      epleyLb: bestEpley,
+    };
+  }
+  return listRecords(latest, calories);
 }
 
 function blankTrendPoint(sessionId: string, startedAt: number): TrendPoint {

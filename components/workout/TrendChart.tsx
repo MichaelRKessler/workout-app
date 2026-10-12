@@ -407,26 +407,31 @@ function ChartPlot({
   const height = CHART_PLOT_TOP + CHART_PLOT_HEIGHT + 8;
   const baseline = CHART_PLOT_TOP + CHART_PLOT_HEIGHT;
   const { coords, yTicks, plotLeft, plotWidth, domain } = layout;
-  const dateTicks = layoutDateTicks(domain.start, domain.end, plotLeft, plotWidth, zone);
-  const segments = splitSegments(
-    plotted.map((point, index) => ({ ...point, index })),
-    gapThresholdMs(domain.start, domain.end),
+  const dateTicks = useMemo(
+    () => layoutDateTicks(domain.start, domain.end, plotLeft, plotWidth, zone),
+    [domain.end, domain.start, plotLeft, plotWidth, zone],
   );
-  const paths = segments.flatMap((segment) => {
-    const pts = segment.flatMap((item) => {
-      const coord = coords[item.index];
-      return coord ? [coord] : [];
+  const paths = useMemo(() => {
+    const segments = splitSegments(
+      plotted.map((point, index) => ({ ...point, index })),
+      gapThresholdMs(domain.start, domain.end),
+    );
+    return segments.flatMap((segment) => {
+      const pts = segment.flatMap((item) => {
+        const coord = coords[item.index];
+        return coord ? [coord] : [];
+      });
+      if (pts.length < 2) return [];
+      const line = monotonePath(pts);
+      return [{ line, area: areaPath(line, pts, baseline) }];
     });
-    if (pts.length < 2) return [];
-    const line = monotonePath(pts);
-    return [{ line, area: areaPath(line, pts, baseline) }];
-  });
+  }, [baseline, coords, domain.end, domain.start, plotted]);
   const trend = linearTrend(coords);
   const selectedCoord = selectedIndex >= 0 ? (coords[selectedIndex] ?? null) : null;
 
   return (
     <div
-      className="mt-1 touch-none select-none"
+      className="mt-1 touch-pan-y select-none"
       style={{ width }}
       role="slider"
       tabIndex={0}

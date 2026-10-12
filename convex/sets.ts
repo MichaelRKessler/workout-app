@@ -4,11 +4,13 @@ import type { MutationCtx } from "./_generated/server";
 import { authedMutation, authedQuery } from "./lib/customFunctions";
 import { userError } from "./lib/errors";
 import {
-  announcedRecords,
-  personalRecordValidator,
-  recordAfterEdit,
-  type PersonalRecord,
-} from "./lib/records";
+  invalidateExercises,
+  recordEditedSet,
+  recordInsertedSets,
+  type InsertedSet,
+} from "./lib/exerciseStats";
+import { personalRecordValidator, type PersonalRecord } from "./lib/records";
+import { newestLoggedAt, noteSetsRemoved } from "./lib/sessionActivity";
 import { combineNotes, normalizeNote } from "./lib/measures";
 import { resolvedSetType } from "./lib/setType";
 import { setTypeValidator } from "./lib/setTypeValidator";
@@ -18,7 +20,6 @@ import {
   getOrCreateExercise,
   getOwnedSession,
   loadPreviousExerciseSets,
-  loadSetsBefore,
   normalizeSetInput,
   presentSet,
   recordPoint,
@@ -93,20 +94,22 @@ export const listForSession = authedQuery({
       )
       .take(500);
     const ordered = [...sets].sort((left, right) => left.loggedAt - right.loggedAt);
+    const names = new Map<Id<"exercises">, string>();
+    for (const exerciseId of new Set(ordered.map((set) => set.exerciseId))) {
+      const exercise = await ctx.db.get("exercises", exerciseId);
+      if (exercise && exercise.userId === ctx.userId) {
+        names.set(exercise._id, exercise.name);
+      }
+    }
 
-    return await Promise.all(
-      ordered.map(async (set) => {
-        const exercise = await ctx.db.get("exercises", set.exerciseId);
-        return {
-          _id: set._id,
-          exerciseId: set.exerciseId,
-          exerciseName: exercise?.name ?? "Exercise",
-          ...presentSet(set),
-          loggedAt: set.loggedAt,
-          clientId: set.clientId ?? null,
-        };
-      }),
-    );
+    return ordered.map((set) => ({
+      _id: set._id,
+      exerciseId: set.exerciseId,
+      exerciseName: names.get(set.exerciseId) ?? "Exercise",
+      ...presentSet(set),
+      loggedAt: set.loggedAt,
+      clientId: set.clientId ?? null,
+    }));
   },
 });
 
@@ -122,21 +125,22 @@ const loggedWorkoutValidator = v.object({
 
 async function performedAt(
   ctx: MutationCtx,
-  session: { _id: Id<"sessions">; status: "open" | "completed"; startedAt: number },
+  session: {
+    _id: Id<"sessions">;
+    status: "open" | "completed";
+    startedAt: number;
+    setCount?: number;
+    lastSetAt?: number;
+  },
   count: number,
 ): Promise<number> {
   if (session.status === "open") {
     return Date.now();
   }
-  const existing = await ctx.db
-    .query("sets")
-    .withIndex("by_session_and_exercise", (q) => q.eq("sessionId", session._id))
-    .take(500);
+  const stored = await newestLoggedAt(ctx, session);
   let newest = session.startedAt;
-  for (const set of existing) {
-    if (set.loggedAt > newest) {
-      newest = set.loggedAt;
-    }
+  if (stored !== null && stored > newest) {
+    newest = stored;
   }
   const now = Date.now();
   let base = newest + 1;
@@ -147,24 +151,6 @@ async function performedAt(
     base = session.startedAt;
   }
   return base;
-}
-
-async function recordForInserted(
-  ctx: MutationCtx,
-  userId: Id<"users">,
-  exerciseId: Id<"exercises">,
-  exerciseName: string,
-  created: Array<{ _id: Id<"sets">; loggedAt: number } & ReturnType<typeof recordPoint>>,
-): Promise<{ headline: PersonalRecord | null; records: PersonalRecord[] }> {
-  const earliest = created.reduce(
-    (min, set) => Math.min(min, set.loggedAt),
-    Number.POSITIVE_INFINITY,
-  );
-  const earlier = await loadSetsBefore(ctx, userId, exerciseId, earliest);
-  const previous = earlier
-    .filter((set) => set.userId === userId && set.exerciseId === exerciseId)
-    .map((set) => recordPoint(set));
-  return announcedRecords(exerciseName, created, previous);
 }
 
 async function insertSets(
@@ -198,7 +184,7 @@ async function insertSets(
   const exercise = await ctx.db.get("exercises", exerciseId);
   const loggedAt = loggedAtStart ?? (await performedAt(ctx, session, validated.length));
 
-  const created: Array<{ _id: Id<"sets">; loggedAt: number } & ReturnType<typeof recordPoint>> = [];
+  const created: InsertedSet[] = [];
   for (let index = 0; index < validated.length; index += 1) {
     const set = validated[index];
     if (!set) {
@@ -214,18 +200,19 @@ async function insertSets(
       ...storedSetFields(set),
     });
     created.push({
-      _id: setId,
-      loggedAt: loggedAt + index,
       ...recordPoint({ ...set, sessionId: session._id }),
+      _id: setId,
+      sessionId: session._id,
+      loggedAt: loggedAt + index,
     });
   }
-  const announced = await recordForInserted(
-      ctx,
-      userId,
-      exerciseId,
-      exercise?.name ?? exerciseName,
-      created,
-    );
+  const announced = await recordInsertedSets(
+    ctx,
+    userId,
+    exerciseId,
+    exercise?.name ?? exerciseName,
+    created,
+  );
   return {
     setIds: created.map((set) => set._id),
     personalRecord: announced.headline,
@@ -366,15 +353,15 @@ export const update = authedMutation({
       setType: args.setType ?? resolvedSetType(set.setType),
     });
     const exercise = await ctx.db.get("exercises", set.exerciseId);
-    const earlier = await loadSetsBefore(ctx, ctx.userId, set.exerciseId, set.loggedAt);
-    const previous = earlier
-      .filter((item) => item.userId === ctx.userId && item.exerciseId === set.exerciseId)
-      .map((item) => recordPoint(item));
-    const personalRecord = recordAfterEdit(
+    const personalRecord = await recordEditedSet(
+      ctx,
+      ctx.userId,
+      set.exerciseId,
       exercise?.name ?? "Exercise",
+      set.loggedAt,
+      set.sessionId,
       recordPoint(set),
       recordPoint({ ...normalized, sessionId: set.sessionId }),
-      previous,
     );
     await ctx.db.replace("sets", args.setId, {
       userId: set.userId,
@@ -429,6 +416,7 @@ async function deleteOwnedSets(
   }
 
   let sessionId: Id<"sessions"> | null = null;
+  const removed: Array<{ exerciseId: Id<"exercises">; loggedAt: number }> = [];
   for (const setId of uniqueIds) {
     const set = await ctx.db.get("sets", setId);
     if (!set || set.userId !== userId) {
@@ -439,6 +427,7 @@ async function deleteOwnedSets(
     } else if (set.sessionId !== sessionId) {
       throw userError("Sets must belong to the same workout");
     }
+    removed.push({ exerciseId: set.exerciseId, loggedAt: set.loggedAt });
   }
 
   if (sessionId === null) {
@@ -449,4 +438,16 @@ async function deleteOwnedSets(
   for (const setId of uniqueIds) {
     await ctx.db.delete("sets", setId);
   }
+  if (sessionId !== null) {
+    await noteSetsRemoved(
+      ctx,
+      sessionId,
+      removed.map((set) => set.loggedAt),
+    );
+  }
+  await invalidateExercises(
+    ctx,
+    userId,
+    removed.map((set) => set.exerciseId),
+  );
 }

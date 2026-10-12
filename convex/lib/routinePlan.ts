@@ -1,4 +1,5 @@
 import { MAX_CALORIES, setKind } from "./measures";
+import { CALORIES_MESSAGE, MAX_REPS, MIN_REPS, REPS_MESSAGE, TIME_MESSAGE, wholeInRange } from "./setLimits";
 import { userError } from "./errors";
 
 export const MAX_ROUTINE_NAME_LENGTH = 40;
@@ -295,8 +296,8 @@ function optionalTargetReps(value: number | null | undefined): number | undefine
   if (value === undefined || value === null) {
     return undefined;
   }
-  if (!Number.isInteger(value) || value < 1 || value > 999) {
-    throw userError("Reps must be a whole number from 1 to 999");
+  if (!wholeInRange(value, MIN_REPS, MAX_REPS)) {
+    throw userError(REPS_MESSAGE);
   }
   return value;
 }
@@ -315,8 +316,8 @@ function optionalTargetDuration(value: number | null | undefined): number | unde
   if (value === undefined || value === null || value === 0) {
     return undefined;
   }
-  if (!Number.isInteger(value) || value < 1 || value > 24 * 60 * 60) {
-    throw userError("Time must be from 1 second to 24 hours");
+  if (!wholeInRange(value, 1, 24 * 60 * 60)) {
+    throw userError(TIME_MESSAGE);
   }
   return value;
 }
@@ -325,8 +326,8 @@ function optionalTargetCalories(value: number | null | undefined): number | unde
   if (value === undefined || value === null || value === 0) {
     return undefined;
   }
-  if (!Number.isInteger(value) || value < 1 || value > MAX_CALORIES) {
-    throw userError("Calories must be a whole number from 1 to 20000");
+  if (!wholeInRange(value, 1, MAX_CALORIES)) {
+    throw userError(CALORIES_MESSAGE);
   }
   return value;
 }

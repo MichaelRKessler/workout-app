@@ -4,9 +4,12 @@ import {
   announcedRecords,
   caloriesRecord,
   epleyOneRepMax,
+  listRecords,
   personalRecordForBatch,
   personalRecordForSet,
   recordAfterEdit,
+  recordsFromStamps,
+  stampFromRecord,
   summarizeEfforts,
   trendFromSets,
   volumeLb,
@@ -421,5 +424,50 @@ describe("records achieved in one workout", () => {
         [],
       ),
     ).toMatchObject({ kind: "both", weightLb: 135 });
+  });
+
+  test("stamps report the same record a live scan would", () => {
+    const created = [
+      { reps: 10, weightLb: 135, setType: "working" as const },
+      { reps: 3, weightLb: 185, setType: "working" as const },
+    ];
+    const live = achievedRecord("bench press", created, []);
+    const baseline: Array<{ reps: number; weightLb: number; setType: "working" }> = [];
+    const groups = created.map((set) => {
+      const record = personalRecordForSet("bench press", set, baseline);
+      baseline.push(set);
+      return record ? [stampFromRecord(record)] : [];
+    });
+    expect(recordsFromStamps("bench press", groups)).toEqual(live ? listRecords(live, null) : []);
+  });
+
+  test("a calorie stamp stays beside the distance record", () => {
+    expect(
+      recordsFromStamps("bike", [
+        [
+          {
+            kind: "distance",
+            reps: null,
+            weightLb: 0,
+            epleyLb: null,
+            durationSec: 600,
+            distanceM: 5000,
+            calories: null,
+          },
+          {
+            kind: "calories",
+            reps: null,
+            weightLb: 0,
+            epleyLb: null,
+            durationSec: null,
+            distanceM: null,
+            calories: 400,
+          },
+        ],
+      ]),
+    ).toEqual([
+      expect.objectContaining({ kind: "distance", distanceM: 5000 }),
+      expect.objectContaining({ kind: "calories", calories: 400 }),
+    ]);
   });
 });

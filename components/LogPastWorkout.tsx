@@ -9,6 +9,15 @@ import { SetTypePicker } from "@/components/SetTypePicker";
 import { formatExerciseName } from "@/convex/lib/exerciseName";
 import type { SetType } from "@/convex/lib/setType";
 import { parseCaloriesInput, parseClock, parseDistanceInput, type SetKind } from "@/convex/lib/measures";
+import {
+  CALORIES_MESSAGE,
+  MAX_RPE,
+  MIN_RPE,
+  REPS_MESSAGE,
+  RPE_BLANK_MESSAGE,
+  timeMessage,
+  wholeInRange,
+} from "@/convex/lib/setLimits";
 import { maxDisplayWeight, parseDisplayWeight, toPounds } from "@/convex/lib/units";
 import { formatPersonalRecords } from "@/lib/format";
 import { parseReps } from "@/lib/numbers";
@@ -134,21 +143,21 @@ export function LogPastWorkout() {
         const weightLb = toPounds(display, unit);
         const rpeText = set.rpe.trim();
         const rpe = rpeText.length === 0 ? undefined : Number(rpeText);
-        if (rpe !== undefined && (!Number.isInteger(rpe) || rpe < 1 || rpe > 10)) {
-          setError("RPE must be a whole number from 1 to 10, or blank.");
+        if (rpe !== undefined && !wholeInRange(rpe, MIN_RPE, MAX_RPE)) {
+          setError(RPE_BLANK_MESSAGE);
           return;
         }
         const caloriesText = set.calories.trim();
         const calories = caloriesText.length === 0 ? undefined : parseCaloriesInput(caloriesText);
         if (caloriesText.length > 0 && calories === null) {
-          setError("Calories must be a whole number from 1 to 20000.");
+          setError(CALORIES_MESSAGE);
           return;
         }
         const calorieFields = calories ? { calories } : {};
         if (exercise.kind === "timed") {
           const durationSec = parseClock(set.duration);
           if (durationSec === null) {
-            setError("Time must be from 1 second to 24 hours, like 90 or 1:30.");
+            setError(timeMessage("90 or 1:30"));
             return;
           }
           sets.push({ weightLb, durationSec, setType: set.setType, ...calorieFields, ...(rpe ? { rpe } : {}) });
@@ -162,7 +171,7 @@ export function LogPastWorkout() {
           }
           const durationSec = set.duration.trim().length === 0 ? undefined : parseClock(set.duration);
           if (set.duration.trim().length > 0 && durationSec === null) {
-            setError("Time must be from 1 second to 24 hours, like 90 or 7:30.");
+            setError(timeMessage("90 or 7:30"));
             return;
           }
           sets.push({
@@ -177,7 +186,7 @@ export function LogPastWorkout() {
         }
         const reps = parseReps(set.reps);
         if (reps === null) {
-          setError("Reps must be a whole number from 1 to 999.");
+          setError(REPS_MESSAGE);
           return;
         }
         sets.push({ weightLb, reps, setType: set.setType, ...calorieFields, ...(rpe ? { rpe } : {}) });

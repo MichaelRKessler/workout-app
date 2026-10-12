@@ -1,5 +1,6 @@
 import type { Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
+import { invalidateExercises } from "./exerciseStats";
 import { userError } from "./errors";
 import { muscleGroupToCopy } from "./muscleGroup";
 import { repointExerciseReferences } from "./routineRecords";
@@ -69,6 +70,7 @@ export async function applyMergeBatch(
     )
     .take(1);
   if (remaining.length > 0) {
+    await invalidateExercises(ctx, userId, [from._id, into._id]);
     return { moved: page.length, done: false, name: into.name };
   }
 
@@ -80,5 +82,6 @@ export async function applyMergeBatch(
     await ctx.db.patch("exercises", into._id, { muscleGroup: copiedMuscle });
   }
   await ctx.db.delete("exercises", from._id);
+  await invalidateExercises(ctx, userId, [from._id, into._id]);
   return { moved: page.length, done: true, name: into.name };
 }
