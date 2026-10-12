@@ -59,6 +59,7 @@ export async function resolveRoutineExercises(
     targetWeightLb?: number;
     targetDurationSec?: number;
     targetDistanceM?: number;
+    targetCalories?: number;
     restSeconds?: number | null;
     supersetId?: string;
   }>,
@@ -142,6 +143,7 @@ export function presentTargets(target: RoutineTargets) {
     targetWeightLb: target.targetWeightLb ?? null,
     targetDurationSec: target.targetDurationSec ?? null,
     targetDistanceM: target.targetDistanceM ?? null,
+    targetCalories: target.targetCalories ?? null,
   };
 }
 
@@ -272,6 +274,7 @@ export async function planFromOwnedSessions(
         weightLb: set.weightLb,
         durationSec: set.durationSec ?? null,
         distanceM: set.distanceM ?? null,
+        calories: set.calories ?? null,
         loggedAt: set.loggedAt,
       });
     }

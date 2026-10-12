@@ -1,5 +1,5 @@
 import { formatExerciseName } from "../convex/lib/exerciseName";
-import { formatClock, formatDistance, parseClock, parseDistanceInput, setKind, type SetKind } from "../convex/lib/measures";
+import { formatClock, formatDistance, parseCaloriesInput, parseClock, parseDistanceInput, setKind, type SetKind } from "../convex/lib/measures";
 import type { RoutinePrefill } from "../convex/lib/routinePlan";
 import { countsTowardVolume, resolvedSetType, type SetType } from "../convex/lib/setType";
 import { parseReps } from "./numbers";
@@ -12,6 +12,7 @@ export type PrefillValues = {
   weight: string;
   duration: string;
   distance: string;
+  calories: string;
   rpe: string;
   setType: SetType;
   source: PrefillSource;
@@ -22,6 +23,7 @@ type SetNumbers = {
   weightLb: number;
   durationSec?: number | null;
   distanceM?: number | null;
+  calories?: number | null;
   rpe?: number | null;
   setType?: SetType | null;
 };
@@ -64,6 +66,7 @@ export function prefillValues(
     weight: "0",
     duration: "",
     distance: "",
+    calories: "",
     rpe: "",
     setType: "working",
     source: "default",
@@ -83,6 +86,7 @@ function valuesFromRoutine(target: RoutinePrefill | null | undefined): PrefillVa
       weightLb: target.weightLb ?? 0,
       durationSec: target.durationSec,
       distanceM: target.distanceM,
+      calories: target.calories,
     },
     "routine",
   );
@@ -94,6 +98,7 @@ export function setFromPrefill(values: PrefillValues): {
   weightLb: number;
   durationSec?: number;
   distanceM?: number;
+  calories?: number;
   setType: SetType;
 } | null {
   const weight = Number(values.weight);
@@ -101,12 +106,17 @@ export function setFromPrefill(values: PrefillValues): {
     return null;
   }
   const weightLb = Math.round(weight * 100) / 100;
+  const calories = readCalories(values.calories);
+  if (calories === null) {
+    return null;
+  }
+  const calorieFields = calories === undefined ? {} : { calories };
   if (values.kind === "timed") {
     const durationSec = parseClock(values.duration);
     if (durationSec === null) {
       return null;
     }
-    return { weightLb, durationSec, setType: values.setType };
+    return { weightLb, durationSec, setType: values.setType, ...calorieFields };
   }
   if (values.kind === "distance") {
     const distanceM = parseDistanceInput(values.distance);
@@ -122,13 +132,22 @@ export function setFromPrefill(values: PrefillValues): {
       distanceM,
       setType: values.setType,
       ...(durationSec ? { durationSec } : {}),
+      ...calorieFields,
     };
   }
   const reps = parseReps(values.reps);
   if (reps === null) {
     return null;
   }
-  return { weightLb, reps, setType: values.setType };
+  return { weightLb, reps, setType: values.setType, ...calorieFields };
+}
+
+function readCalories(value: string): number | undefined | null {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+  return parseCaloriesInput(trimmed);
 }
 
 function valuesFromSet(set: SetNumbers, source: PrefillSource): PrefillValues {
@@ -139,6 +158,7 @@ function valuesFromSet(set: SetNumbers, source: PrefillSource): PrefillValues {
     weight: String(set.weightLb),
     duration: set.durationSec ? formatClock(set.durationSec) : "",
     distance: set.distanceM ? formatDistance(set.distanceM) : "",
+    calories: set.calories ? String(set.calories) : "",
     rpe: set.rpe ? String(set.rpe) : "",
     setType: resolvedSetType(set.setType),
     source,

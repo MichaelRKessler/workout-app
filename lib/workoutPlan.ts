@@ -8,6 +8,7 @@ export type VisiblePlanItem = {
   targetWeightLb: number | null;
   targetDurationSec: number | null;
   targetDistanceM: number | null;
+  targetCalories?: number | null;
   skipped: boolean;
   /** Shared by adjacent exercises. Null when the exercise stands alone. */
   supersetId: string | null;

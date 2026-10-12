@@ -3,7 +3,7 @@ import type { Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { authedMutation, authedQuery } from "./lib/customFunctions";
 import {
-  personalRecordForBatch,
+  announcedRecords,
   personalRecordValidator,
   type PersonalRecord,
 } from "./lib/records";
@@ -30,6 +30,7 @@ const measureValidator = {
   weightLb: v.number(),
   durationSec: v.union(v.number(), v.null()),
   distanceM: v.union(v.number(), v.null()),
+  calories: v.union(v.number(), v.null()),
   rpe: v.union(v.number(), v.null()),
   setType: setTypeValidator,
 };
@@ -48,6 +49,7 @@ const setInput = v.object({
   weightLb: v.optional(v.number()),
   durationSec: v.optional(v.number()),
   distanceM: v.optional(v.number()),
+  calories: v.optional(v.number()),
   rpe: v.optional(v.number()),
   setType: v.optional(setTypeValidator),
 });
@@ -152,14 +154,14 @@ async function recordForInserted(
   exerciseId: Id<"exercises">,
   exerciseName: string,
   created: Array<{ _id: Id<"sets"> } & ReturnType<typeof recordPoint>>,
-): Promise<PersonalRecord | null> {
+): Promise<{ headline: PersonalRecord | null; records: PersonalRecord[] }> {
   const recent = await loadRecentSetsForExercise(ctx, userId, exerciseId);
   const createdIds = new Set(created.map((set) => set._id));
   const previous = recent
     .filter((set) => !createdIds.has(set._id))
     .slice(0, EXERCISE_RECORD_SCAN)
     .map((set) => recordPoint(set));
-  return personalRecordForBatch(exerciseName, created, previous);
+  return announcedRecords(exerciseName, created, previous);
 }
 
 async function insertSets(
@@ -172,11 +174,17 @@ async function insertSets(
     weightLb?: number;
     durationSec?: number;
     distanceM?: number;
+    calories?: number;
     rpe?: number;
     setType?: "warmup" | "working" | "drop" | "failure";
   }>,
   loggedAtStart?: number,
-): Promise<{ setIds: Array<Id<"sets">>; personalRecord: PersonalRecord | null; nextLoggedAt: number }> {
+): Promise<{
+  setIds: Array<Id<"sets">>;
+  personalRecord: PersonalRecord | null;
+  personalRecords: PersonalRecord[];
+  nextLoggedAt: number;
+}> {
   if (sets.length > MAX_SETS_PER_BATCH) {
     throw new Error(`Log up to ${MAX_SETS_PER_BATCH} sets at a time`);
   }
@@ -202,17 +210,19 @@ async function insertSets(
       loggedAt: loggedAt + index,
       ...storedSetFields(set),
     });
-    created.push({ _id: setId, ...recordPoint(set) });
+    created.push({ _id: setId, ...recordPoint({ ...set, sessionId: session._id }) });
   }
-  return {
-    setIds: created.map((set) => set._id),
-    personalRecord: await recordForInserted(
+  const announced = await recordForInserted(
       ctx,
       userId,
       exerciseId,
       exercise?.name ?? exerciseName,
       created,
-    ),
+    );
+  return {
+    setIds: created.map((set) => set._id),
+    personalRecord: announced.headline,
+    personalRecords: announced.records,
     nextLoggedAt: loggedAt + validated.length,
   };
 }
@@ -225,6 +235,7 @@ export const log = authedMutation({
     weightLb: v.optional(v.number()),
     durationSec: v.optional(v.number()),
     distanceM: v.optional(v.number()),
+    calories: v.optional(v.number()),
     rpe: v.optional(v.number()),
     setType: v.optional(setTypeValidator),
   },
@@ -240,6 +251,7 @@ export const log = authedMutation({
         weightLb: args.weightLb,
         durationSec: args.durationSec,
         distanceM: args.distanceM,
+        calories: args.calories,
         rpe: args.rpe,
         setType: args.setType,
       },
@@ -312,9 +324,7 @@ export const logWorkout = authedMutation({
       );
       loggedAt = saved.nextLoggedAt;
       setIds.push(...saved.setIds);
-      if (saved.personalRecord) {
-        personalRecords.push(saved.personalRecord);
-      }
+      personalRecords.push(...saved.personalRecords);
     }
     if (note) {
       const combined = combineNotes(session.note, note);
@@ -333,6 +343,7 @@ export const update = authedMutation({
     weightLb: v.optional(v.number()),
     durationSec: v.optional(v.number()),
     distanceM: v.optional(v.number()),
+    calories: v.optional(v.number()),
     rpe: v.optional(v.number()),
     setType: v.optional(setTypeValidator),
   },
@@ -353,11 +364,11 @@ export const update = authedMutation({
       .filter((item) => item._id !== set._id)
       .slice(0, EXERCISE_RECORD_SCAN)
       .map((item) => recordPoint(item));
-    const personalRecord = personalRecordForBatch(
+    const personalRecord = announcedRecords(
       exercise?.name ?? "Exercise",
-      [recordPoint(normalized)],
+      [recordPoint({ ...normalized, sessionId: set.sessionId })],
       previous,
-    );
+    ).headline;
     await ctx.db.replace("sets", args.setId, {
       userId: set.userId,
       sessionId: set.sessionId,

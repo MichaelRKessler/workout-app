@@ -22,6 +22,7 @@ export type PlanRow = {
   targetWeightLb: number | null;
   targetDurationSec: number | null;
   targetDistanceM: number | null;
+  targetCalories?: number | null;
   skipped: boolean;
   sets: SetLine[];
   supersetId: string | null;

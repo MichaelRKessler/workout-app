@@ -1,4 +1,4 @@
-import { setKind } from "./measures";
+import { MAX_CALORIES, setKind } from "./measures";
 
 export const MAX_ROUTINE_NAME_LENGTH = 40;
 export const MAX_ROUTINE_EXERCISES = 20;
@@ -12,6 +12,7 @@ export type RoutineTargets = {
   targetWeightLb?: number;
   targetDurationSec?: number;
   targetDistanceM?: number;
+  targetCalories?: number;
 };
 
 export type RoutineExercise = RoutineTargets & {
@@ -30,6 +31,7 @@ export type PerformedSet = {
   weightLb: number;
   durationSec: number | null;
   distanceM: number | null;
+  calories?: number | null;
   loggedAt: number;
 };
 
@@ -38,6 +40,7 @@ export type RoutinePrefill = {
   weightLb: number | null;
   durationSec: number | null;
   distanceM: number | null;
+  calories?: number | null;
 };
 
 const TARGET_FIELDS = [
@@ -46,6 +49,7 @@ const TARGET_FIELDS = [
   "targetWeightLb",
   "targetDurationSec",
   "targetDistanceM",
+  "targetCalories",
 ] as const;
 
 export function normalizeRoutineName(raw: string): string {
@@ -64,12 +68,14 @@ export function normalizeTargets(input: {
   targetWeightLb?: number | null;
   targetDurationSec?: number | null;
   targetDistanceM?: number | null;
+  targetCalories?: number | null;
 }): RoutineTargets {
   const targetSets = optionalTargetSets(input.targetSets);
   const targetReps = optionalTargetReps(input.targetReps);
   const targetWeightLb = optionalTargetWeight(input.targetWeightLb);
   const targetDurationSec = optionalTargetDuration(input.targetDurationSec);
   const targetDistanceM = optionalTargetDistance(input.targetDistanceM);
+  const targetCalories = optionalTargetCalories(input.targetCalories);
 
   if (
     targetReps !== undefined &&
@@ -87,6 +93,7 @@ export function normalizeTargets(input: {
     ...(targetWeightLb !== undefined ? { targetWeightLb } : {}),
     ...(targetDurationSec !== undefined ? { targetDurationSec } : {}),
     ...(targetDistanceM !== undefined ? { targetDistanceM } : {}),
+    ...(targetCalories !== undefined ? { targetCalories } : {}),
   };
 }
 
@@ -181,6 +188,7 @@ export function routinePrefillFromTarget(
     targetWeightLb?: number | null;
     targetDurationSec?: number | null;
     targetDistanceM?: number | null;
+    targetCalories?: number | null;
   } | null | undefined,
 ): RoutinePrefill | null {
   if (!target) {
@@ -189,7 +197,8 @@ export function routinePrefillFromTarget(
   if (
     target.targetReps == null &&
     target.targetDurationSec == null &&
-    target.targetDistanceM == null
+    target.targetDistanceM == null &&
+    target.targetCalories == null
   ) {
     return null;
   }
@@ -198,6 +207,7 @@ export function routinePrefillFromTarget(
     weightLb: target.targetWeightLb ?? null,
     durationSec: target.targetDurationSec ?? null,
     distanceM: target.targetDistanceM ?? null,
+    calories: target.targetCalories ?? null,
   };
 }
 
@@ -237,6 +247,7 @@ function targetFromGroup(sets: PerformedSet[]): RoutineTargets {
       ...(last.distanceM ? { targetDistanceM: last.distanceM } : {}),
       ...(last.durationSec ? { targetDurationSec: last.durationSec } : {}),
       ...(last.weightLb > 0 ? { targetWeightLb: last.weightLb } : {}),
+      ...calorieTarget(last),
     };
   }
   if (kind === "timed") {
@@ -244,6 +255,7 @@ function targetFromGroup(sets: PerformedSet[]): RoutineTargets {
       targetSets,
       ...(last.durationSec ? { targetDurationSec: last.durationSec } : {}),
       ...(last.weightLb > 0 ? { targetWeightLb: last.weightLb } : {}),
+      ...calorieTarget(last),
     };
   }
   return {
@@ -258,8 +270,14 @@ function sameMeasures(left: PerformedSet, right: PerformedSet): boolean {
     (left.reps ?? null) === (right.reps ?? null) &&
     left.weightLb === right.weightLb &&
     (left.durationSec ?? null) === (right.durationSec ?? null) &&
-    (left.distanceM ?? null) === (right.distanceM ?? null)
+    (left.distanceM ?? null) === (right.distanceM ?? null) &&
+    (left.calories ?? null) === (right.calories ?? null)
   );
+}
+
+function calorieTarget(set: PerformedSet): { targetCalories?: number } {
+  const calories = set.calories ?? 0;
+  return calories > 0 ? { targetCalories: calories } : {};
 }
 
 function optionalTargetSets(value: number | null | undefined): number | undefined {
@@ -298,6 +316,16 @@ function optionalTargetDuration(value: number | null | undefined): number | unde
   }
   if (!Number.isInteger(value) || value < 1 || value > 24 * 60 * 60) {
     throw new Error("Time must be from 1 second to 24 hours");
+  }
+  return value;
+}
+
+function optionalTargetCalories(value: number | null | undefined): number | undefined {
+  if (value === undefined || value === null || value === 0) {
+    return undefined;
+  }
+  if (!Number.isInteger(value) || value < 1 || value > MAX_CALORIES) {
+    throw new Error("Calories must be a whole number from 1 to 20000");
   }
   return value;
 }

@@ -2,7 +2,7 @@
 
 import { Button } from "@/components/Button";
 import type { PersonalRecord } from "@/convex/lib/records";
-import { formatDistance } from "@/convex/lib/measures";
+import { formatCalories, formatDistance } from "@/convex/lib/measures";
 import type { WeightUnit } from "@/convex/lib/units";
 import { formatPersonalRecord, formatVolumeLb, pluralize } from "@/lib/format";
 import {
@@ -54,10 +54,14 @@ export function WorkoutSummaryCard({
         {summary.distanceM > 0 ? (
           <Stat label="Distance" value={formatDistance(summary.distanceM)} />
         ) : null}
+        {summary.calories > 0 ? (
+          <Stat label="Calories" value={formatCalories(summary.calories)} />
+        ) : null}
       </dl>
       {summary.warmupCount > 0 ? (
         <p className="mt-3 text-sm text-pretty text-subtle">
-          {pluralize(summary.warmupCount, "warm-up")} not included in sets or volume.
+          {pluralize(summary.warmupCount, "warm-up")} not included in sets
+          {summary.calories > 0 ? ", volume, or calories" : " or volume"}.
         </p>
       ) : null}
       {note ? <p className="mt-2 text-sm text-pretty text-subtle">{note}</p> : null}

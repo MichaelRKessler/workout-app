@@ -60,6 +60,7 @@ type ManualState =
       weightLb: number;
       durationSec: number | null;
       distanceM: number | null;
+      calories: number | null;
       rpe: number | null;
       setType?: SetLine["setType"];
     };
@@ -192,6 +193,7 @@ export function DayDetail({ dayKey }: { dayKey: string }) {
     weightLb: number;
     durationSec?: number;
     distanceM?: number;
+    calories?: number;
     rpe?: number;
     setType?: SetLine["setType"];
   }) {
@@ -209,6 +211,7 @@ export function DayDetail({ dayKey }: { dayKey: string }) {
         reps: set.reps ?? null,
         durationSec: set.durationSec ?? null,
         distanceM: set.distanceM ?? null,
+        calories: set.calories ?? null,
         rpe: set.rpe ?? null,
         ...(set.setType !== undefined ? { setType: set.setType } : { setType: "working" as const }),
       };
@@ -504,6 +507,7 @@ export function DayDetail({ dayKey }: { dayKey: string }) {
                         weightLb: set.weightLb,
                         durationSec: set.durationSec,
                         distanceM: set.distanceM,
+                        calories: set.calories ?? null,
                         rpe: set.rpe,
                         setType: set.setType,
                       })
@@ -531,6 +535,7 @@ export function DayDetail({ dayKey }: { dayKey: string }) {
                   weightLb: manual.weightLb,
                   durationSec: manual.durationSec,
                   distanceM: manual.distanceM,
+                  calories: manual.calories,
                   rpe: manual.rpe,
                   setType: manual.setType,
                 }

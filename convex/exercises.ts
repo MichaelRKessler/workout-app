@@ -36,6 +36,12 @@ const effortValidator = v.object({
   loggedAt: v.number(),
 });
 
+const calorieEffortValidator = v.object({
+  sessionId: v.id("sessions"),
+  calories: v.number(),
+  loggedAt: v.number(),
+});
+
 const trendSnapValidator = v.object({
   reps: v.union(v.number(), v.null()),
   weightLb: v.number(),
@@ -53,6 +59,7 @@ const trendPointValidator = v.object({
   reps: v.union(v.number(), v.null()),
   durationSec: v.union(v.number(), v.null()),
   distanceM: v.union(v.number(), v.null()),
+  calories: v.union(v.number(), v.null()),
   bestEpleySet: v.union(trendSnapValidator, v.null()),
   bestWeightSet: v.union(trendSnapValidator, v.null()),
   bestRepsSet: v.union(trendSnapValidator, v.null()),
@@ -66,6 +73,7 @@ const historySetValidator = v.object({
   weightLb: v.number(),
   durationSec: v.union(v.number(), v.null()),
   distanceM: v.union(v.number(), v.null()),
+  calories: v.union(v.number(), v.null()),
   rpe: v.union(v.number(), v.null()),
   setType: setTypeValidator,
   loggedAt: v.number(),
@@ -205,6 +213,7 @@ function presentTrendPoint(point: TrendPoint) {
     reps: point.reps,
     durationSec: point.durationSec,
     distanceM: point.distanceM,
+    calories: point.calories,
     bestEpleySet: point.bestEpleySet,
     bestWeightSet: point.bestWeightSet,
     bestRepsSet: point.bestRepsSet,
@@ -226,6 +235,7 @@ export const detail = authedQuery({
       bestBodyweight: v.union(effortValidator, v.null()),
       bestDuration: v.union(effortValidator, v.null()),
       bestDistance: v.union(effortValidator, v.null()),
+      bestCalories: v.union(calorieEffortValidator, v.null()),
       muscleGroup: muscleGroupValidator,
       muscleSource: v.union(v.literal("saved"), v.literal("suggested")),
       trendUnit: v.union(
@@ -283,6 +293,7 @@ export const detail = authedQuery({
           weightLb: set.weightLb,
           durationSec: set.durationSec,
           distanceM: set.distanceM,
+          calories: set.calories,
           loggedAt: set.loggedAt,
           setType: set.setType,
           sessionStartedAt,
@@ -315,6 +326,13 @@ export const detail = authedQuery({
       bestBodyweight: effort(efforts.bestBodyweight),
       bestDuration: effort(efforts.bestDuration),
       bestDistance: effort(efforts.bestDistance),
+      bestCalories: efforts.bestCalories
+        ? {
+            sessionId: efforts.bestCalories.sessionId as Id<"sessions">,
+            calories: efforts.bestCalories.calories,
+            loggedAt: efforts.bestCalories.loggedAt,
+          }
+        : null,
       ...presentMuscle(exercise),
       trendUnit: trend.unit,
       trend: trend.points.map((point) => presentTrendPoint(point)),

@@ -235,7 +235,17 @@ describe("logging a past workout", () => {
 
     expect(
       (await asUser.query(api.sets.recentForExercise, { exerciseName: "bench press" }))?.sets,
-    ).toEqual([{ reps: 5, weightLb: 185, durationSec: null, distanceM: null, rpe: null, setType: "working" }]);
+    ).toEqual([
+      {
+        reps: 5,
+        weightLb: 185,
+        durationSec: null,
+        distanceM: null,
+        calories: null,
+        rpe: null,
+        setType: "working",
+      },
+    ]);
   });
 
   test("rejects a future time, an empty workout, and callers without access", async () => {
@@ -445,9 +455,11 @@ describe("weekly summary", () => {
       workouts: 1,
       sets: 1,
       volumeLb: 900,
+      calories: 0,
       previousWorkouts: 1,
       previousSets: 2,
       previousVolumeLb: 1000,
+      previousCalories: 0,
       streakWeeks: 3,
       muscles: [{ group: "back", sets: 1 }],
     });
@@ -757,5 +769,115 @@ describe("summary records and the month calendar", () => {
         startedUntil: morning + 2 * HOUR,
       }),
     ).rejects.toThrow("Pick a single month");
+  });
+});
+
+describe("calories", () => {
+  test("a bike set keeps calories, an older set still reads, and records stay separate", async () => {
+    const t = testBackend();
+    const asUser = await signIn(t, "Michael");
+    const other = await signIn(t, "Someone else");
+    const blocked = await signIn(t, "Nope", { email: "nope.cal@example.com", allow: false });
+
+    const sessionId = await asUser.mutation(api.sessions.start, {});
+    const logged = await asUser.mutation(api.sets.log, {
+      sessionId,
+      exerciseName: "bike",
+      weightLb: 0,
+      durationSec: 1800,
+      distanceM: 19312,
+      calories: 450,
+    });
+    expect(logged.personalRecord).toMatchObject({ kind: "distance", distanceM: 19312 });
+
+    const warmup = await asUser.mutation(api.sets.log, {
+      sessionId,
+      exerciseName: "bike",
+      weightLb: 0,
+      durationSec: 300,
+      calories: 900,
+      setType: "warmup",
+    });
+    expect(warmup.personalRecord).toBeNull();
+
+    await t.run(async (ctx) => {
+      const session = await ctx.db.get("sessions", sessionId);
+      if (!session) {
+        throw new Error("Expected the open workout");
+      }
+      const exerciseId = await ctx.db.insert("exercises", {
+        userId: session.userId,
+        name: "old lift",
+        normalizedName: "old lift",
+        createdAt: 1,
+      });
+      await ctx.db.insert("sets", {
+        userId: session.userId,
+        sessionId,
+        exerciseId,
+        reps: 5,
+        weightLb: 135,
+        loggedAt: Date.now(),
+      });
+    });
+
+    const openSets = await asUser.query(api.sets.listForSession, { sessionId });
+    expect(openSets.find((set) => set.exerciseName === "bike")).toMatchObject({
+      durationSec: 1800,
+      distanceM: 19312,
+      calories: 450,
+    });
+    expect(openSets.find((set) => set.exerciseName === "old lift")).toMatchObject({
+      reps: 5,
+      weightLb: 135,
+      calories: null,
+    });
+
+    const finished = await asUser.mutation(api.sessions.complete, { sessionId });
+    expect(
+      finished.personalRecords
+        .filter((record) => record.exerciseName === "bike")
+        .map((record) => record.kind),
+    ).toEqual(["distance", "calories"]);
+    expect(finished.personalRecords.find((record) => record.kind === "calories")?.calories).toBe(450);
+
+    const bikeId = openSets.find((set) => set.exerciseName === "bike")?.exerciseId;
+    const detail = await asUser.query(api.exercises.detail, { exerciseId: bikeId ?? "" });
+    expect(detail?.bestCalories).toMatchObject({ calories: 450 });
+    expect(detail?.trend[0]?.calories).toBe(450);
+
+    const later = await asUser.mutation(api.sessions.logPast, {
+      startedAt: Date.now() - HOUR,
+      exercises: [
+        {
+          name: "bike",
+          sets: [{ weightLb: 0, durationSec: 2000, distanceM: 19312, calories: 500 }],
+        },
+      ],
+    });
+    expect(later.personalRecords.map((record) => record.kind)).toEqual(["calories"]);
+
+    const range = weeksAround(Date.now());
+    const summary = await asUser.query(api.sessions.weeklySummary, {
+      weekStarts: range.weekStarts,
+      weekEndsAt: range.weekEndsAt,
+    });
+    expect(summary.calories).toBe(950);
+    expect(summary.volumeLb).toBe(5 * 135);
+
+    const hidden = await other.query(api.sessions.weeklySummary, {
+      weekStarts: range.weekStarts,
+      weekEndsAt: range.weekEndsAt,
+    });
+    expect(hidden.calories).toBe(0);
+    await expect(
+      blocked.query(api.sessions.weeklySummary, {
+        weekStarts: range.weekStarts,
+        weekEndsAt: range.weekEndsAt,
+      }),
+    ).rejects.toThrow("You don't have access yet");
+    await expect(
+      other.query(api.sessions.get, { sessionId }),
+    ).resolves.toBeNull();
   });
 });

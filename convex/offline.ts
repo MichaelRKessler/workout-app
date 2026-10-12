@@ -59,6 +59,7 @@ const measureFields = {
   weightLb: v.number(),
   durationSec: v.optional(v.number()),
   distanceM: v.optional(v.number()),
+  calories: v.optional(v.number()),
   rpe: v.optional(v.number()),
   // Omitted on a retry means working for a new set, and "leave it" for an edit.
   setType: v.optional(setTypeValidator),

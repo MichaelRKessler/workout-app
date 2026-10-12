@@ -92,6 +92,7 @@ function blankPlanItem(exerciseId: string, name: string): VisiblePlanItem {
     targetWeightLb: null,
     targetDurationSec: null,
     targetDistanceM: null,
+    targetCalories: null,
     skipped: false,
     supersetId: null,
   };
@@ -106,6 +107,7 @@ function toPendingExercise(item: VisiblePlanItem): PendingPlanExercise {
     targetWeightLb: item.targetWeightLb,
     targetDurationSec: item.targetDurationSec,
     targetDistanceM: item.targetDistanceM,
+    targetCalories: item.targetCalories ?? null,
     restSeconds: null,
     supersetId: item.supersetId,
     skipped: item.skipped,
@@ -216,6 +218,7 @@ export function LogWorkout() {
         weightLb: number;
         durationSec: number | null;
         distanceM: number | null;
+        calories: number | null;
         rpe: number | null;
         setType?: SetLine["setType"];
       }
@@ -345,6 +348,7 @@ export function LogWorkout() {
       ...(item.targetWeightLb != null ? { targetWeightLb: item.targetWeightLb } : {}),
       ...(item.targetDurationSec != null ? { targetDurationSec: item.targetDurationSec } : {}),
       ...(item.targetDistanceM != null ? { targetDistanceM: item.targetDistanceM } : {}),
+      ...(item.targetCalories != null ? { targetCalories: item.targetCalories } : {}),
       ...(item.supersetId ? { supersetId: item.supersetId } : {}),
       ...(item.skipped ? { skipped: true as const } : {}),
     }));
@@ -617,6 +621,7 @@ export function LogWorkout() {
           reps: set.reps,
           durationSec: set.durationSec,
           distanceM: set.distanceM,
+          calories: set.calories,
           rpe: set.rpe,
           setType: set.setType,
           ...(exercise.supersetId ? { supersetId: exercise.supersetId } : {}),
@@ -671,6 +676,7 @@ export function LogWorkout() {
         weightLb: set.weightLb,
         durationSec: set.durationSec,
         distanceM: set.distanceM,
+        calories: set.calories ?? null,
         rpe: set.rpe,
         setType: set.setType,
       });
@@ -682,6 +688,7 @@ export function LogWorkout() {
     weightLb: number;
     durationSec?: number;
     distanceM?: number;
+    calories?: number;
     rpe?: number;
     setType: SetLine["setType"];
   }) {
@@ -692,6 +699,7 @@ export function LogWorkout() {
         reps: set.reps ?? null,
         durationSec: set.durationSec ?? null,
         distanceM: set.distanceM ?? null,
+        calories: set.calories ?? null,
         rpe: set.rpe ?? null,
         setType: set.setType ?? "working",
       };
@@ -753,6 +761,7 @@ export function LogWorkout() {
           reps: last.reps,
           durationSec: last.durationSec,
           distanceM: last.distanceM,
+          calories: last.calories ?? null,
           rpe: last.rpe,
           ...(last.setType !== undefined ? { setType: last.setType } : {}),
         },
@@ -841,6 +850,7 @@ export function LogWorkout() {
       ...(item.targetWeightLb != null ? { targetWeightLb: item.targetWeightLb } : {}),
       ...(item.targetDurationSec != null ? { targetDurationSec: item.targetDurationSec } : {}),
       ...(item.targetDistanceM != null ? { targetDistanceM: item.targetDistanceM } : {}),
+      ...(item.targetCalories != null ? { targetCalories: item.targetCalories } : {}),
       ...(item.supersetId ? { supersetId: item.supersetId } : {}),
       ...(item.skipped ? { skipped: true as const } : {}),
     };
@@ -899,6 +909,7 @@ export function LogWorkout() {
           reps: set.reps,
           durationSec: set.durationSec,
           distanceM: set.distanceM,
+          calories: set.calories,
           setType: set.setType,
         },
       ],
@@ -1216,6 +1227,7 @@ export function LogWorkout() {
                   weightLb: manual.weightLb,
                   durationSec: manual.durationSec,
                   distanceM: manual.distanceM,
+                  calories: manual.calories,
                   rpe: manual.rpe,
                   setType: manual.setType,
                 }

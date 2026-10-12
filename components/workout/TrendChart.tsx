@@ -29,6 +29,7 @@ import {
   type TrendUnit,
   availableMetrics,
   buildSeries,
+  defaultChartMetric,
   defaultChartRange,
   filterByRange,
   rangeStats,
@@ -52,6 +53,7 @@ const METRIC_COPY: Record<ChartMetric, { short: string; name: string }> = {
   reps: { short: "Reps", name: "Most reps" },
   time: { short: "Time", name: "Longest time" },
   distance: { short: "Distance", name: "Farthest distance" },
+  calories: { short: "Cals", name: "Calories" },
   body: { short: "Weight", name: "Weight" },
 };
 
@@ -123,7 +125,8 @@ export function TrendChart({
     () => availableMetrics(points, recordUnit, seriesKind),
     [points, recordUnit, seriesKind],
   );
-  const metric = metrics.includes(metricOverride ?? "epley") && metricOverride ? metricOverride : (metrics[0] ?? "epley");
+  const fallback = defaultChartMetric(metrics, recordUnit);
+  const metric = metricOverride && metrics.includes(metricOverride) ? metricOverride : fallback;
   const zone = timeZone ?? "UTC";
   const ready = timeZone !== null;
   const fullSeries = useMemo(

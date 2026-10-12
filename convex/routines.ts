@@ -22,6 +22,7 @@ const targetFields = {
   targetWeightLb: v.optional(v.number()),
   targetDurationSec: v.optional(v.number()),
   targetDistanceM: v.optional(v.number()),
+  targetCalories: v.optional(v.number()),
 };
 
 const exerciseInput = v.object({
@@ -41,6 +42,7 @@ const exerciseDetail = v.object({
   targetWeightLb: v.union(v.number(), v.null()),
   targetDurationSec: v.union(v.number(), v.null()),
   targetDistanceM: v.union(v.number(), v.null()),
+  targetCalories: v.union(v.number(), v.null()),
   restSeconds: v.union(v.number(), v.null()),
   supersetId: v.union(v.string(), v.null()),
 });

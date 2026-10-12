@@ -14,6 +14,7 @@ export type SetBody = {
   weightLb: number;
   durationSec: number | null;
   distanceM: number | null;
+  calories?: number | null;
   rpe: number | null;
   setType?: SetType;
   loggedAt: number;
@@ -43,6 +44,7 @@ export type PendingEdit = {
   weightLb: number;
   durationSec: number | null;
   distanceM: number | null;
+  calories?: number | null;
   rpe: number | null;
   setType?: SetType;
   syncError: string | null;
@@ -216,6 +218,7 @@ export function enqueueSets(
         weightLb: set.weightLb,
         durationSec: set.durationSec,
         distanceM: set.distanceM,
+        calories: set.calories ?? null,
         rpe: set.rpe,
         ...(set.setType !== undefined ? { setType: set.setType } : {}),
         ...(set.supersetId ? { supersetId: set.supersetId } : {}),
@@ -627,6 +630,7 @@ export function mergeVisibleSets(
         weightLb: edit.weightLb,
         durationSec: edit.durationSec,
         distanceM: edit.distanceM,
+        calories: edit.calories ?? set.calories ?? null,
         rpe: edit.rpe,
         ...(edit.setType !== undefined ? { setType: edit.setType } : {}),
         pending: true,
@@ -642,6 +646,7 @@ export function mergeVisibleSets(
         weightLb: newer.set.weightLb,
         durationSec: newer.set.durationSec,
         distanceM: newer.set.distanceM,
+        calories: newer.set.calories ?? null,
         rpe: newer.set.rpe,
         ...(newer.set.setType !== undefined ? { setType: newer.set.setType } : {}),
         pending: true,
@@ -675,6 +680,7 @@ export function mergeVisibleSets(
       weightLb: set.set.weightLb,
       durationSec: set.set.durationSec,
       distanceM: set.set.distanceM,
+      calories: set.set.calories ?? null,
       rpe: set.set.rpe,
       ...(set.set.setType !== undefined ? { setType: set.set.setType } : {}),
       loggedAt: set.set.loggedAt,
@@ -861,16 +867,19 @@ function exerciseIdFor(name: string, sets: SetLine[]): string {
 
 function measuresMatch(
   server: SetLine,
-  edit: Pick<PendingEdit, "reps" | "weightLb" | "durationSec" | "distanceM" | "rpe" | "setType">,
+  edit: Pick<PendingEdit, "reps" | "weightLb" | "durationSec" | "distanceM" | "calories" | "rpe" | "setType">,
 ): boolean {
   const typeMatches =
     edit.setType === undefined || resolvedSetType(server.setType) === resolvedSetType(edit.setType);
+  const caloriesMatch =
+    edit.calories === undefined || (server.calories ?? null) === (edit.calories ?? null);
   return (
     server.reps === edit.reps &&
     server.weightLb === edit.weightLb &&
     server.durationSec === edit.durationSec &&
     server.distanceM === edit.distanceM &&
     server.rpe === edit.rpe &&
+    caloriesMatch &&
     typeMatches
   );
 }
@@ -899,6 +908,7 @@ function parsePendingSet(value: unknown): PendingSet | null {
       weightLb: body.weightLb,
       durationSec: typeof body.durationSec === "number" ? body.durationSec : null,
       distanceM: typeof body.distanceM === "number" ? body.distanceM : null,
+      calories: typeof body.calories === "number" ? body.calories : null,
       rpe: typeof body.rpe === "number" ? body.rpe : null,
       ...(isSetType(body.setType) ? { setType: body.setType } : {}),
       ...(typeof body.supersetId === "string" && body.supersetId.length > 0
@@ -926,6 +936,7 @@ function parsePendingEdit(value: unknown): PendingEdit | null {
     weightLb: value.weightLb,
     durationSec: typeof value.durationSec === "number" ? value.durationSec : null,
     distanceM: typeof value.distanceM === "number" ? value.distanceM : null,
+    ...(typeof value.calories === "number" ? { calories: value.calories } : {}),
     rpe: typeof value.rpe === "number" ? value.rpe : null,
     ...(isSetType(value.setType) ? { setType: value.setType } : {}),
     syncError: typeof value.syncError === "string" ? value.syncError : null,

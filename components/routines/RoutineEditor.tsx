@@ -272,6 +272,21 @@ export function RoutineEditor({ routineId }: { routineId?: string }) {
                       />
                     </label>
                   ) : null}
+                  {exercise.kind === "timed" || exercise.kind === "distance" ? (
+                    <label className="col-span-2 block">
+                      <span className="text-xs font-medium tracking-[0.06em] text-subtle uppercase">
+                        Calories, optional
+                      </span>
+                      <input
+                        value={exercise.calories}
+                        onChange={(event) => patch(exercise.key, { calories: event.target.value })}
+                        inputMode="numeric"
+                        placeholder="450"
+                        aria-label="Calories"
+                        className={`${fieldClass} mt-1.5 text-center font-mono`}
+                      />
+                    </label>
+                  ) : null}
                   {exercise.kind === "distance" ? (
                     <label className="col-span-2 block">
                       <span className="text-xs font-medium tracking-[0.06em] text-subtle uppercase">

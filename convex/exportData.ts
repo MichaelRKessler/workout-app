@@ -16,6 +16,7 @@ const setRow = v.object({
   weightLb: v.number(),
   durationSec: v.union(v.number(), v.null()),
   distanceM: v.union(v.number(), v.null()),
+  calories: v.union(v.number(), v.null()),
   rpe: v.union(v.number(), v.null()),
   note: v.union(v.string(), v.null()),
   superset: v.union(v.string(), v.null()),
@@ -44,6 +45,7 @@ const routineRow = v.object({
   targetWeightLb: v.union(v.number(), v.null()),
   targetDurationSec: v.union(v.number(), v.null()),
   targetDistanceM: v.union(v.number(), v.null()),
+  targetCalories: v.union(v.number(), v.null()),
   restSeconds: v.union(v.number(), v.null()),
 });
 
@@ -119,6 +121,7 @@ export const sets = authedQuery({
         weightLb: set.weightLb,
         durationSec: set.durationSec ?? null,
         distanceM: set.distanceM ?? null,
+        calories: set.calories ?? null,
         rpe: set.rpe ?? null,
         note: session.note,
         superset: session.supersetByExercise.get(set.exerciseId) ?? null,
@@ -190,6 +193,7 @@ export const routines = authedQuery({
           targetWeightLb: exercise.targetWeightLb ?? null,
           targetDurationSec: exercise.targetDurationSec ?? null,
           targetDistanceM: exercise.targetDistanceM ?? null,
+          targetCalories: exercise.targetCalories ?? null,
           restSeconds: stored.restSeconds ?? null,
         });
       }

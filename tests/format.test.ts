@@ -7,6 +7,7 @@ import {
   formatElapsed,
   formatLastTime,
   formatPersonalRecord,
+  formatPersonalRecords,
   formatSetShort,
   formatVolumeLb,
   formatWorkoutLength,
@@ -26,6 +27,14 @@ test("set labels are compact in lists and spelled out for screen readers", () =>
   assert.equal(formatSetShort({ reps: null, weightLb: 0, durationSec: 60 }), "1:00");
   assert.equal(describeSet({ reps: null, weightLb: 0, durationSec: 60 }), "1 minute, bodyweight");
   assert.equal(formatSetShort({ reps: null, weightLb: 0, distanceM: 2000 }), "2 km");
+  assert.equal(
+    formatSetShort({ reps: null, weightLb: 0, durationSec: 1800, distanceM: 19312, calories: 450 }),
+    "12 mi in 30:00 · 450 cal",
+  );
+  assert.equal(
+    describeSet({ reps: null, weightLb: 0, durationSec: 1800, distanceM: 19312, calories: 450 }),
+    "12 miles in 30 minutes, 450 calories",
+  );
   assert.equal(
     formatSetShort({ reps: 5, weightLb: 220.46, rpe: 8 }, "kg"),
     "5×100 RPE 8",
@@ -144,5 +153,37 @@ test("volume, streaks, and personal records have stable labels", () => {
       durationSec: 480,
     }),
     "New PR · row · 2 km in 8:00",
+  );
+  assert.equal(
+    formatPersonalRecord({
+      exerciseName: "bike",
+      kind: "calories",
+      reps: null,
+      weightLb: 0,
+      epleyLb: null,
+      calories: 450,
+    }),
+    "New PR · bike · 450 cal",
+  );
+  assert.equal(
+    formatPersonalRecords([
+      {
+        exerciseName: "bike",
+        kind: "distance",
+        reps: null,
+        weightLb: 0,
+        epleyLb: null,
+        distanceM: 19312,
+      },
+      {
+        exerciseName: "bike",
+        kind: "calories",
+        reps: null,
+        weightLb: 0,
+        epleyLb: null,
+        calories: 450,
+      },
+    ]),
+    "New PRs · bike",
   );
 });

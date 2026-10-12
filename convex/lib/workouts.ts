@@ -69,6 +69,7 @@ export function presentSet(set: {
   weightLb: number;
   durationSec?: number;
   distanceM?: number;
+  calories?: number;
   rpe?: number;
   setType?: SetType;
 }) {
@@ -77,6 +78,7 @@ export function presentSet(set: {
     weightLb: set.weightLb,
     durationSec: set.durationSec ?? null,
     distanceM: set.distanceM ?? null,
+    calories: set.calories ?? null,
     rpe: set.rpe ?? null,
     setType: resolvedSetType(set.setType),
   };
@@ -87,14 +89,18 @@ export function recordPoint(set: {
   weightLb: number;
   durationSec?: number | null;
   distanceM?: number | null;
+  calories?: number | null;
   setType?: SetType | null;
+  sessionId?: string;
 }) {
   return {
     reps: set.reps ?? null,
     weightLb: set.weightLb,
     durationSec: set.durationSec ?? null,
     distanceM: set.distanceM ?? null,
+    calories: set.calories ?? null,
     setType: resolvedSetType(set.setType),
+    ...(set.sessionId !== undefined ? { sessionId: set.sessionId } : {}),
   };
 }
 
@@ -105,6 +111,7 @@ export function storedSetFields(set: NormalizedSet) {
     ...(set.reps !== undefined ? { reps: set.reps } : {}),
     ...(set.durationSec !== undefined ? { durationSec: set.durationSec } : {}),
     ...(set.distanceM !== undefined ? { distanceM: set.distanceM } : {}),
+    ...(set.calories !== undefined ? { calories: set.calories } : {}),
     ...(set.rpe !== undefined ? { rpe: set.rpe } : {}),
     ...persistedSetType(set.setType),
   };
@@ -115,6 +122,7 @@ export function normalizeSetInput(input: {
   weightLb?: number | null;
   durationSec?: number | null;
   distanceM?: number | null;
+  calories?: number | null;
   rpe?: number | null;
   setType?: SetType | null;
 }): NormalizedSet {
@@ -190,6 +198,7 @@ export type PreviousSet = {
   weightLb: number;
   durationSec: number | null;
   distanceM: number | null;
+  calories: number | null;
   rpe: number | null;
   setType: SetType;
 };
@@ -320,6 +329,7 @@ function previousSetsResult(
       weightLb: set.weightLb,
       durationSec: set.durationSec ?? null,
       distanceM: set.distanceM ?? null,
+      calories: set.calories ?? null,
       rpe: set.rpe ?? null,
       setType: resolvedSetType(set.setType),
     })),

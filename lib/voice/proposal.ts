@@ -1,6 +1,6 @@
 import { formatExerciseName } from "../../convex/lib/exerciseName";
 import { cleanSupersetId, normalizeSupersetItems } from "../../convex/lib/superset";
-import { MAX_NOTE_LENGTH } from "../../convex/lib/measures";
+import { MAX_CALORIES, MAX_NOTE_LENGTH } from "../../convex/lib/measures";
 import { isSetType, type SetType } from "../../convex/lib/setType";
 import { LB_PER_KG, type WeightUnit } from "../../convex/lib/units";
 
@@ -19,6 +19,7 @@ const MEASURE_RULES = `A recording may name more than one exercise. Return every
 reps is 0 when the set is timed or distance only.
 durationSec is seconds, or 0 when the set is not timed. "plank 60 seconds" is durationSec 60. "7 minutes 30 seconds" is 450.
 distanceM is meters, or 0 when there is no distance. "row 2k" is 2000. "3 miles" is 4828.
+calories is whole kilocalories, or 0 when they did not say any. "450 calories", "450 cals", and "450 kcal" are 450. "bike 30 minutes 12 miles 450 calories" is one set with durationSec 1800, distanceM 19312, and calories 450.
 rpe is an effort from 1 to 10, or 0 when they did not say one.
 setType is "warmup" for a warm-up set, "drop" for a drop set, "failure" when they say to failure or a failure set, and "working" otherwise.
 superset is a short label such as "1" shared by exercises they grouped as a superset, giant set, or circuit. "superset curls and pushdowns, 3 rounds of 12 at 30 and 50" is two exercises with the same label, each expanded to 3 sets: the first exercise uses the first weight and the second exercise uses the second. Use an empty string when the exercise is not grouped.
@@ -71,6 +72,10 @@ const SET_SCHEMA = {
       type: "number",
       description: "Meters, or 0 when the set has no distance.",
     },
+    calories: {
+      type: "integer",
+      description: "Kilocalories, or 0 when they did not say calories, cals, or kcal.",
+    },
     rpe: {
       type: "integer",
       description: "Effort from 1 to 10, or 0 when they did not say one.",
@@ -82,7 +87,7 @@ const SET_SCHEMA = {
         'warmup, drop, failure, or working. Use "working" unless they name a warm-up, drop set, or failure set.',
     },
   },
-  required: ["reps", "weight", "unit", "durationSec", "distanceM", "rpe", "setType"],
+  required: ["reps", "weight", "unit", "durationSec", "distanceM", "calories", "rpe", "setType"],
 } as const;
 
 export const WORKOUT_RESPONSE_SCHEMA = {
@@ -126,6 +131,7 @@ export type VoiceSet = {
   weightLb: number;
   durationSec: number | null;
   distanceM: number | null;
+  calories: number | null;
   rpe: number | null;
   setType: SetType;
 };
@@ -323,6 +329,12 @@ function normalizeSet(
     "Time must be from 1 second to 24 hours.",
   );
   const distanceM = optionalDistance(value.distanceM);
+  const calories = optionalCount(
+    value.calories,
+    1,
+    MAX_CALORIES,
+    "Calories must be a whole number from 1 to 20000.",
+  );
   const rpe = optionalCount(value.rpe, 1, 10, "RPE must be a whole number from 1 to 10.");
   if (reps === null && durationSec === null && distanceM === null) {
     throw new VoiceParseError(
@@ -365,6 +377,7 @@ function normalizeSet(
     weightLb,
     durationSec,
     distanceM,
+    calories,
     rpe,
     setType: isSetType(value.setType) ? value.setType : "working",
   };

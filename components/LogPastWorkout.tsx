@@ -8,7 +8,7 @@ import { useWeightUnit } from "@/components/WeightUnit";
 import { SetTypePicker } from "@/components/SetTypePicker";
 import { formatExerciseName } from "@/convex/lib/exerciseName";
 import type { SetType } from "@/convex/lib/setType";
-import { parseClock, parseDistanceInput, type SetKind } from "@/convex/lib/measures";
+import { parseCaloriesInput, parseClock, parseDistanceInput, type SetKind } from "@/convex/lib/measures";
 import { maxDisplayWeight, parseDisplayWeight, toPounds } from "@/convex/lib/units";
 import { formatPersonalRecords } from "@/lib/format";
 import { parseReps } from "@/lib/numbers";
@@ -25,6 +25,7 @@ type DraftSet = {
   weight: string;
   duration: string;
   distance: string;
+  calories: string;
   rpe: string;
   setType: SetType;
 };
@@ -40,7 +41,16 @@ function nextKey(): string {
 }
 
 function blankSet(): DraftSet {
-  return { key: nextKey(), reps: "", weight: "", duration: "", distance: "", rpe: "", setType: "working" };
+  return {
+    key: nextKey(),
+    reps: "",
+    weight: "",
+    duration: "",
+    distance: "",
+    calories: "",
+    rpe: "",
+    setType: "working",
+  };
 }
 
 function blankExercise(): DraftExercise {
@@ -100,6 +110,7 @@ export function LogPastWorkout() {
         reps?: number;
         durationSec?: number;
         distanceM?: number;
+        calories?: number;
         rpe?: number;
         setType: SetType;
       }>;
@@ -127,13 +138,20 @@ export function LogPastWorkout() {
           setError("RPE must be a whole number from 1 to 10, or blank.");
           return;
         }
+        const caloriesText = set.calories.trim();
+        const calories = caloriesText.length === 0 ? undefined : parseCaloriesInput(caloriesText);
+        if (caloriesText.length > 0 && calories === null) {
+          setError("Calories must be a whole number from 1 to 20000.");
+          return;
+        }
+        const calorieFields = calories ? { calories } : {};
         if (exercise.kind === "timed") {
           const durationSec = parseClock(set.duration);
           if (durationSec === null) {
             setError("Time must be from 1 second to 24 hours, like 90 or 1:30.");
             return;
           }
-          sets.push({ weightLb, durationSec, setType: set.setType, ...(rpe ? { rpe } : {}) });
+          sets.push({ weightLb, durationSec, setType: set.setType, ...calorieFields, ...(rpe ? { rpe } : {}) });
           continue;
         }
         if (exercise.kind === "distance") {
@@ -152,6 +170,7 @@ export function LogPastWorkout() {
             distanceM,
             ...(durationSec ? { durationSec } : {}),
             setType: set.setType,
+            ...calorieFields,
             ...(rpe ? { rpe } : {}),
           });
           continue;
@@ -161,7 +180,7 @@ export function LogPastWorkout() {
           setError("Reps must be a whole number from 1 to 999.");
           return;
         }
-        sets.push({ weightLb, reps, setType: set.setType, ...(rpe ? { rpe } : {}) });
+        sets.push({ weightLb, reps, setType: set.setType, ...calorieFields, ...(rpe ? { rpe } : {}) });
       }
       payload.push({ name: formatted.name, sets });
     }
@@ -184,6 +203,7 @@ export function LogPastWorkout() {
             reps: set.reps ?? null,
             durationSec: set.durationSec ?? null,
             distanceM: set.distanceM ?? null,
+            calories: set.calories ?? null,
             rpe: set.rpe ?? null,
             setType: set.setType,
             loggedAt: at,
@@ -375,6 +395,18 @@ export function LogPastWorkout() {
                       className={setFieldClass}
                     />
                   </div>
+                  {exercise.kind === "timed" || exercise.kind === "distance" ? (
+                    <input
+                      value={set.calories}
+                      onChange={(event) =>
+                        updateSet(exercise.key, set.key, { calories: event.target.value })
+                      }
+                      inputMode="numeric"
+                      placeholder="Calories"
+                      aria-label={`Set ${setIndex + 1} calories`}
+                      className={`${setFieldClass} mt-2 w-full`}
+                    />
+                  ) : null}
                   <div className="mt-2">
                     <SetTypePicker
                       value={set.setType}

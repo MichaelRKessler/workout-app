@@ -1,6 +1,6 @@
 import { formatExerciseName } from "../convex/lib/exerciseName";
 import { withStoredSuperset } from "../convex/lib/superset";
-import { formatClock, formatDistance, parseClock, parseDistanceInput } from "../convex/lib/measures";
+import { formatClock, formatDistance, parseCaloriesInput, parseClock, parseDistanceInput } from "../convex/lib/measures";
 import { clampRestSeconds } from "../convex/lib/rest";
 import { MAX_ROUTINE_EXERCISES, MAX_TARGET_SETS } from "../convex/lib/routinePlan";
 import {
@@ -22,6 +22,7 @@ export type RoutineDraftExercise = {
   weight: string;
   duration: string;
   distance: string;
+  calories: string;
   /** Empty uses the device rest default. A number of seconds is the account rest. */
   rest: string;
   /** Shared with the next exercises when they are one superset. */
@@ -35,6 +36,7 @@ export type RoutineExercisePayload = {
   targetWeightLb?: number;
   targetDurationSec?: number;
   targetDistanceM?: number;
+  targetCalories?: number;
   restSeconds: number | null;
   supersetId?: string;
 };
@@ -46,6 +48,7 @@ type SavedExercise = {
   targetWeightLb: number | null;
   targetDurationSec: number | null;
   targetDistanceM: number | null;
+  targetCalories?: number | null;
   restSeconds?: number | null;
   supersetId?: string | null;
 };
@@ -60,6 +63,7 @@ export function blankRoutineExercise(key: string): RoutineDraftExercise {
     weight: "",
     duration: "",
     distance: "",
+    calories: "",
     rest: "",
     supersetId: null,
   };
@@ -88,6 +92,7 @@ export function savedExerciseToDraft(
       exercise.targetWeightLb === null ? "" : formatWeightAmount(exercise.targetWeightLb, unit),
     duration: exercise.targetDurationSec ? formatClock(exercise.targetDurationSec) : "",
     distance: exercise.targetDistanceM ? formatDistance(exercise.targetDistanceM) : "",
+    calories: exercise.targetCalories ? String(exercise.targetCalories) : "",
     rest: exercise.restSeconds ? String(exercise.restSeconds) : "",
     supersetId: exercise.supersetId ?? null,
   };
@@ -178,12 +183,17 @@ function targetsFromDraft(
     if (weight.error) {
       return { ok: false, error: weight.error };
     }
+    const calories = optionalCalories(exercise.calories);
+    if (calories.error) {
+      return { ok: false, error: calories.error };
+    }
     return {
       ok: true,
       targets: {
         ...(sets.value ? { targetSets: sets.value } : {}),
         targetDurationSec: durationSec,
         ...(weight.value !== undefined ? { targetWeightLb: weight.value } : {}),
+        ...(calories.value !== undefined ? { targetCalories: calories.value } : {}),
       },
     };
   }
@@ -199,14 +209,31 @@ function targetsFromDraft(
     }
     targetDurationSec = durationSec;
   }
+  const calories = optionalCalories(exercise.calories);
+  if (calories.error) {
+    return { ok: false, error: calories.error };
+  }
   return {
     ok: true,
     targets: {
       ...(sets.value ? { targetSets: sets.value } : {}),
       targetDistanceM: distanceM,
       ...(targetDurationSec ? { targetDurationSec } : {}),
+      ...(calories.value !== undefined ? { targetCalories: calories.value } : {}),
     },
   };
+}
+
+function optionalCalories(value: string): { value?: number; error?: string } {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return {};
+  }
+  const calories = parseCaloriesInput(trimmed);
+  if (calories === null) {
+    return { error: "Calories must be a whole number from 1 to 20000." };
+  }
+  return { value: calories };
 }
 
 function optionalSets(value: string): { value?: number; error?: string } {

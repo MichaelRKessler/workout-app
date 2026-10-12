@@ -15,6 +15,7 @@ export type SummarySet = {
   weightLb: number;
   durationSec?: number | null;
   distanceM?: number | null;
+  calories?: number | null;
   setType?: SetType | null;
   loggedAt: number;
 };
@@ -37,6 +38,8 @@ export type WorkoutSummary = {
   volumeLb: number;
   /** Meters, warm-ups excluded. */
   distanceM: number;
+  /** Kilocalories, warm-ups excluded. Drop sets count. */
+  calories: number;
 };
 
 /**
@@ -49,6 +52,7 @@ export function summarizeSessions(sessions: SummarySession[]): WorkoutSummary {
   let setCount = 0;
   let warmupCount = 0;
   let distanceM = 0;
+  let calories = 0;
   const sets: SummarySet[] = [];
   let totalMs = 0;
   let activeMs = 0;
@@ -65,6 +69,9 @@ export function summarizeSessions(sessions: SummarySession[]): WorkoutSummary {
       setCount += 1;
       if ((set.distanceM ?? 0) > 0) {
         distanceM += set.distanceM ?? 0;
+      }
+      if ((set.calories ?? 0) > 0) {
+        calories += set.calories ?? 0;
       }
     }
     const clock = sessionClock(session);
@@ -86,6 +93,7 @@ export function summarizeSessions(sessions: SummarySession[]): WorkoutSummary {
     warmupCount,
     volumeLb: volumeLb(sets),
     distanceM: Math.round(distanceM * 100) / 100,
+    calories,
   };
 }
 

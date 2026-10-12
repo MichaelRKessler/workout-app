@@ -65,6 +65,7 @@ export type SaveSetInput = {
   weightLb: number;
   durationSec?: number | null;
   distanceM?: number | null;
+  calories?: number | null;
   rpe?: number | null;
   setType?: SetBody["setType"];
   loggedAt?: number;
@@ -87,6 +88,7 @@ export type EditSetInput = {
   weightLb: number;
   durationSec?: number | null;
   distanceM?: number | null;
+  calories?: number | null;
   rpe?: number | null;
   setType?: SetBody["setType"];
 };
@@ -460,6 +462,7 @@ export function OfflineSyncProvider({
           weightLb: set.weightLb,
           durationSec: set.durationSec ?? null,
           distanceM: set.distanceM ?? null,
+          calories: set.calories ?? null,
           rpe: set.rpe ?? null,
           ...(set.setType !== undefined ? { setType: set.setType } : {}),
           ...(set.supersetId ? { supersetId: set.supersetId } : {}),
@@ -508,6 +511,7 @@ export function OfflineSyncProvider({
         weightLb: input.weightLb,
         durationSec: input.durationSec ?? null,
         distanceM: input.distanceM ?? null,
+        calories: input.calories ?? null,
         rpe: input.rpe ?? null,
         ...(input.setType !== undefined ? { setType: input.setType } : {}),
         syncError: null,
@@ -772,6 +776,7 @@ function measurePatch(input: EditSetInput): Partial<Omit<SetBody, "loggedAt">> {
     ...(input.reps !== undefined ? { reps: input.reps } : {}),
     ...(input.durationSec !== undefined ? { durationSec: input.durationSec } : {}),
     ...(input.distanceM !== undefined ? { distanceM: input.distanceM } : {}),
+    ...(input.calories !== undefined ? { calories: input.calories } : {}),
     ...(input.rpe !== undefined ? { rpe: input.rpe } : {}),
     ...(input.setType !== undefined ? { setType: input.setType } : {}),
   };
@@ -839,6 +844,7 @@ function batchPayload(batch: SyncBatch) {
       ...(set.set.reps !== null ? { reps: set.set.reps } : {}),
       ...(set.set.durationSec !== null ? { durationSec: set.set.durationSec } : {}),
       ...(set.set.distanceM !== null ? { distanceM: set.set.distanceM } : {}),
+      ...(set.set.calories != null && set.set.calories > 0 ? { calories: set.set.calories } : {}),
       ...(set.set.rpe !== null ? { rpe: set.set.rpe } : {}),
       ...(set.set.setType !== undefined ? { setType: set.set.setType } : {}),
       ...(set.set.supersetId ? { supersetId: set.set.supersetId } : {}),
@@ -851,6 +857,7 @@ function batchPayload(batch: SyncBatch) {
       ...(edit.reps !== null ? { reps: edit.reps } : {}),
       ...(edit.durationSec !== null ? { durationSec: edit.durationSec } : {}),
       ...(edit.distanceM !== null ? { distanceM: edit.distanceM } : {}),
+      ...(edit.calories != null && edit.calories > 0 ? { calories: edit.calories } : {}),
       ...(edit.rpe !== null ? { rpe: edit.rpe } : {}),
       ...(edit.setType !== undefined ? { setType: edit.setType } : {}),
     })),

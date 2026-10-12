@@ -11,6 +11,7 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { formatExerciseName } from "@/convex/lib/exerciseName";
 import {
   formatClock,
+  parseCaloriesInput,
   parseClock,
   parseDistanceInput,
   setKind,
@@ -43,6 +44,7 @@ type LoggedSet = {
   weightLb: number;
   durationSec?: number;
   distanceM?: number;
+  calories?: number;
   rpe?: number;
   setType: SetType;
 };
@@ -53,6 +55,7 @@ type FormValues = {
   weight: string;
   duration: string;
   distance: string;
+  calories: string;
   rpe: string;
   setType: SetType;
   source: PrefillSource | "edit";
@@ -76,6 +79,7 @@ function showPrefill(
     weight: Number.isFinite(pounds) ? formatWeightAmount(pounds, unit) : values.weight,
     duration: values.duration,
     distance: values.distance,
+    calories: values.calories,
     rpe: values.rpe,
     setType: values.setType,
     source: values.source,
@@ -105,6 +109,7 @@ export function ManualEntrySheet({
     weightLb: number;
     durationSec: number | null;
     distanceM: number | null;
+    calories?: number | null;
     rpe: number | null;
     setType?: SetType;
   };
@@ -136,6 +141,7 @@ export function ManualEntrySheet({
           weight: formatWeightAmount(initialSet.weightLb, unit),
           duration: initialSet.durationSec ? formatClock(initialSet.durationSec) : "",
           distance: initialSet.distanceM ? String(initialSet.distanceM) : "",
+          calories: initialSet.calories ? String(initialSet.calories) : "",
           rpe: initialSet.rpe ? String(initialSet.rpe) : "",
           setType: resolvedSetType(initialSet.setType),
           source: "edit",
@@ -249,6 +255,17 @@ export function ManualEntrySheet({
       );
       return;
     }
+    const caloriesText = values.calories.trim();
+    let calories: number | undefined;
+    if (caloriesText.length > 0) {
+      const parsed = parseCaloriesInput(caloriesText);
+      if (parsed === null) {
+        setError("Calories must be a whole number from 1 to 20000.");
+        return;
+      }
+      calories = parsed;
+    }
+
     const rpeText = values.rpe.trim();
     const rpe = rpeText.length === 0 ? undefined : Number(rpeText);
     if (rpe !== undefined && (!Number.isInteger(rpe) || rpe < 1 || rpe > 10)) {
@@ -260,6 +277,7 @@ export function ManualEntrySheet({
       exerciseName: formatted.name,
       weightLb,
       setType: values.setType,
+      ...(calories ? { calories } : {}),
       ...(rpe ? { rpe } : {}),
     };
     if (values.kind === "timed") {
@@ -485,6 +503,24 @@ export function ManualEntrySheet({
                 inputMode="text"
                 placeholder="7:30"
                 className="min-h-12 bg-transparent py-1 text-center font-mono text-2xl font-medium outline-none"
+              />
+            </label>
+          ) : null}
+          {values.kind !== "strength" || values.calories.trim().length > 0 ? (
+            <label className="col-span-2 flex flex-col gap-1.5 rounded-2xl border border-line bg-background p-3">
+              <span className="text-xs font-medium tracking-[0.06em] text-subtle uppercase">
+                Calories, optional
+              </span>
+              <input
+                value={values.calories}
+                onChange={(event) => {
+                  setDirty(true);
+                  setValues({ ...values, calories: event.target.value });
+                }}
+                inputMode="numeric"
+                placeholder="450"
+                aria-label="Calories"
+                className="min-h-12 bg-transparent py-1 text-center font-mono text-metric font-medium outline-none"
               />
             </label>
           ) : null}

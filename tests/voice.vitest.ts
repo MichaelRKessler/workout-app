@@ -33,13 +33,16 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 function voiceSet(
   reps: number | null,
   weightLb: number,
-  extra: Partial<Pick<VoiceProposal["exercises"][number]["sets"][number], "durationSec" | "distanceM" | "rpe">> = {},
+  extra: Partial<
+    Pick<VoiceProposal["exercises"][number]["sets"][number], "durationSec" | "distanceM" | "calories" | "rpe">
+  > = {},
 ) {
   return {
     reps,
     weightLb,
     durationSec: extra.durationSec ?? null,
     distanceM: extra.distanceM ?? null,
+    calories: extra.calories ?? null,
     rpe: extra.rpe ?? null,
     setType: "working",
   };
@@ -52,6 +55,7 @@ function blankDraft(reps: string, weight: string) {
     weight,
     duration: "",
     distance: "",
+    calories: "",
     rpe: "",
     weightLb: null,
     setType: "working",
@@ -205,6 +209,55 @@ describe("more than one exercise, time, and distance", () => {
       exercises: [
         { exerciseName: "bench press", sets: [voiceSet(10, 135)] },
         { exerciseName: "row", sets: [voiceSet(8, 95)] },
+      ],
+    });
+  });
+
+  test("bike 30 minutes, 12 miles, and 450 calories", () => {
+    expect(
+      normalizeGeminiWorkout({
+        exerciseName: "bike",
+        sets: [
+          {
+            reps: 0,
+            weight: 0,
+            unit: "lb",
+            durationSec: 1800,
+            distanceM: 19312,
+            calories: 450,
+            rpe: 0,
+          },
+        ],
+      }),
+    ).toEqual(
+      voiceProposal("bike", [voiceSet(null, 0, { durationSec: 1800, distanceM: 19312, calories: 450 })]),
+    );
+    expect(WORKOUT_PARSE_PROMPT).toContain("450 calories");
+    expect(WORKOUT_RESPONSE_SCHEMA).toBeTruthy();
+  });
+
+  test("a missing calorie count stays unset, and a second exercise keeps its own", () => {
+    expect(
+      normalizeGeminiWorkout({
+        exercises: [
+          {
+            exerciseName: "bike",
+            sets: [{ reps: 0, weight: 0, unit: "lb", durationSec: 1800, distanceM: 19312 }],
+          },
+          {
+            exerciseName: "bench press",
+            sets: [{ reps: 5, weight: 135, unit: "lb", calories: 0 }],
+          },
+        ],
+      }),
+    ).toEqual({
+      note: null,
+      exercises: [
+        {
+          exerciseName: "bike",
+          sets: [voiceSet(null, 0, { durationSec: 1800, distanceM: 19312 })],
+        },
+        { exerciseName: "bench press", sets: [voiceSet(5, 135)] },
       ],
     });
   });

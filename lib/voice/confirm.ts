@@ -3,6 +3,7 @@ import { cleanSupersetId, normalizeSupersetItems } from "../../convex/lib/supers
 import {
   formatClock,
   formatDistance,
+  parseCaloriesInput,
   parseClock,
   parseDistanceInput,
   setKind,
@@ -25,6 +26,7 @@ export type DraftSet = {
   weight: string;
   duration: string;
   distance: string;
+  calories: string;
   rpe: string;
   /** Stored pounds behind the weight field, so an unedited kg display does not drift. */
   weightLb: number | null;
@@ -142,6 +144,7 @@ export function proposalToDraft(proposal: VoiceProposal, unit: WeightUnit = "lb"
         weight: formatWeightAmount(set.weightLb, unit),
         duration: set.durationSec === null ? "" : formatClock(set.durationSec),
         distance: set.distanceM === null ? "" : formatDistance(set.distanceM),
+        calories: set.calories === null ? "" : String(set.calories),
         rpe: set.rpe === null ? "" : String(set.rpe),
         weightLb: set.weightLb,
         setType: resolvedSetType(set.setType),
@@ -203,12 +206,17 @@ function draftSetToVoice(set: DraftSet, unit: WeightUnit): VoiceSet | null {
   if (rpe !== null && (!Number.isInteger(rpe) || rpe < 1 || rpe > 10)) {
     return null;
   }
+  const caloriesText = set.calories?.trim() ?? "";
+  const calories = caloriesText.length === 0 ? null : parseCaloriesInput(caloriesText);
+  if (caloriesText.length > 0 && calories === null) {
+    return null;
+  }
   if (set.kind === "timed") {
     const durationSec = parseClock(set.duration);
     if (durationSec === null) {
       return null;
     }
-    return { reps: null, weightLb, durationSec, distanceM: null, rpe, setType: set.setType };
+    return { reps: null, weightLb, durationSec, distanceM: null, calories, rpe, setType: set.setType };
   }
   if (set.kind === "distance") {
     const distanceM = parseDistanceInput(set.distance);
@@ -219,13 +227,13 @@ function draftSetToVoice(set: DraftSet, unit: WeightUnit): VoiceSet | null {
     if (set.duration.trim().length > 0 && durationSec === null) {
       return null;
     }
-    return { reps: null, weightLb, durationSec, distanceM, rpe, setType: set.setType };
+    return { reps: null, weightLb, durationSec, distanceM, calories, rpe, setType: set.setType };
   }
   const reps = parseReps(set.reps);
   if (reps === null) {
     return null;
   }
-  return { reps, weightLb, durationSec: null, distanceM: null, rpe, setType: set.setType };
+  return { reps, weightLb, durationSec: null, distanceM: null, calories, rpe, setType: set.setType };
 }
 
 /**

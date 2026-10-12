@@ -1,4 +1,5 @@
 import {
+  formatCalories,
   formatClock,
   formatDistance,
   setKind,
@@ -11,6 +12,7 @@ type DisplaySet = {
   weightLb: number;
   durationSec?: number | null;
   distanceM?: number | null;
+  calories?: number | null;
   rpe?: number | null;
   setType?: string | null;
 };
@@ -20,6 +22,13 @@ export function formatWeightLb(weightLb: number, unit: WeightUnit = "lb"): strin
     return "bodyweight";
   }
   return `${formatWeightAmount(weightLb, unit)} ${unit}`;
+}
+
+function appendCalories(label: string, calories: number | null | undefined): string {
+  if ((calories ?? 0) <= 0) {
+    return label;
+  }
+  return `${label} · ${formatCalories(calories ?? 0)}`;
 }
 
 /** Compact set label for lists: "10×135", "1:00", "2 km", or "20×BW". */
@@ -47,7 +56,7 @@ export function formatSetShort(set: DisplaySet, unit: WeightUnit = "lb"): string
   if (set.rpe) {
     label += ` RPE ${set.rpe}`;
   }
-  return label;
+  return appendCalories(label, set.calories);
 }
 
 /**
@@ -65,7 +74,8 @@ export function formatLastTime(sets: DisplaySet[], unit: WeightUnit = "lb"): str
       (set.reps ?? null) === (first.reps ?? null) &&
       set.weightLb === first.weightLb &&
       (set.durationSec ?? null) === (first.durationSec ?? null) &&
-      (set.distanceM ?? null) === (first.distanceM ?? null),
+      (set.distanceM ?? null) === (first.distanceM ?? null) &&
+      (set.calories ?? null) === (first.calories ?? null),
   );
   if (uniform && setKind(first) === "strength") {
     if (first.weightLb === 0) {
@@ -102,6 +112,9 @@ export function describeSet(set: DisplaySet, unit: WeightUnit = "lb"): string {
       set.weightLb === 0
         ? `${repsLabel}, bodyweight`
         : `${repsLabel} at ${formatWeightLb(set.weightLb, unit)}`;
+  }
+  if ((set.calories ?? 0) > 0) {
+    label += `, ${set.calories} calories`;
   }
   if (set.rpe) {
     label += `, RPE ${set.rpe}`;
@@ -202,15 +215,19 @@ export function streakLabel(weeks: number): string {
 export function formatPersonalRecord(
   record: {
     exerciseName: string;
-    kind: "weight" | "epley" | "both" | "reps" | "duration" | "distance";
+    kind: "weight" | "epley" | "both" | "reps" | "duration" | "distance" | "calories";
     reps: number | null;
     weightLb: number;
     epleyLb: number | null;
     durationSec?: number | null;
     distanceM?: number | null;
+    calories?: number | null;
   },
   unit: WeightUnit = "lb",
 ): string {
+  if (record.kind === "calories") {
+    return `New PR · ${record.exerciseName} · ${formatCalories(record.calories ?? 0)}`;
+  }
   if (record.kind === "duration") {
     const time = formatClock(record.durationSec ?? 0);
     const load = record.weightLb > 0 ? ` at ${formatWeightLb(record.weightLb, unit)}` : "";
@@ -239,12 +256,13 @@ export function formatPersonalRecord(
 export function formatPersonalRecords(
   records: Array<{
     exerciseName: string;
-    kind: "weight" | "epley" | "both" | "reps" | "duration" | "distance";
+    kind: "weight" | "epley" | "both" | "reps" | "duration" | "distance" | "calories";
     reps: number | null;
     weightLb: number;
     epleyLb: number | null;
     durationSec?: number | null;
     distanceM?: number | null;
+    calories?: number | null;
   }>,
   unit: WeightUnit = "lb",
 ): string | null {
@@ -255,7 +273,13 @@ export function formatPersonalRecords(
   if (records.length === 1) {
     return formatPersonalRecord(first, unit);
   }
-  return `New PRs · ${records.map((record) => record.exerciseName).join(", ")}`;
+  const names: string[] = [];
+  for (const record of records) {
+    if (!names.includes(record.exerciseName)) {
+      names.push(record.exerciseName);
+    }
+  }
+  return `New PRs · ${names.join(", ")}`;
 }
 
 /** "Sun, Oct 11" */
@@ -311,6 +335,7 @@ export function formatRoutineTarget(
     targetWeightLb?: number | null;
     targetDurationSec?: number | null;
     targetDistanceM?: number | null;
+    targetCalories?: number | null;
   },
   unit: WeightUnit = "lb",
 ): string | null {
@@ -319,6 +344,8 @@ export function formatRoutineTarget(
   const weight = target.targetWeightLb;
   const duration = target.targetDurationSec ?? null;
   const distance = target.targetDistanceM ?? null;
+  const calories = target.targetCalories ?? null;
+  const calorieLabel = calories && calories > 0 ? ` · ${formatCalories(calories)}` : "";
   const load =
     weight === undefined || weight === null
       ? null
@@ -334,6 +361,7 @@ export function formatRoutineTarget(
     if (load && load !== "bodyweight") {
       label += ` · ${load}`;
     }
+    label += calorieLabel;
     return sets && sets > 1 ? `${sets}×${label}` : label;
   }
   if (duration && reps === null) {
@@ -341,11 +369,13 @@ export function formatRoutineTarget(
     if (load && load !== "bodyweight") {
       label += ` · ${load}`;
     }
+    label += calorieLabel;
     return sets ? `${sets}×${label}` : label;
   }
   if (reps) {
     const body = sets ? `${sets}×${reps}` : pluralize(reps, "rep");
-    return load ? `${body} · ${load}` : body;
+    const label = load ? `${body} · ${load}` : body;
+    return `${label}${calorieLabel}`;
   }
   if (sets) {
     return pluralize(sets, "set");

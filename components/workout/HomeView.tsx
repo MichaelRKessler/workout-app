@@ -3,6 +3,7 @@
 import { useWeightUnit } from "@/components/WeightUnit";
 import { BrandMark, ChevronRightIcon, KeyboardIcon, MicIcon } from "@/components/icons";
 import { TopActions } from "@/components/TopActions";
+import { formatCalories } from "@/convex/lib/measures";
 import { formatMuscleSummary, type MuscleGroup } from "@/convex/lib/muscleGroup";
 import {
   formatLongDate,
@@ -20,9 +21,11 @@ export type WeekSummary = {
   workouts: number;
   sets: number;
   volumeLb: number;
+  calories?: number;
   previousWorkouts: number;
   previousSets: number;
   previousVolumeLb: number;
+  previousCalories?: number;
   streakWeeks: number;
   muscles: Array<{ group: MuscleGroup; sets: number }>;
 };
@@ -184,11 +187,13 @@ function WeeklySummary({ summary }: { summary: WeekSummary }) {
       <p className="mt-2 text-base font-medium text-pretty">
         {pluralize(summary.workouts, "workout")} · {pluralize(summary.sets, "set")} ·{" "}
         {formatVolumeLb(summary.volumeLb, unit)}
+        {(summary.calories ?? 0) > 0 ? ` · ${formatCalories(summary.calories ?? 0)}` : ""}
       </p>
       {muscles ? <p className="mt-1 text-sm text-pretty text-muted">{muscles}</p> : null}
       <p className="mt-0.5 text-sm text-pretty text-muted">
         Last week · {pluralize(summary.previousWorkouts, "workout")} ·{" "}
         {pluralize(summary.previousSets, "set")} · {formatVolumeLb(summary.previousVolumeLb, unit)}
+        {(summary.previousCalories ?? 0) > 0 ? ` · ${formatCalories(summary.previousCalories ?? 0)}` : ""}
       </p>
     </section>
   );

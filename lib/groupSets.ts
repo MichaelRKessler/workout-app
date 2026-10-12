@@ -8,6 +8,7 @@ export type SetLine = {
   weightLb: number;
   durationSec: number | null;
   distanceM: number | null;
+  calories?: number | null;
   rpe: number | null;
   setType?: SetType;
   loggedAt: number;

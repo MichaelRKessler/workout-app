@@ -1,4 +1,4 @@
-import { M_PER_KM, M_PER_MI, formatClock } from "../convex/lib/measures";
+import { M_PER_KM, M_PER_MI, formatCalories, formatClock } from "../convex/lib/measures";
 import { fromPounds, type WeightUnit } from "../convex/lib/units";
 import { formatVolumeLb, pluralize } from "./format";
 import { calendarDayBounds, calendarDayKey, parseDayKey } from "./historyDays";
@@ -47,7 +47,7 @@ const TIME_STEPS = [1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600, 720
 
 export type ChartRange = "1m" | "3m" | "6m" | "1y" | "all";
 
-export type ChartMetric = "epley" | "weight" | "volume" | "reps" | "time" | "distance" | "body";
+export type ChartMetric = "epley" | "weight" | "volume" | "reps" | "time" | "distance" | "calories" | "body";
 
 export type TrendUnit = "lb" | "reps" | "m" | "sec";
 
@@ -71,6 +71,8 @@ export type ProgressPoint = {
   reps?: number | null;
   durationSec?: number | null;
   distanceM?: number | null;
+  /** Record-eligible calories in the workout. Absent on older points. */
+  calories?: number | null;
   bestEpleySet?: ChartSetSnap | null;
   bestWeightSet?: ChartSetSnap | null;
   bestRepsSet?: ChartSetSnap | null;
@@ -372,6 +374,14 @@ export function prepareYScale(
       tickKind: "number",
     };
   }
+  if (metric === "calories") {
+    return {
+      scale: niceYScale(finite, { integers: true }),
+      toDisplay: (value) => value,
+      caption: "cal",
+      tickKind: "number",
+    };
+  }
   if (metric === "distance") {
     const max = finite.length > 0 ? Math.max(...finite) : 0;
     const divisor = max >= M_PER_MI ? M_PER_MI : max >= 1000 ? 1000 : 1;
@@ -512,6 +522,7 @@ export function formatChartValue(value: number, metric: ChartMetric, unit: Weigh
   if (metric === "epley" || metric === "weight" || metric === "body") return formatChartWeight(value, unit);
   if (metric === "reps") return pluralize(Math.round(value), "rep");
   if (metric === "time") return formatClock(value);
+  if (metric === "calories") return formatCalories(value);
   return formatChartDistance(value);
 }
 
@@ -524,7 +535,7 @@ export function formatChartDelta(delta: number, metric: ChartMetric, unit: Weigh
 }
 
 export function formatChartSet(set: ChartSetSnap | null, metric: ChartMetric, unit: WeightUnit): string | null {
-  if (!set || metric === "body") return null;
+  if (!set || metric === "body" || metric === "calories") return null;
   if (metric === "time") {
     const clock = formatClock(set.durationSec ?? 0);
     return set.weightLb > 0 ? `${clock} @ ${formatChartWeight(set.weightLb, unit)}` : clock;
@@ -562,6 +573,8 @@ export function metricValue(
     case "distance":
       if (point.distanceM != null && point.distanceM > 0) return point.distanceM;
       return recordUnit === "m" ? finiteOrNull(point.value) : null;
+    case "calories":
+      return point.calories != null && point.calories > 0 ? point.calories : null;
     default: {
       const unreachable: never = metric;
       return unreachable;
@@ -592,9 +605,22 @@ export function availableMetrics(
   if (has("weight")) metrics.push("weight");
   if (has("volume")) metrics.push("volume");
   if (recordUnit === "reps" && has("reps")) metrics.push("reps");
-  if (recordUnit === "sec" && has("time")) metrics.push("time");
-  if (recordUnit === "m" && has("distance")) metrics.push("distance");
+  if (recordUnit === "sec" || recordUnit === "m") {
+    if (has("calories")) metrics.push("calories");
+    if (recordUnit === "sec" && has("time")) metrics.push("time");
+    if (recordUnit === "m" && has("distance")) metrics.push("distance");
+    return metrics;
+  }
+  if (has("calories")) metrics.push("calories");
   return metrics;
+}
+
+/** Cardio with calories opens on that total. Lifting keeps its first strength metric. */
+export function defaultChartMetric(metrics: ChartMetric[], recordUnit: TrendUnit): ChartMetric {
+  if ((recordUnit === "m" || recordUnit === "sec") && metrics.includes("calories")) {
+    return "calories";
+  }
+  return metrics[0] ?? "epley";
 }
 
 /**
@@ -619,7 +645,7 @@ export function buildSeries(
     });
   }
   raw.sort((left, right) => left.startedAt - right.startedAt || compareId(left.sessionId, right.sessionId));
-  const mode = metric === "volume" ? "sum" : metric === "body" ? "latest" : "max";
+  const mode = metric === "volume" || metric === "calories" ? "sum" : metric === "body" ? "latest" : "max";
   const combined = combineByDay(raw, timeZone, mode);
   const marked = metric === "body" ? combined.map((point) => ({ ...point, pr: false })) : markRecords(combined);
   return marked.map((point) => ({
