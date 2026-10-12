@@ -151,7 +151,10 @@ async function ageWorkout(
   loggedAt: number | null,
 ) {
   await t.run(async (ctx) => {
-    await ctx.db.patch("sessions", sessionId, { startedAt });
+    await ctx.db.patch("sessions", sessionId, {
+      startedAt,
+      ...(loggedAt !== null ? { lastSetAt: loggedAt } : {}),
+    });
     if (loggedAt === null) {
       return;
     }
@@ -273,6 +276,7 @@ describe("saving and undoing a set list", () => {
           loggedAt: index + 1,
         });
       }
+      await ctx.db.patch("sessions", sessionId, { setCount: 499, lastSetAt: 499 });
     });
 
     await expect(

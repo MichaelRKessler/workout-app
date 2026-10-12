@@ -2,6 +2,7 @@ import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { formatExerciseName, MAX_KNOWN_EXERCISE_NAMES } from "./exerciseName";
 import { normalizeStoredSet, type NormalizedSet } from "./measures";
+import { MAX_REPS, MIN_REPS, REPS_MESSAGE, wholeInRange } from "./setLimits";
 import { persistedSetType, resolvedSetType, type SetType } from "./setType";
 import { userError } from "./errors";
 
@@ -52,8 +53,8 @@ export async function getOrCreateExercise(
 }
 
 export function assertReps(reps: number): number {
-  if (!Number.isInteger(reps) || reps < 1 || reps > 999) {
-    throw userError("Reps must be a whole number from 1 to 999");
+  if (!wholeInRange(reps, MIN_REPS, MAX_REPS)) {
+    throw userError(REPS_MESSAGE);
   }
   return reps;
 }
@@ -198,6 +199,13 @@ export async function assertSessionCanAcceptSets(
 ): Promise<void> {
   if (adding < 1) {
     throw userError("Add at least one set");
+  }
+  const session = await ctx.db.get("sessions", sessionId);
+  if (session && session.setCount !== undefined) {
+    if (session.setCount + adding > MAX_SETS_PER_SESSION) {
+      throw userError("This workout already has 500 sets");
+    }
+    return;
   }
   const existing = await ctx.db
     .query("sets")

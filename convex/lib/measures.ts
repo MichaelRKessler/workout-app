@@ -1,3 +1,4 @@
+import { CALORIES_MESSAGE, MAX_REPS, MIN_REPS, REPS_MESSAGE, RPE_MESSAGE, TIME_MESSAGE, wholeInRange } from "./setLimits";
 import { resolvedSetType, type SetType } from "./setType";
 import { roundWeight } from "./units";
 import { userError } from "./errors";
@@ -203,8 +204,8 @@ function optionalReps(value: number | null | undefined): number | undefined {
   if (value === undefined || value === null) {
     return undefined;
   }
-  if (!Number.isInteger(value) || value < 1 || value > 999) {
-    throw userError("Reps must be a whole number from 1 to 999");
+  if (!wholeInRange(value, MIN_REPS, MAX_REPS)) {
+    throw userError(REPS_MESSAGE);
   }
   return value;
 }
@@ -214,7 +215,7 @@ function optionalDuration(value: number | null | undefined): number | undefined 
     return undefined;
   }
   if (!Number.isInteger(value) || value < 1 || value > MAX_DURATION_SEC) {
-    throw userError("Time must be from 1 second to 24 hours");
+    throw userError(TIME_MESSAGE);
   }
   return value;
 }
@@ -224,7 +225,7 @@ function optionalCalories(value: number | null | undefined): number | undefined 
     return undefined;
   }
   if (!Number.isInteger(value) || value < 1 || value > MAX_CALORIES) {
-    throw userError("Calories must be a whole number from 1 to 20000");
+    throw userError(CALORIES_MESSAGE);
   }
   return value;
 }
@@ -244,7 +245,7 @@ function optionalRpe(value: number | null | undefined): number | undefined {
     return undefined;
   }
   if (!Number.isInteger(value) || value < 1 || value > 10) {
-    throw userError("RPE must be a whole number from 1 to 10");
+    throw userError(RPE_MESSAGE);
   }
   return value;
 }

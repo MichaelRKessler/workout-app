@@ -119,7 +119,11 @@ export function ExerciseHistory({
           timeZone={timeZone}
         />
         {detail.truncated ? (
-          <p className="mt-2 text-sm text-subtle">Best of your latest 2,000 sets.</p>
+          <p className="mt-2 text-sm text-subtle">
+            {detail.recordsComplete
+              ? "Chart shows your latest 2,000 sets. Records include older workouts."
+              : "Best of your latest 2,000 sets."}
+          </p>
         ) : null}
       </PageHeader>
 

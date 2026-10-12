@@ -56,7 +56,10 @@ describe("finished workouts can be corrected or deleted", () => {
     });
     const loggedAt = Date.now() - 2 * 24 * HOUR;
     await t.run(async (ctx) => {
-      await ctx.db.patch("sessions", sessionId, { startedAt: loggedAt - 30 * 60 * 1000 });
+      await ctx.db.patch("sessions", sessionId, {
+        startedAt: loggedAt - 30 * 60 * 1000,
+        lastSetAt: loggedAt,
+      });
       const sets = await ctx.db
         .query("sets")
         .withIndex("by_session_and_exercise", (q) => q.eq("sessionId", sessionId))

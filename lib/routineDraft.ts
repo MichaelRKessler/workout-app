@@ -3,6 +3,7 @@ import { withStoredSuperset } from "../convex/lib/superset";
 import { formatClock, formatDistance, parseCaloriesInput, parseClock, parseDistanceInput } from "../convex/lib/measures";
 import { clampRestSeconds } from "../convex/lib/rest";
 import { MAX_ROUTINE_EXERCISES, MAX_TARGET_SETS } from "../convex/lib/routinePlan";
+import { CALORIES_MESSAGE, REPS_MESSAGE, timeMessage } from "../convex/lib/setLimits";
 import {
   formatWeightAmount,
   parseDisplayWeight,
@@ -159,7 +160,7 @@ function targetsFromDraft(
   if (exercise.kind === "strength") {
     const reps = parseReps(exercise.reps);
     if (reps === null) {
-      return { ok: false, error: "Reps must be a whole number from 1 to 999." };
+      return { ok: false, error: REPS_MESSAGE };
     }
     const weight = optionalWeight(exercise.weight, unit);
     if (weight.error) {
@@ -177,7 +178,7 @@ function targetsFromDraft(
   if (exercise.kind === "timed") {
     const durationSec = parseClock(exercise.duration);
     if (durationSec === null) {
-      return { ok: false, error: "Time must be from 1 second to 24 hours, like 90 or 1:30." };
+      return { ok: false, error: timeMessage("90 or 1:30") };
     }
     const weight = optionalWeight(exercise.weight, unit);
     if (weight.error) {
@@ -205,7 +206,7 @@ function targetsFromDraft(
   if (exercise.duration.trim()) {
     const durationSec = parseClock(exercise.duration);
     if (durationSec === null) {
-      return { ok: false, error: "Time must be from 1 second to 24 hours, like 90 or 20:00." };
+      return { ok: false, error: timeMessage("90 or 20:00") };
     }
     targetDurationSec = durationSec;
   }
@@ -231,7 +232,7 @@ function optionalCalories(value: string): { value?: number; error?: string } {
   }
   const calories = parseCaloriesInput(trimmed);
   if (calories === null) {
-    return { error: "Calories must be a whole number from 1 to 20000." };
+    return { error: CALORIES_MESSAGE };
   }
   return { value: calories };
 }

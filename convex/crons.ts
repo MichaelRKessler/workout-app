@@ -10,4 +10,13 @@ crons.interval(
   {},
 );
 
+// Walks existing exercises and workouts until stats and set counts are filled.
+// A finished tick is one indexed read. Pages schedule themselves.
+crons.interval(
+  "backfill exercise stats",
+  { minutes: 1 },
+  internal.exerciseStats.backfillTick,
+  {},
+);
+
 export default crons;

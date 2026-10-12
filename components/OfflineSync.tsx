@@ -56,6 +56,7 @@ import {
   listPendingItems,
 } from "@/lib/offline/pendingItems";
 import { RETRY_BASE_MS, nextRetryDelay } from "@/lib/offline/retry";
+import { shouldSendFinishDirectly, syncFailurePlan } from "@/lib/offline/syncPlan";
 import {
   accountKey,
   browserStore,
@@ -413,8 +414,14 @@ export function OfflineSyncProvider({
 
   const postBatch = useCallback(
     async (batch: SyncBatch, depth: number): Promise<"ok" | "stop"> => {
-      if (depth > 16) {
-        writeThrough(withSyncError(outboxRef.current, batch, "That change could not be saved"));
+      const tooDeep = syncFailurePlan({
+        depth,
+        outcome: "ok",
+        canSplit: false,
+        validationMessage: "",
+      });
+      if (tooDeep.action === "reject") {
+        writeThrough(withSyncError(outboxRef.current, batch, tooDeep.message));
         return "ok";
       }
       const prepared = prepareBatch(outboxRef.current, batch);
@@ -436,11 +443,26 @@ export function OfflineSyncProvider({
         invocation,
         delay(SYNC_TIMEOUT_MS).then(() => ({ kind: "timeout" as const })),
       ]);
-      if (outcome.kind === "ok") {
+      const validation = outcome.kind === "error" && isValidationError(outcome.error);
+      const parts = validation ? splitBatch(prepared.batch) : null;
+      const plan = syncFailurePlan({
+        depth,
+        outcome:
+          outcome.kind === "ok"
+            ? "ok"
+            : outcome.kind === "timeout"
+              ? "timeout"
+              : validation
+                ? "validation"
+                : "error",
+        canSplit: parts !== null,
+        validationMessage: outcome.kind === "error" ? readableError(outcome.error) : "",
+      });
+      if (plan.action === "apply" && outcome.kind === "ok") {
         applyRaw(gen, outcome.raw);
         return "ok";
       }
-      if (outcome.kind === "timeout") {
+      if (plan.action === "stop") {
         void invocation.then((later) => {
           if (later.kind === "ok") {
             applyRaw(gen, later.raw);
@@ -448,21 +470,18 @@ export function OfflineSyncProvider({
         });
         return "stop";
       }
-      if (isValidationError(outcome.error)) {
-        const parts = splitBatch(prepared.batch);
-        if (!parts) {
-          writeThrough(
-            withSyncError(outboxRef.current, prepared.batch, readableError(outcome.error)),
-          );
-          return "ok";
-        }
+      if (plan.action === "split" && parts) {
         const first = await postBatch(parts[0], depth + 1);
         const second = await postBatch(parts[1], depth + 1);
         return first === "stop" || second === "stop" ? "stop" : "ok";
       }
+      if (plan.action === "reject") {
+        writeThrough(withSyncError(outboxRef.current, prepared.batch, plan.message));
+        return "ok";
+      }
       nextRetryAtRef.current = Date.now() + retryDelayRef.current;
       retryDelayRef.current = nextRetryDelay(retryDelayRef.current);
-      setFlushError(readableError(outcome.error));
+      setFlushError(outcome.kind === "error" ? readableError(outcome.error) : "That change could not be saved");
       return "stop";
     },
     [applyRaw, writeThrough],
@@ -823,7 +842,13 @@ export function OfflineSyncProvider({
     ): Promise<SyncOutcome> => {
       ensureLoaded();
       const pending = pendingChangeCount(outboxRef.current);
-      if (!offlineRef.current && pending === 0 && input.sessionId) {
+      if (
+        shouldSendFinishDirectly({
+          offline: offlineRef.current,
+          pendingChanges: pending,
+          hasSessionId: Boolean(input.sessionId),
+        })
+      ) {
         const direct = directAction(kind, input, {
           complete: completeRef.current,
           keepGoing: keepGoingRef.current,

@@ -1,6 +1,16 @@
 import { formatExerciseName } from "../../convex/lib/exerciseName";
 import { cleanSupersetId, normalizeSupersetItems } from "../../convex/lib/superset";
 import { MAX_CALORIES, MAX_NOTE_LENGTH } from "../../convex/lib/measures";
+import {
+  CALORIES_MESSAGE,
+  MAX_REPS,
+  MAX_RPE,
+  MIN_REPS,
+  MIN_RPE,
+  REPS_MESSAGE,
+  RPE_MESSAGE,
+  TIME_MESSAGE,
+} from "../../convex/lib/setLimits";
 import { isSetType, type SetType } from "../../convex/lib/setType";
 import { LB_PER_KG, type WeightUnit } from "../../convex/lib/units";
 
@@ -321,24 +331,14 @@ function normalizeSet(
     );
   }
 
-  const reps = optionalCount(value.reps, 1, 999, "Reps must be a whole number from 1 to 999.");
-  const durationSec = optionalCount(
-    value.durationSec,
-    1,
-    24 * 60 * 60,
-    "Time must be from 1 second to 24 hours.",
-  );
+  const reps = optionalCount(value.reps, MIN_REPS, MAX_REPS, REPS_MESSAGE);
+  const durationSec = optionalCount(value.durationSec, 1, 24 * 60 * 60, TIME_MESSAGE);
   const distanceM = optionalDistance(value.distanceM);
-  const calories = optionalCount(
-    value.calories,
-    1,
-    MAX_CALORIES,
-    "Calories must be a whole number from 1 to 20000.",
-  );
-  const rpe = optionalCount(value.rpe, 1, 10, "RPE must be a whole number from 1 to 10.");
+  const calories = optionalCount(value.calories, 1, MAX_CALORIES, CALORIES_MESSAGE);
+  const rpe = optionalCount(value.rpe, MIN_RPE, MAX_RPE, RPE_MESSAGE);
   if (reps === null && durationSec === null && distanceM === null) {
     throw new VoiceParseError(
-      "Reps must be a whole number from 1 to 999. Edit them before saving, or log the set by hand.",
+      `${REPS_MESSAGE} Edit them before saving, or log the set by hand.`,
       "invalid",
     );
   }

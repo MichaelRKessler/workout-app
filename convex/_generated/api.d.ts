@@ -12,6 +12,7 @@ import type * as access from "../access.js";
 import type * as auth from "../auth.js";
 import type * as body from "../body.js";
 import type * as exercises from "../exercises.js";
+import type * as exerciseStats from "../exerciseStats.js";
 import type * as exportData from "../exportData.js";
 import type * as http from "../http.js";
 import type * as lib_accessControl from "../lib/accessControl.js";
@@ -37,6 +38,7 @@ declare const fullApi: ApiFromModules<{
   access: typeof access;
   auth: typeof auth;
   body: typeof body;
+  exerciseStats: typeof exerciseStats;
   exercises: typeof exercises;
   exportData: typeof exportData;
   http: typeof http;

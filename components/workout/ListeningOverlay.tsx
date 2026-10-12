@@ -2,7 +2,7 @@
 
 import { CloseIcon, Spinner } from "@/components/icons";
 import { MAX_RECORDING_MS } from "@/lib/voice/capture";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 const RING_RADIUS = 132;
 const RING_LENGTH = 2 * Math.PI * RING_RADIUS;
@@ -18,7 +18,6 @@ function formatSeconds(ms: number) {
 
 export function ListeningOverlay({
   status,
-  elapsedMs,
   analyser,
   onStop,
   onCancel,
@@ -26,14 +25,26 @@ export function ListeningOverlay({
   example = "“Romanian deadlift, 3 sets of 8 at 185”",
 }: {
   status: "recording" | "parsing";
-  elapsedMs: number;
   analyser: AnalyserNode | null;
   onStop: () => void;
   onCancel: () => void;
   prompt?: string;
   example?: string;
 }) {
+  const [elapsedMs, setElapsedMs] = useState(0);
   const barsRef = useRef<Array<HTMLSpanElement | null>>([]);
+  useEffect(() => {
+    if (status !== "recording") {
+      setElapsedMs(0);
+      return;
+    }
+    const startedAt = Date.now();
+    setElapsedMs(0);
+    const timer = window.setInterval(() => {
+      setElapsedMs(Math.min(MAX_RECORDING_MS, Date.now() - startedAt));
+    }, 100);
+    return () => window.clearInterval(timer);
+  }, [status]);
   const stopRef = useRef<HTMLButtonElement>(null);
   const onCancelRef = useRef(onCancel);
   useEffect(() => {

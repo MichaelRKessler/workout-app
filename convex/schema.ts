@@ -1,6 +1,24 @@
 import { authTables } from "@convex-dev/auth/server";
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
+import { recordStampValidator } from "./lib/records";
+
+const effortSnap = v.object({
+  setId: v.id("sets"),
+  sessionId: v.id("sessions"),
+  loggedAt: v.number(),
+  reps: v.union(v.number(), v.null()),
+  weightLb: v.number(),
+  epleyLb: v.union(v.number(), v.null()),
+  durationSec: v.union(v.number(), v.null()),
+  distanceM: v.union(v.number(), v.null()),
+});
+
+const calorieSnap = v.object({
+  sessionId: v.id("sessions"),
+  calories: v.number(),
+  loggedAt: v.number(),
+});
 
 export default defineSchema({
   ...authTables,
@@ -65,6 +83,10 @@ export default defineSchema({
         }),
       ),
     ),
+    // Optional so workouts saved before stored activity still validate.
+    // Absent means unknown. Zero with no lastSetAt means a known empty workout.
+    setCount: v.optional(v.number()),
+    lastSetAt: v.optional(v.number()),
   })
     .index("by_user_status_and_started", ["userId", "status", "startedAt"])
     .index("by_status", ["status"])
@@ -98,6 +120,9 @@ export default defineSchema({
         v.literal("failure"),
       ),
     ),
+    // Optional so sets saved before stamps still validate.
+    // Absent means not judged yet. An empty array was judged and was not a record.
+    recordStamps: v.optional(v.array(recordStampValidator)),
   })
     .index("by_session_and_exercise", ["sessionId", "exerciseId"])
     .index("by_user_and_client_id", ["userId", "clientId"])
@@ -191,4 +216,75 @@ export default defineSchema({
     clientId: v.string(),
     removedAt: v.number(),
   }).index("by_user_and_client_id", ["userId", "clientId"]),
+  // All-time bests for one exercise. New table, so existing documents are untouched.
+  // `ready` is false while a paginated rebuild is walking history.
+  exerciseStats: defineTable({
+    userId: v.id("users"),
+    exerciseId: v.id("exercises"),
+    setCount: v.number(),
+    lastLoggedAt: v.union(v.number(), v.null()),
+    ready: v.boolean(),
+    dirty: v.boolean(),
+    drop: v.boolean(),
+    generation: v.number(),
+    cursor: v.union(v.string(), v.null()),
+    phase: v.union(v.literal("purge"), v.literal("purgeCalories"), v.literal("walk")),
+    scheduledAt: v.union(v.number(), v.null()),
+    bestWeight: v.union(effortSnap, v.null()),
+    bestEpley: v.union(effortSnap, v.null()),
+    bestReps: v.union(effortSnap, v.null()),
+    bestDuration: v.union(effortSnap, v.null()),
+    bestDistance: v.union(effortSnap, v.null()),
+    bestCalories: v.union(calorieSnap, v.null()),
+    secondCalories: v.union(calorieSnap, v.null()),
+  })
+    .index("by_user_and_exercise", ["userId", "exerciseId"])
+    .index("by_ready", ["ready"]),
+  // Monotonic personal records. The latest mark before a time is the best then.
+  recordMarks: defineTable({
+    userId: v.id("users"),
+    exerciseId: v.id("exercises"),
+    generation: v.number(),
+    metric: v.union(
+      v.literal("weight"),
+      v.literal("epley"),
+      v.literal("reps"),
+      v.literal("duration"),
+      v.literal("distance"),
+      v.literal("calories"),
+    ),
+    setId: v.id("sets"),
+    sessionId: v.id("sessions"),
+    loggedAt: v.number(),
+    reps: v.union(v.number(), v.null()),
+    weightLb: v.number(),
+    epleyLb: v.union(v.number(), v.null()),
+    durationSec: v.union(v.number(), v.null()),
+    distanceM: v.union(v.number(), v.null()),
+    calories: v.union(v.number(), v.null()),
+    otherSessionId: v.optional(v.id("sessions")),
+    otherCalories: v.optional(v.number()),
+  })
+    .index("by_metric", ["userId", "exerciseId", "generation", "metric", "loggedAt"])
+    .index("by_exercise", ["exerciseId"]),
+  // Calorie records are session totals, not per-set. One row per session per generation.
+  exerciseSessionCalories: defineTable({
+    userId: v.id("users"),
+    exerciseId: v.id("exercises"),
+    sessionId: v.id("sessions"),
+    generation: v.number(),
+    calories: v.number(),
+    loggedAt: v.number(),
+  })
+    .index("by_session", ["userId", "exerciseId", "generation", "sessionId"])
+    .index("by_exercise", ["exerciseId"]),
+  // One row. The cron walks exercises and sessions until this says both are done.
+  statsBackfill: defineTable({
+    key: v.literal("main"),
+    exerciseCursor: v.union(v.string(), v.null()),
+    exercisesDone: v.boolean(),
+    sessionCursor: v.union(v.string(), v.null()),
+    sessionsDone: v.boolean(),
+    runningUntil: v.number(),
+  }).index("by_key", ["key"]),
 });

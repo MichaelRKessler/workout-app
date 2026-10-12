@@ -11,6 +11,8 @@ import { ConfirmSheet } from "@/components/workout/ConfirmSheet";
 import { FinishSheet } from "@/components/workout/FinishSheet";
 import { ExerciseRow } from "@/components/workout/ExerciseRow";
 import { HomeView } from "@/components/workout/HomeView";
+import { WeekSummaryLoader } from "@/components/workout/WeekSummaryLoader";
+import { useWorkoutFreshness } from "@/components/workout/useWorkoutFreshness";
 import { WorkoutPlanList } from "@/components/workout/WorkoutPlanList";
 import { ListeningOverlay } from "@/components/workout/ListeningOverlay";
 import { ManualEntrySheet } from "@/components/workout/ManualEntrySheet";
@@ -20,14 +22,13 @@ import { useRecorder } from "@/components/workout/useRecorder";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { formatExerciseName } from "@/convex/lib/exerciseName";
-import { plannedCompletedAt, workoutLooksStale } from "@/convex/lib/sessionTiming";
+import { plannedCompletedAt } from "@/convex/lib/sessionTiming";
 import { readableError } from "@/lib/errors";
 import { EXAMPLE_EXERCISES } from "@/lib/examples";
 import { useWeightUnit } from "@/components/WeightUnit";
 import { formatDuration, formatPersonalRecord, formatPersonalRecords, pluralize } from "@/lib/format";
 import { summarizeSessions, type WorkoutSummary } from "@/lib/workoutSummary";
 import type { PersonalRecord } from "@/convex/lib/records";
-import { localWeekFirstDay, weekRange } from "@/convex/lib/week";
 import { groupSets, type SetLine } from "@/lib/groupSets";
 import {
   OFFLINE_TYPED_MESSAGE,
@@ -241,17 +242,6 @@ export function LogWorkout() {
     dayKey: string;
   } | null>(null);
   const [keeping, setKeeping] = useState(false);
-  const [now, setNow] = useState(0);
-  const week = useMemo(
-    () => (now > 0 ? weekRange(now, localWeekFirstDay(navigator.language)) : null),
-    [now],
-  );
-  const weekSummary = useQuery(
-    api.sessions.weeklySummary,
-    openSession === null && week
-      ? { weekStarts: week.weekStarts, weekEndsAt: week.weekEndsAt }
-      : "skip",
-  );
   const [toast, setToast] = useState<Toasted | null>(null);
   const [repeatingId, setRepeatingId] = useState<string | null>(null);
   const [loggingPlanId, setLoggingPlanId] = useState<string | null>(null);
@@ -294,10 +284,7 @@ export function LogWorkout() {
   }, [routineList, viewerEmail]);
 
   useEffect(() => {
-    setNow(Date.now());
-    const timer = window.setInterval(() => setNow(Date.now()), 30_000);
     return () => {
-      window.clearInterval(timer);
       parseAbortRef.current?.abort();
     };
   }, []);
@@ -476,6 +463,53 @@ export function LogWorkout() {
   }, [groups, exercises]);
 
   const workoutOpen = knownSession !== null || sessionSets.length > 0 || activePlan.length > 0;
+  const viewSessionId = knownSession?._id ?? null;
+  const discarding = outbox.actions.some((action) => {
+    if (action.kind !== "discard" || action.echoed || action.syncError) {
+      return false;
+    }
+    if (viewSessionId) {
+      return action.sessionId === viewSessionId || action.sessionClientId === outbox.openSessionClientId;
+    }
+    return action.sessionClientId === outbox.openSessionClientId;
+  });
+  const showWorkout = !discarding && workoutOpen;
+  const fallbackStartedAt = useRef(0);
+  if (fallbackStartedAt.current === 0) {
+    fallbackStartedAt.current = Date.now();
+  }
+  const startedAt =
+    knownSession?.startedAt ??
+    localPlan?.startedAt ??
+    snapshot?.plan?.startedAt ??
+    outbox.sets.find((set) => set.placement === "open" && !set.removed)?.sessionStartedAt ??
+    fallbackStartedAt.current;
+  const loggedLast = sessionSets.reduce((max, set) => Math.max(max, set.loggedAt), 0);
+  const lastSetAt = Math.max(knownSession?.lastSetAt ?? 0, loggedLast) || null;
+  const resumedAt =
+    Math.max(knownSession?.resumedAt ?? 0, pendingResumedAt(outbox, viewSessionId) ?? 0) || null;
+  const voiceOrManualOpen =
+    voice.status === "recording" ||
+    voice.status === "parsing" ||
+    voice.status === "preview" ||
+    voice.status === "saving" ||
+    manual !== null;
+  const freshness = useWorkoutFreshness({
+    active: showWorkout,
+    startedAt,
+    lastSetAt,
+    resumedAt,
+    voiceOrManualOpen,
+    finishOpen,
+    pendingFinish: hasPendingFinish(outbox, viewSessionId),
+  });
+  const showStale = freshness.showStale;
+  const idleTrimmed = freshness.idleTrimmed;
+  const clockNow = freshness.now > 0 ? freshness.now : Date.now();
+  const savedEnd =
+    lastSetAt !== null
+      ? plannedCompletedAt({ now: clockNow, startedAt, lastSetAt })
+      : clockNow;
   useEffect(() => {
     if (workoutOpen) {
       setHomeTyping(false);
@@ -1014,50 +1048,6 @@ export function LogWorkout() {
     );
   }
 
-  const clockNow = now > 0 ? now : null;
-  const viewSessionId = knownSession?._id ?? null;
-  const discarding = outbox.actions.some((action) => {
-    if (action.kind !== "discard" || action.echoed || action.syncError) {
-      return false;
-    }
-    if (viewSessionId) {
-      return action.sessionId === viewSessionId || action.sessionClientId === outbox.openSessionClientId;
-    }
-    return action.sessionClientId === outbox.openSessionClientId;
-  });
-  const showWorkout =
-    !discarding && (knownSession !== null || sessionSets.length > 0 || activePlan.length > 0);
-  const startedAt =
-    knownSession?.startedAt ??
-    localPlan?.startedAt ??
-    snapshot?.plan?.startedAt ??
-    outbox.sets.find((set) => set.placement === "open" && !set.removed)?.sessionStartedAt ??
-    (clockNow ?? Date.now());
-  const loggedLast = sessionSets.reduce((max, set) => Math.max(max, set.loggedAt), 0);
-  const lastSetAt = Math.max(knownSession?.lastSetAt ?? 0, loggedLast) || null;
-  const resumedAt =
-    Math.max(knownSession?.resumedAt ?? 0, pendingResumedAt(outbox, viewSessionId) ?? 0) || null;
-  const stale =
-    showWorkout &&
-    !hasPendingFinish(outbox, viewSessionId) &&
-    clockNow !== null &&
-    workoutLooksStale(clockNow, startedAt, lastSetAt, resumedAt);
-  const voiceOrManualOpen =
-    voice.status === "recording" ||
-    voice.status === "parsing" ||
-    voice.status === "preview" ||
-    voice.status === "saving" ||
-    manual !== null;
-  const showStale = stale && !voiceOrManualOpen;
-  const savedEnd =
-    lastSetAt !== null
-      ? plannedCompletedAt({
-          now: clockNow ?? Date.now(),
-          startedAt,
-          lastSetAt,
-        })
-      : (clockNow ?? Date.now());
-  const idleTrimmed = lastSetAt !== null && (clockNow ?? Date.now()) - savedEnd >= 60_000;
   const workoutNote = combinedNote(
     knownSession?.note,
     pendingNote(outbox, { kind: "open", sessionId: viewSessionId }),
@@ -1104,16 +1094,12 @@ export function LogWorkout() {
           emptyMessage={
             offline ? "No sets yet. Add one by hand. Voice needs a connection." : undefined
           }
-          idleNote={
-            stale && clockNow !== null && lastSetAt !== null
-              ? `last set ${formatDuration(clockNow - lastSetAt)} ago`
-              : undefined
-          }
+          idleNote={freshness.idleNote ?? undefined}
           onRepeat={(group) => void repeatSet(group)}
           onEditSet={openEdit}
           onFinish={() => {
             setFinishError(null);
-            if (!stale) {
+            if (!showStale) {
               setFinishNote(workoutNote ?? "");
               setFinishOpen(true);
             }
@@ -1219,7 +1205,9 @@ export function LogWorkout() {
           }}
         />
       ) : (
-        <>
+        <WeekSummaryLoader>
+          {(weekSummary) => (
+          <>
           <HomeView
             lastWorkout={lastWorkout}
             weekSummary={weekSummary}
@@ -1248,7 +1236,9 @@ export function LogWorkout() {
               />
             </div>
           ) : null}
-        </>
+          </>
+          )}
+        </WeekSummaryLoader>
       )}
 
       <OpenWorkoutSheet
@@ -1273,7 +1263,6 @@ export function LogWorkout() {
       {voice.status === "recording" || (voice.status === "parsing" && source === "voice") ? (
         <ListeningOverlay
           status={voice.status}
-          elapsedMs={recorder.elapsedMs}
           analyser={recorder.analyser}
           onStop={stopVoice}
           onCancel={cancelVoice}

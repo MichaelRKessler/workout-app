@@ -7,6 +7,7 @@ import { internalMutation } from "./_generated/server";
 import { isEmailAllowed, normalizeEmail } from "./lib/accessControl";
 import { authedMutation, authedQuery } from "./lib/customFunctions";
 import { applyMergeBatch } from "./lib/exerciseMerge";
+import { effortsFromStats, findExerciseStats, libraryCount } from "./lib/exerciseStats";
 import { exerciseRecord } from "./lib/exerciseFields";
 import { formatExerciseName, MAX_KNOWN_EXERCISE_NAMES } from "./lib/exerciseName";
 import { muscleGroupValidator, presentMuscle } from "./lib/muscleGroup";
@@ -246,6 +247,7 @@ export const detail = authedQuery({
       ),
       trend: v.array(trendPointValidator),
       truncated: v.boolean(),
+      recordsComplete: v.boolean(),
     }),
   ),
   handler: async (ctx, args) => {
@@ -257,7 +259,9 @@ export const detail = authedQuery({
     const scanned = await loadRecentSetsForExercise(ctx, ctx.userId, exercise._id);
     const truncated = scanned.length > EXERCISE_RECORD_SCAN;
     const sets = truncated ? scanned.slice(0, EXERCISE_RECORD_SCAN) : scanned;
-    const efforts = summarizeEfforts(sets);
+    const stats = await findExerciseStats(ctx, ctx.userId, exercise._id);
+    const recordsComplete = stats?.ready === true && !stats.drop;
+    const efforts = recordsComplete && stats ? effortsFromStats(stats) : summarizeEfforts(sets);
 
     const sessionIds: Array<Id<"sessions">> = [];
     const seen = new Set<string>();
@@ -337,6 +341,7 @@ export const detail = authedQuery({
       trendUnit: trend.unit,
       trend: trend.points.map((point) => presentTrendPoint(point)),
       truncated,
+      recordsComplete,
     };
   },
 });
@@ -412,6 +417,10 @@ async function countSets(
   userId: Id<"users">,
   exerciseId: Id<"exercises">,
 ) {
+  const stats = await findExerciseStats(ctx, userId, exerciseId);
+  if (stats?.ready && !stats.drop) {
+    return libraryCount(stats.setCount);
+  }
   const rows = await ctx.db
     .query("sets")
     .withIndex("by_user_exercise_and_logged", (q) =>

@@ -26,7 +26,6 @@ export function useRecorder(handlers: RecorderHandlers) {
     handlersRef.current = handlers;
   });
 
-  const [elapsedMs, setElapsedMs] = useState(0);
   const [analyser, setAnalyser] = useState<AnalyserNode | null>(null);
 
   const mountedRef = useRef(true);
@@ -36,16 +35,11 @@ export function useRecorder(handlers: RecorderHandlers) {
   const audioContextRef = useRef<AudioContext | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const stopTimerRef = useRef<number | null>(null);
-  const tickRef = useRef<number | null>(null);
 
   const clearTimers = useCallback(() => {
     if (stopTimerRef.current !== null) {
       window.clearTimeout(stopTimerRef.current);
       stopTimerRef.current = null;
-    }
-    if (tickRef.current !== null) {
-      window.clearInterval(tickRef.current);
-      tickRef.current = null;
     }
   }, []);
 
@@ -153,13 +147,6 @@ export function useRecorder(handlers: RecorderHandlers) {
       recorder.start();
       setAnalyser(createAnalyser(stream, audioContextRef));
 
-      setElapsedMs(0);
-      const startedAt = Date.now();
-      tickRef.current = window.setInterval(() => {
-        if (mountedRef.current) {
-          setElapsedMs(Math.min(MAX_RECORDING_MS, Date.now() - startedAt));
-        }
-      }, 100);
       stopTimerRef.current = window.setTimeout(() => {
         stop();
       }, MAX_RECORDING_MS);
@@ -181,7 +168,7 @@ export function useRecorder(handlers: RecorderHandlers) {
     }
   }, [cancel, releaseAudio, stop]);
 
-  return { start, stop, cancel, elapsedMs, analyser };
+  return { start, stop, cancel, analyser };
 }
 
 function createAnalyser(

@@ -494,7 +494,6 @@ export function BodyScreen() {
       {voicePhase === "recording" || voicePhase === "parsing" ? (
         <ListeningOverlay
           status={voicePhase}
-          elapsedMs={recorder.elapsedMs}
           analyser={recorder.analyser}
           onStop={stopVoice}
           onCancel={cancelVoice}

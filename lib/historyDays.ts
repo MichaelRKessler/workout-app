@@ -74,9 +74,16 @@ export function parseDayKey(dayKey: string): CivilDate | null {
   return { year, month, day };
 }
 
-function zonedParts(timestamp: number, timeZone?: string): ZonedParts {
+const zonedFormatters = new Map<string, Intl.DateTimeFormat>();
+
+function zonedFormatter(timeZone?: string): Intl.DateTimeFormat {
+  const key = timeZone && timeZone.length > 0 ? timeZone : "";
+  const cached = zonedFormatters.get(key);
+  if (cached) {
+    return cached;
+  }
   const formatter = new Intl.DateTimeFormat("en-US", {
-    timeZone,
+    ...(key.length > 0 ? { timeZone: key } : {}),
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -85,6 +92,12 @@ function zonedParts(timestamp: number, timeZone?: string): ZonedParts {
     second: "2-digit",
     hourCycle: "h23",
   });
+  zonedFormatters.set(key, formatter);
+  return formatter;
+}
+
+function zonedParts(timestamp: number, timeZone?: string): ZonedParts {
+  const formatter = zonedFormatter(timeZone);
   const map = new Map<string, string>();
   for (const part of formatter.formatToParts(new Date(timestamp))) {
     if (part.type !== "literal") {
