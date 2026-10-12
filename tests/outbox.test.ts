@@ -27,7 +27,12 @@ import {
   type KeyValueStore,
 } from "../lib/offline/storage.ts";
 import type { SetLine } from "../lib/groupSets.ts";
-import { fetchDecision, mayStoreResponse, NEVER_CACHE_PREFIXES } from "../lib/pwa/cachePolicy.ts";
+import {
+  fetchDecision,
+  mayStoreResponse,
+  NEVER_CACHE_PREFIXES,
+  shellCacheName,
+} from "../lib/pwa/cachePolicy.ts";
 import { serviceWorkerSource } from "../lib/pwa/serviceWorkerSource.ts";
 
 const NOW = 1_700_000_000_000;
@@ -555,11 +560,25 @@ test("the service worker does not cache APIs, voice, or other origins", () => {
     fetchDecision({ ...base, url: `${origin}/history`, mode: "navigate", isRsc: true }),
     "passthrough",
   );
+  assert.equal(
+    fetchDecision({ ...base, url: `${origin}/?code=oauth-code`, mode: "navigate" }),
+    "passthrough",
+  );
   assert.equal(mayStoreResponse({ ok: true, type: "basic", redirected: true, status: 200 }), false);
   assert.equal(mayStoreResponse({ ok: true, type: "basic", redirected: false, status: 200 }), true);
   assert.equal(mayStoreResponse({ ok: false, type: "basic", redirected: false, status: 500 }), false);
+  assert.equal(
+    mayStoreResponse({
+      ok: true,
+      type: "basic",
+      redirected: false,
+      status: 200,
+      cacheControl: "private, no-store",
+    }),
+    false,
+  );
 
-  const source = serviceWorkerSource();
+  const source = serviceWorkerSource(shellCacheName("test-build"));
   for (const prefix of NEVER_CACHE_PREFIXES) {
     assert.ok(source.includes(prefix), prefix);
   }

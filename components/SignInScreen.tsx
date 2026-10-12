@@ -15,22 +15,22 @@ export function SignInScreen() {
   const { isAuthenticated, isLoading } = useConvexAuth();
   const router = useRouter();
   const params = useSearchParams();
-  const dest = safeNextPath(params.get("next"));
+  const nextValue = params.get("next");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (isAuthenticated) {
-      router.replace(dest);
+      router.replace(safeNextPath(nextValue, window.location.origin));
     }
-  }, [dest, isAuthenticated, router]);
+  }, [isAuthenticated, nextValue, router]);
 
   async function onGoogle(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setPending(true);
     setError(null);
     try {
-      await signIn("google", { redirectTo: dest });
+      await signIn("google", { redirectTo: safeNextPath(nextValue, window.location.origin) });
     } catch (caught) {
       setError(readableError(caught));
       setPending(false);

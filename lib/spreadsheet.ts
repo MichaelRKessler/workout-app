@@ -104,11 +104,20 @@ const ROUTINE_HEADER = [
   "weight_unit",
 ];
 
+/** Spreadsheet apps treat a leading =, +, -, or @ as a formula. Numbers stay numeric. */
+function neutralizeSpreadsheetFormula(text: string): string {
+  const probe = text.trimStart();
+  if (probe.startsWith("=") || probe.startsWith("+") || probe.startsWith("-") || probe.startsWith("@")) {
+    return `'${text}`;
+  }
+  return text;
+}
+
 export function csvCell(value: string | number | null | undefined): string {
   if (value === null || value === undefined) {
     return "";
   }
-  const text = String(value);
+  const text = typeof value === "number" ? String(value) : neutralizeSpreadsheetFormula(String(value));
   if (/[",\n\r]/.test(text)) {
     return `"${text.replaceAll('"', '""')}"`;
   }

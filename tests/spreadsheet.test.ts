@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   bodyCsv,
   collectPages,
+  csvCell,
   readStoredZip,
   routinesCsv,
   setsCsv,
@@ -100,6 +101,43 @@ test("the zip round-trips three stored files", () => {
     ["sets.csv", "body.csv", "routines.csv"],
   );
   assert.equal(files[1]?.text, "weight\n");
+});
+
+test("text that looks like a formula is escaped and numbers stay numeric", () => {
+  assert.equal(csvCell("=1+1"), "'=1+1");
+  assert.equal(csvCell("+cmd"), "'+cmd");
+  assert.equal(csvCell("-easy"), "'-easy");
+  assert.equal(csvCell("@SUM(A1)"), "'@SUM(A1)");
+  assert.equal(csvCell(" =1+1"), "' =1+1");
+  assert.equal(csvCell('=1+1,"x"'), `"'=1+1,""x"""`);
+  assert.equal(csvCell(-12.5), "-12.5");
+  assert.equal(csvCell(450), "450");
+  assert.equal(csvCell("Curl"), "Curl");
+
+  const csv = setsCsv(
+    [
+      {
+        loggedAt: Date.UTC(2026, 0, 2, 15, 0, 0),
+        workoutStartedAt: Date.UTC(2026, 0, 2, 14, 0, 0),
+        workoutId: "workout-1",
+        exercise: "=HYPERLINK(\"https://evil.example\")",
+        setType: "working",
+        reps: 8,
+        weightLb: 45,
+        durationSec: null,
+        distanceM: null,
+        calories: null,
+        rpe: null,
+        note: "@cmd",
+        superset: null,
+      },
+    ],
+    "lb",
+    "UTC",
+  );
+  assert.match(csv, /'=HYPERLINK/);
+  assert.match(csv, /'@cmd/);
+  assert.match(csv, /,45,/);
 });
 
 test("page collection stops when the cursor is exhausted", async () => {

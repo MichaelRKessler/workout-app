@@ -1,15 +1,22 @@
 "use client";
 
+import { Button } from "@/components/Button";
+import { useOfflineLog } from "@/components/OfflineSync";
 import { OpenWorkoutSheet } from "@/components/routines/OpenWorkoutSheet";
 import { useBeginWorkout } from "@/components/routines/useBeginWorkout";
-import { useOfflineLog } from "@/components/OfflineSync";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { readableError } from "@/lib/errors";
 import { stashToast } from "@/lib/pendingToast";
+import { isRunningInstalled } from "@/lib/pwa/installOffer";
+import {
+  INSTALLED_DISPLAY_MODES,
+  startConfirmCopy,
+  startNeedsConfirmation,
+} from "@/lib/startConfirm";
 import { useMutation, useQuery } from "convex/react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 /**
  * Home-screen shortcuts land here. The installed manifest can only list fixed
@@ -25,12 +32,36 @@ export function StartShortcut() {
   const begin = useBeginWorkout();
   const { offline, snapshot } = useOfflineLog();
   const ran = useRef(false);
+  const [confirmed, setConfirmed] = useState(false);
+  const [needsConfirm, setNeedsConfirm] = useState<boolean | null>(null);
 
   const action = params.get("action");
   const routineId = params.get("routine");
+  const allowed = needsConfirm === false || (needsConfirm === true && confirmed);
 
   useEffect(() => {
-    if (ran.current || begin.promptOpen) {
+    try {
+      const nav = navigator as Navigator & { standalone?: boolean };
+      const installed = isRunningInstalled({
+        standalone: INSTALLED_DISPLAY_MODES.some((mode) =>
+          window.matchMedia(`(display-mode: ${mode})`).matches,
+        ),
+        navigatorStandalone: nav.standalone === true,
+      });
+      setNeedsConfirm(
+        startNeedsConfirmation({
+          installed,
+          referrer: document.referrer,
+          pageOrigin: window.location.origin,
+        }),
+      );
+    } catch {
+      setNeedsConfirm(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!allowed || ran.current || begin.promptOpen) {
       return;
     }
     if (routineId) {
@@ -106,6 +137,7 @@ export function StartShortcut() {
     }
   }, [
     action,
+    allowed,
     begin,
     latest,
     offline,
@@ -116,6 +148,24 @@ export function StartShortcut() {
     snapshot?.session,
     start,
   ]);
+
+  if (needsConfirm && !confirmed) {
+    const copy = startConfirmCopy({ action, routineId });
+    return (
+      <div className="px-5 pt-8">
+        <h1 className="text-3xl leading-tight font-semibold tracking-[-0.025em]">{copy.title}</h1>
+        <p className="mt-3 text-base leading-normal text-muted">{copy.body}</p>
+        <div className="mt-6 flex flex-col gap-2.5">
+          <Button size="lg" className="w-full" onClick={() => setConfirmed(true)}>
+            {copy.confirmLabel}
+          </Button>
+          <Button variant="secondary" size="lg" className="w-full" onClick={() => router.replace("/")}>
+            Not now
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="px-5 pt-8">
