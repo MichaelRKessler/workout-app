@@ -7,6 +7,7 @@ import { ExerciseRow } from "@/components/workout/ExerciseRow";
 import { useExerciseRest } from "@/components/useExerciseRest";
 import { RestTimer } from "@/components/workout/RestTimer";
 import { useWakeLock } from "@/components/workout/useWakeLock";
+import { exerciseLink } from "@/lib/exerciseLink";
 import { formatElapsed, formatShortDate, pluralize } from "@/lib/format";
 import type { SetLine } from "@/lib/groupSets";
 import { ComponentProps, ReactNode, useEffect, useState } from "react";
@@ -29,12 +30,10 @@ export function ActiveWorkout({
   newestSetId,
   loadingSets,
   repeatingId,
-  removingId,
   ending,
   note,
   onRepeat,
   onEditSet,
-  onRemoveSet,
   onFinish,
   onDiscard,
   idleNote,
@@ -42,6 +41,8 @@ export function ActiveWorkout({
   exerciseCount,
   planList,
   composer,
+  editingPlan = false,
+  onEditingPlan,
   restHold = false,
   restExerciseName,
   onLinkFree,
@@ -52,12 +53,10 @@ export function ActiveWorkout({
   newestSetId?: string;
   loadingSets: boolean;
   repeatingId: string | null;
-  removingId: string | null;
   ending: boolean;
   note?: string | null;
   onRepeat: (group: Group) => void;
   onEditSet: (set: SetLine) => void;
-  onRemoveSet: (setId: string) => void;
   onFinish: () => void;
   onDiscard: () => void;
   idleNote?: string;
@@ -65,14 +64,16 @@ export function ActiveWorkout({
   exerciseCount?: number;
   planList?: ReactNode;
   composer: ComponentProps<typeof Composer>;
+  editingPlan?: boolean;
+  onEditingPlan?: (editing: boolean) => void;
   /** True while a superset round is still missing a member. */
   restHold?: boolean;
   /** Whose rest to run. Undefined follows the exercise that was just logged. */
   restExerciseName?: string | null;
   onLinkFree?: (index: number) => void;
 }) {
-  const [expandedId, setExpandedId] = useState<string | null>(null);
   const empty = !loadingSets && setCount === 0;
+  const canEditPlan = Boolean(onEditingPlan) && (planList !== undefined || groups.length > 0);
   useWakeLock();
   let newestName: string | null = null;
   let newestAt = -1;
@@ -89,7 +90,7 @@ export function ActiveWorkout({
 
   return (
     <>
-      <div className="px-5 pt-3 pb-[calc(8.5rem+env(safe-area-inset-bottom))]">
+      <div className="px-5 pt-3 pb-[calc(16rem+env(safe-area-inset-bottom))]">
         <header className="border-b border-line pb-4">
           <div className="flex items-center justify-between gap-3">
             <p className="min-w-0 text-xs leading-snug" suppressHydrationWarning>
@@ -111,14 +112,16 @@ export function ActiveWorkout({
               {note ? <p className="mt-1 text-sm text-muted">{note}</p> : null}
             </div>
             <div className="flex items-center gap-2">
-              <RestTimer
-                setCount={setCount}
-                loading={loadingSets}
-                hold={restHold}
-                restLabel={!restHold && setCount > 0 ? restName : null}
-                exerciseRestSeconds={setCount > 0 ? exerciseRest.restSeconds : null}
-                onExerciseRest={restName ? (seconds) => void exerciseRest.save(seconds) : undefined}
-              />
+              {canEditPlan ? (
+                <button
+                  type="button"
+                  aria-pressed={editingPlan}
+                  onClick={() => onEditingPlan?.(!editingPlan)}
+                  className="min-h-11 rounded-full px-3 text-base font-semibold hover:bg-fill-2"
+                >
+                  {editingPlan ? "Done" : "Edit plan"}
+                </button>
+              ) : null}
               {empty ? (
                 <Button variant="secondary" onClick={onDiscard} disabled={ending}>
                   {ending ? "Discarding…" : "Discard"}
@@ -147,21 +150,16 @@ export function ActiveWorkout({
                 name={group.name}
                 sets={group.sets}
                 newestSetId={newestSetId}
-                expanded={expandedId === group.exerciseId}
-                onToggle={() =>
-                  setExpandedId((current) => (current === group.exerciseId ? null : group.exerciseId))
-                }
+                exerciseHref={exerciseLink(group.exerciseId, "/") ?? undefined}
                 onRepeat={() => onRepeat(group)}
                 repeating={repeatingId === group.exerciseId}
                 onEditSet={onEditSet}
-                onRemoveSet={onRemoveSet}
-                removingId={removingId}
                 footer={
-                  onLinkFree && index < groups.length - 1 ? (
+                  editingPlan && onLinkFree && index < groups.length - 1 ? (
                     <button
                       type="button"
                       onClick={() => onLinkFree(index)}
-                      className="mb-2 ml-14 min-h-11 text-sm font-medium text-muted"
+                      className="mb-2 ml-14 min-h-11 text-base font-medium text-muted"
                     >
                       Superset with next
                     </button>
@@ -172,7 +170,17 @@ export function ActiveWorkout({
           </ul>
         )}
       </div>
-      <Composer {...composer} />
+      <div className="fixed inset-x-0 bottom-0 z-20">
+        <RestTimer
+          setCount={setCount}
+          loading={loadingSets}
+          hold={restHold}
+          restLabel={!restHold && setCount > 0 ? restName : null}
+          exerciseRestSeconds={setCount > 0 ? exerciseRest.restSeconds : null}
+          onExerciseRest={restName ? (seconds) => void exerciseRest.save(seconds) : undefined}
+        />
+        <Composer {...composer} />
+      </div>
     </>
   );
 }

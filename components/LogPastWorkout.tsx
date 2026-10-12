@@ -32,9 +32,9 @@ type DraftSet = {
 type DraftExercise = { key: string; name: string; kind: SetKind; sets: DraftSet[] };
 
 const fieldClass =
-  "h-12 w-full min-w-0 rounded-xl border border-line bg-background px-3 text-base text-foreground outline-none focus:border-foreground";
+  "h-12 w-full min-w-0 rounded-xl border border-input bg-background px-3 text-base text-foreground outline-none focus:border-foreground";
 const setFieldClass =
-  "h-12 min-w-0 rounded-xl border border-line bg-surface text-center font-mono text-lg font-medium outline-none focus:border-foreground";
+  "h-12 min-w-0 rounded-xl border border-input bg-surface text-center font-mono text-lg font-medium outline-none focus:border-foreground";
 
 function nextKey(): string {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -451,7 +451,7 @@ export function LogPastWorkout() {
         maxLength={500}
         rows={3}
         placeholder="Optional"
-        className="mt-2 w-full resize-none rounded-xl border border-line bg-background px-3 py-2 text-base outline-none focus:border-foreground"
+        className="mt-2 w-full resize-none rounded-xl border border-input bg-background px-3 py-2 text-base outline-none focus:border-foreground"
       />
 
       {error ? (

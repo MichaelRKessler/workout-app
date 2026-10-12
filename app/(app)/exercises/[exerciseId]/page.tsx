@@ -7,9 +7,13 @@ export const metadata: Metadata = {
 
 export default async function ExercisePage({
   params,
+  searchParams,
 }: {
   params: Promise<{ exerciseId: string }>;
+  searchParams: Promise<{ from?: string | string[] }>;
 }) {
   const { exerciseId } = await params;
-  return <ExerciseHistory exerciseId={exerciseId} />;
+  const query = await searchParams;
+  const from = Array.isArray(query.from) ? query.from[0] : query.from;
+  return <ExerciseHistory exerciseId={exerciseId} from={from ?? null} />;
 }

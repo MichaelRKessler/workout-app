@@ -73,7 +73,7 @@ export function NoAccess({ status }: { status: AccessStatus }) {
               maxLength={280}
               rows={3}
               placeholder="A short note for the admin"
-              className="mt-2 w-full resize-none rounded-xl border border-line bg-background px-3 py-3 text-base outline-none focus:border-foreground"
+              className="mt-2 w-full resize-none rounded-xl border border-input bg-background px-3 py-3 text-base outline-none focus:border-foreground"
             />
             <Button type="submit" size="lg" className="mt-4 w-full" disabled={sending || !status.email}>
               {sending ? "Sending…" : "Request access"}

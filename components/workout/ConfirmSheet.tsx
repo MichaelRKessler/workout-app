@@ -1,7 +1,7 @@
 "use client";
 
 import { Button } from "@/components/Button";
-import { CloseIcon, KeyboardIcon, MicIcon, PlusIcon, RetryIcon } from "@/components/icons";
+import { KeyboardIcon, MicIcon, PlusIcon, RetryIcon } from "@/components/icons";
 import { Sheet } from "@/components/Sheet";
 import { useWeightUnit } from "@/components/WeightUnit";
 import { ExerciseTile } from "@/components/workout/ExerciseRow";
@@ -10,12 +10,15 @@ import type { Id } from "@/convex/_generated/dataModel";
 import type { SetKind } from "@/convex/lib/measures";
 import { pluralize } from "@/lib/format";
 import { SetTypePicker } from "@/components/SetTypePicker";
-import type { DraftSet, VoiceDraft } from "@/lib/voice/confirm";
+import { newDraftSetId, type DraftSet, type VoiceDraft } from "@/lib/voice/confirm";
 import { MAX_VOICE_SETS } from "@/lib/voice/proposal";
 import { cleanSupersetId, linkWithNext, supersetBlocks, unlinkSuperset } from "@/convex/lib/superset";
+import { draftGroupLabel, groupIdenticalSets, patchSetGroup, resizeSetGroup } from "@/lib/confirmGroups";
+import Link from "next/link";
+import { useState } from "react";
 
 const fieldClass =
-  "h-12 w-full min-w-0 rounded-xl border border-line bg-background text-center font-mono text-lg font-medium text-foreground outline-none focus:border-foreground disabled:opacity-60";
+  "h-12 w-full min-w-0 rounded-xl border border-input bg-background text-center font-mono text-lg font-medium text-foreground outline-none focus:border-foreground disabled:opacity-60";
 
 /** The parsed exercises, each editable, before anything is written. */
 export function ConfirmSheet({
@@ -29,6 +32,7 @@ export function ConfirmSheet({
   onDiscard,
   onConfirm,
   onRecordAgain,
+  exerciseHref,
 }: {
   open: boolean;
   draft: VoiceDraft | null;
@@ -40,6 +44,8 @@ export function ConfirmSheet({
   onDiscard: () => void;
   onConfirm: () => void;
   onRecordAgain: () => void;
+  /** Progress page for an exercise name, when this account already has it. */
+  exerciseHref?: (name: string) => string | null;
 }) {
   const unit = useWeightUnit();
   if (!draft) {
@@ -159,6 +165,7 @@ export function ConfirmSheet({
                       excludeSessionId={excludeSessionId}
                       onChange={(nextExercise) => updateExercise(at, nextExercise)}
                       onRemove={() => removeExercise(at)}
+                      exerciseHref={exerciseHref?.(exercise.exerciseName) ?? null}
                     />
                     {at < draft.exercises.length - 1 && !linked ? (
                       <button
@@ -189,7 +196,7 @@ export function ConfirmSheet({
         maxLength={500}
         rows={2}
         placeholder="Optional"
-        className="mt-2 w-full resize-none rounded-xl border border-line bg-background px-3 py-2 text-base text-foreground outline-none focus:border-foreground disabled:opacity-60"
+        className="mt-2 w-full resize-none rounded-xl border border-input bg-background px-3 py-2 text-base text-foreground outline-none focus:border-foreground disabled:opacity-60"
       />
 
       {notice ? (
@@ -224,6 +231,7 @@ function ExerciseConfirmBlock({
   excludeSessionId,
   onChange,
   onRemove,
+  exerciseHref,
 }: {
   exercise: VoiceDraft["exercises"][number];
   index: number;
@@ -234,14 +242,52 @@ function ExerciseConfirmBlock({
   excludeSessionId?: Id<"sessions">;
   onChange: (exercise: VoiceDraft["exercises"][number]) => void;
   onRemove: () => void;
+  exerciseHref?: string | null;
 }) {
   const history = usePreviousExercise(exercise.exerciseName, excludeSessionId);
+  const [expandedStart, setExpandedStart] = useState<number | null>(null);
+  const [moreStart, setMoreStart] = useState<number | null>(null);
+  const [splitIds, setSplitIds] = useState<Set<string>>(() => new Set());
+  const groups = groupIdenticalSets(exercise.sets, splitIds);
 
-  function updateSet(setIndex: number, patch: Partial<DraftSet>) {
-    onChange({
-      ...exercise,
-      sets: exercise.sets.map((set, index) => (index === setIndex ? { ...set, ...patch } : set)),
+  function replaceSets(sets: DraftSet[]) {
+    onChange({ ...exercise, sets });
+  }
+
+  function patchGroup(start: number, count: number, patch: Partial<DraftSet>) {
+    replaceSets(patchSetGroup(exercise.sets, start, count, patch));
+  }
+
+  function changeCount(start: number, count: number, nextCount: number) {
+    if (nextCount > count && totalSets >= MAX_VOICE_SETS) {
+      return;
+    }
+    const room = MAX_VOICE_SETS - totalSets;
+    const capped = nextCount > count ? Math.min(nextCount, count + room) : nextCount;
+    replaceSets(resizeSetGroup(exercise.sets, start, count, capped));
+  }
+
+  function splitGroup(start: number, count: number) {
+    const ids = exercise.sets.slice(start, start + count).map((set) => set.draftSetId ?? newDraftSetId());
+    replaceSets(
+      exercise.sets.map((set, setIndex) => {
+        const offset = setIndex - start;
+        if (offset < 0 || offset >= count) {
+          return set;
+        }
+        return { ...set, draftSetId: ids[offset] };
+      }),
+    );
+    setSplitIds((current) => {
+      const next = new Set(current);
+      for (const id of ids) {
+        if (id) {
+          next.add(id);
+        }
+      }
+      return next;
     });
+    setExpandedStart(null);
   }
 
   function removeSet(setIndex: number) {
@@ -256,7 +302,7 @@ function ExerciseConfirmBlock({
       return;
     }
     const last = exercise.sets[exercise.sets.length - 1] ?? blankSet();
-    onChange({ ...exercise, sets: [...exercise.sets, { ...last }] });
+    onChange({ ...exercise, sets: [...exercise.sets, { ...last, draftSetId: undefined }] });
   }
 
   return (
@@ -273,103 +319,180 @@ function ExerciseConfirmBlock({
           disabled={saving}
           autoComplete="off"
           maxLength={80}
-          className="h-12 min-w-0 flex-1 border-0 border-b border-line bg-transparent p-0 text-day font-semibold tracking-[-0.02em] text-foreground outline-none focus:border-foreground disabled:opacity-60"
+          className="h-12 min-w-0 flex-1 border-0 border-b border-input bg-transparent p-0 text-day font-semibold tracking-[-0.02em] text-foreground outline-none focus:border-foreground disabled:opacity-60"
         />
         {canRemoveExercise ? (
           <button
             type="button"
             onClick={onRemove}
             disabled={saving}
-            className="min-h-11 rounded-full px-2 text-sm font-medium text-danger hover:bg-fill-2 disabled:opacity-40"
+            className="min-h-11 rounded-full px-2 text-base font-medium text-danger hover:bg-fill-2 disabled:opacity-40"
           >
             Remove
           </button>
         ) : null}
       </div>
-      {history.label ? <p className="mt-2 text-sm text-muted">{history.label}</p> : null}
+      {history.label || exerciseHref ? (
+        <p className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-base text-muted">
+          {history.label ? <span>{history.label}</span> : null}
+          {exerciseHref ? (
+            <Link href={exerciseHref} className="min-h-11 font-medium text-foreground underline">
+              Progress
+            </Link>
+          ) : null}
+        </p>
+      ) : null}
 
-      <div className="mt-3 flex flex-col gap-3">
-        {exercise.sets.map((set, setIndex) => (
-          <div key={setIndex} className="flex flex-col gap-2">
-            <div className="flex items-center justify-between">
-              <span className="font-mono text-base text-muted">Set {setIndex + 1}</span>
+      <div className="mt-3 flex flex-col gap-2">
+        {groups.map((group) => {
+          const sample = exercise.sets[group.start];
+          if (!sample) {
+            return null;
+          }
+          const label = draftGroupLabel(group.count, sample, unit);
+          const open = expandedStart === group.start;
+          const more = moreStart === group.start;
+          return (
+            <div key={`${group.start}-${sample.draftSetId ?? "group"}`} className="rounded-2xl bg-surface p-2">
               <button
                 type="button"
-                onClick={() => removeSet(setIndex)}
-                disabled={saving || exercise.sets.length <= 1}
-                aria-label={`Remove set ${setIndex + 1} of ${exercise.exerciseName}`}
-                className="flex size-11 items-center justify-center rounded-full text-subtle hover:bg-fill-2 disabled:opacity-30"
+                aria-expanded={open}
+                disabled={saving}
+                onClick={() => setExpandedStart(open ? null : group.start)}
+                className="flex min-h-14 w-full items-center text-left text-lg font-semibold disabled:opacity-60"
               >
-                <CloseIcon className="size-5" strokeWidth={1.8} />
+                {label}
               </button>
+              {open ? (
+                <div className="mt-2 flex flex-col gap-3">
+                  <div className="grid grid-cols-2 gap-2">
+                    {sample.kind === "strength" ? (
+                      <Field
+                        label="Reps"
+                        value={sample.reps}
+                        inputMode="numeric"
+                        disabled={saving}
+                        onChange={(reps) => patchGroup(group.start, group.count, { reps })}
+                      />
+                    ) : null}
+                    {sample.kind !== "strength" ? (
+                      <Field
+                        label={sample.kind === "distance" ? "Distance" : "Time"}
+                        value={sample.kind === "distance" ? sample.distance : sample.duration}
+                        inputMode="text"
+                        disabled={saving}
+                        onChange={(value) =>
+                          patchGroup(
+                            group.start,
+                            group.count,
+                            sample.kind === "distance" ? { distance: value } : { duration: value },
+                          )
+                        }
+                      />
+                    ) : null}
+                    <Field
+                      label={`Weight · ${unit}`}
+                      value={sample.weight}
+                      inputMode="decimal"
+                      disabled={saving}
+                      onChange={(weight) => patchGroup(group.start, group.count, { weight, weightLb: null })}
+                    />
+                    {sample.kind === "distance" ? (
+                      <Field
+                        label="Time"
+                        value={sample.duration}
+                        inputMode="text"
+                        disabled={saving}
+                        onChange={(duration) => patchGroup(group.start, group.count, { duration })}
+                      />
+                    ) : null}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      aria-label={`One fewer set of ${exercise.exerciseName}`}
+                      disabled={saving || group.count <= 1}
+                      onClick={() => changeCount(group.start, group.count, group.count - 1)}
+                      className="min-h-11 rounded-full border border-input px-4 text-base font-semibold disabled:opacity-40"
+                    >
+                      −1
+                    </button>
+                    <span className="min-w-16 text-center text-base font-medium">
+                      {group.count === 1 ? "1 set" : `${group.count} sets`}
+                    </span>
+                    <button
+                      type="button"
+                      aria-label={`One more set of ${exercise.exerciseName}`}
+                      disabled={saving || totalSets >= MAX_VOICE_SETS}
+                      onClick={() => changeCount(group.start, group.count, group.count + 1)}
+                      className="min-h-11 rounded-full border border-input px-4 text-base font-semibold disabled:opacity-40"
+                    >
+                      +1
+                    </button>
+                    {group.count > 1 ? (
+                      <button
+                        type="button"
+                        disabled={saving}
+                        onClick={() => splitGroup(group.start, group.count)}
+                        className="min-h-11 rounded-full px-3 text-base font-medium text-muted disabled:opacity-40"
+                      >
+                        Split
+                      </button>
+                    ) : exercise.sets.length > 1 ? (
+                      <button
+                        type="button"
+                        disabled={saving}
+                        onClick={() => removeSet(group.start)}
+                        className="min-h-11 rounded-full px-3 text-base font-medium text-danger disabled:opacity-40"
+                      >
+                        Remove
+                      </button>
+                    ) : null}
+                  </div>
+                  <button
+                    type="button"
+                    aria-expanded={more}
+                    disabled={saving}
+                    onClick={() => setMoreStart(more ? null : group.start)}
+                    className="min-h-11 self-start text-base font-medium"
+                  >
+                    {more ? "Less" : "More"}
+                  </button>
+                  {more ? (
+                    <div className="flex flex-col gap-3">
+                      <KindSwitch
+                        kind={sample.kind}
+                        disabled={saving}
+                        onChange={(kind) => patchGroup(group.start, group.count, { kind })}
+                      />
+                      <SetTypePicker
+                        value={sample.setType}
+                        disabled={saving}
+                        onChange={(setType) => patchGroup(group.start, group.count, { setType })}
+                      />
+                      <div className="grid grid-cols-2 gap-2">
+                        <Field
+                          label="RPE"
+                          value={sample.rpe}
+                          inputMode="numeric"
+                          disabled={saving}
+                          onChange={(rpe) => patchGroup(group.start, group.count, { rpe })}
+                        />
+                        <Field
+                          label="Calories"
+                          value={sample.calories}
+                          inputMode="numeric"
+                          disabled={saving}
+                          onChange={(calories) => patchGroup(group.start, group.count, { calories })}
+                        />
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
-            <KindSwitch
-              kind={set.kind}
-              disabled={saving}
-              onChange={(kind) => updateSet(setIndex, { kind })}
-            />
-            <SetTypePicker
-              value={set.setType}
-              disabled={saving}
-              onChange={(setType) => updateSet(setIndex, { setType })}
-            />
-            <div className="grid grid-cols-2 gap-2">
-              {set.kind === "strength" ? (
-                <Field
-                  label="Reps"
-                  value={set.reps}
-                  inputMode="numeric"
-                  disabled={saving}
-                  onChange={(reps) => updateSet(setIndex, { reps })}
-                />
-              ) : null}
-              {set.kind !== "strength" ? (
-                <Field
-                  label={set.kind === "distance" ? "Distance" : "Time"}
-                  value={set.kind === "distance" ? set.distance : set.duration}
-                  inputMode="text"
-                  disabled={saving}
-                  onChange={(value) =>
-                    updateSet(setIndex, set.kind === "distance" ? { distance: value } : { duration: value })
-                  }
-                />
-              ) : null}
-              <Field
-                label={`Weight · ${unit}`}
-                value={set.weight}
-                inputMode="decimal"
-                disabled={saving}
-                onChange={(weight) => updateSet(setIndex, { weight, weightLb: null })}
-              />
-              {set.kind === "distance" ? (
-                <Field
-                  label="Time"
-                  value={set.duration}
-                  inputMode="text"
-                  disabled={saving}
-                  onChange={(duration) => updateSet(setIndex, { duration })}
-                />
-              ) : null}
-              {set.kind !== "strength" || set.calories.trim().length > 0 ? (
-                <Field
-                  label="Calories"
-                  value={set.calories}
-                  inputMode="numeric"
-                  disabled={saving}
-                  wide
-                  onChange={(calories) => updateSet(setIndex, { calories })}
-                />
-              ) : null}
-              <Field
-                label="RPE"
-                value={set.rpe}
-                inputMode="numeric"
-                disabled={saving}
-                onChange={(rpe) => updateSet(setIndex, { rpe })}
-              />
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       <button
@@ -400,7 +523,7 @@ function KindSwitch({
     { id: "distance", label: "Distance" },
   ];
   return (
-    <div role="group" aria-label="How this set is measured" className="flex rounded-full border border-line p-0.5">
+    <div role="group" aria-label="How this set is measured" className="flex rounded-full border border-input p-0.5">
       {options.map((option) => (
         <button
           key={option.id}

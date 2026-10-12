@@ -6,6 +6,7 @@ import { Toast, type ToastMessage } from "@/components/Toast";
 import { OpenWorkoutSheet } from "@/components/routines/OpenWorkoutSheet";
 import { useBeginWorkout } from "@/components/routines/useBeginWorkout";
 import { ActiveWorkout } from "@/components/workout/ActiveWorkout";
+import { Composer } from "@/components/workout/Composer";
 import { ConfirmSheet } from "@/components/workout/ConfirmSheet";
 import { FinishSheet } from "@/components/workout/FinishSheet";
 import { ExerciseRow } from "@/components/workout/ExerciseRow";
@@ -58,6 +59,7 @@ import {
   type PendingPlanExercise,
 } from "@/lib/offline/routineCache";
 import { browserStore, loadCachedAccess } from "@/lib/offline/storage";
+import { exerciseLink } from "@/lib/exerciseLink";
 import { setFromPrefill } from "@/lib/prefill";
 import { calendarDayBounds, calendarDayKey, groupHistoryDays } from "@/lib/historyDays";
 import { splitWorkoutPlan, type VisiblePlanItem } from "@/lib/workoutPlan";
@@ -207,6 +209,8 @@ export function LogWorkout() {
   const [draft, setDraft] = useState<VoiceDraft | null>(null);
   const [sheetNotice, setSheetNotice] = useState<string | null>(null);
   const [text, setText] = useState("");
+  const [homeTyping, setHomeTyping] = useState(false);
+  const [editingPlan, setEditingPlan] = useState(false);
   const [manual, setManual] = useState<
     | { key: number; mode: "add"; exerciseName: string }
     | {
@@ -251,7 +255,6 @@ export function LogWorkout() {
   const [toast, setToast] = useState<Toasted | null>(null);
   const [repeatingId, setRepeatingId] = useState<string | null>(null);
   const [loggingPlanId, setLoggingPlanId] = useState<string | null>(null);
-  const [expandedExtra, setExpandedExtra] = useState<string | null>(null);
   const [localPlan, setLocalPlan] = useState<PendingPlan | null>(null);
   const [cachedRoutines, setCachedRoutines] = useState<
     Array<{ _id: string; name: string }> | null
@@ -472,6 +475,15 @@ export function LogWorkout() {
     return names;
   }, [groups, exercises]);
 
+  const workoutOpen = knownSession !== null || sessionSets.length > 0 || activePlan.length > 0;
+  useEffect(() => {
+    if (workoutOpen) {
+      setHomeTyping(false);
+    } else {
+      setEditingPlan(false);
+    }
+  }, [workoutOpen]);
+
   function showToast(message: ToastMessage) {
     setToast({ ...message, id: Date.now() });
   }
@@ -650,7 +662,7 @@ export function LogWorkout() {
 
   // Manual sets, repeats, removals, and finishing.
 
-  function openManual() {
+  function openManual(exerciseName?: string) {
     if (voice.status === "error") {
       dispatch({ type: "dismiss" });
     }
@@ -658,7 +670,7 @@ export function LogWorkout() {
     setManual({
       key: Date.now(),
       mode: "add",
-      exerciseName: groups[groups.length - 1]?.name ?? "",
+      exerciseName: exerciseName ?? groups[groups.length - 1]?.name ?? "",
     });
   }
 
@@ -776,13 +788,65 @@ export function LogWorkout() {
   }
 
   async function deleteSet(setId: string) {
+    if (removingId) {
+      return;
+    }
+    const snapshot = sessionSets.find((set) => set._id === setId);
     setRemovingId(setId);
     const removed = await log.removeMany([setId]);
     setRemovingId(null);
     if (removed.status === "rejected" && removed.error) {
       showToast({ tone: "error", message: removed.error });
-    } else if (removed.status === "queued") {
-      showToast({ tone: "info", message: QUEUED_SAVE_MESSAGE });
+      return;
+    }
+    if (!snapshot) {
+      if (removed.status === "queued") {
+        showToast({ tone: "info", message: QUEUED_SAVE_MESSAGE });
+      }
+      return;
+    }
+    const target = openTarget();
+    showToast({
+      tone: "info",
+      message:
+        removed.status === "queued"
+          ? `Removed ${snapshot.exerciseName}. ${QUEUED_SAVE_MESSAGE}`
+          : `Removed ${snapshot.exerciseName}`,
+      action: {
+        label: "Undo",
+        onClick: () => void restoreRemovedSet(snapshot, target.sessionId, target.sessionStartedAt, "open"),
+      },
+    });
+  }
+
+  async function restoreRemovedSet(
+    set: SetLine,
+    sessionId: string | null,
+    sessionStartedAt: number,
+    placement: "open" | "completed",
+  ) {
+    setToast(null);
+    const saved = await log.saveSets({
+      placement,
+      sessionId,
+      sessionStartedAt,
+      note: null,
+      sets: [
+        {
+          exerciseName: set.exerciseName,
+          weightLb: set.weightLb,
+          reps: set.reps,
+          durationSec: set.durationSec,
+          distanceM: set.distanceM,
+          calories: set.calories ?? null,
+          rpe: set.rpe,
+          ...(set.setType !== undefined ? { setType: set.setType } : {}),
+          loggedAt: set.loggedAt,
+        },
+      ],
+    });
+    if (saved.status === "rejected") {
+      showToast({ tone: "error", message: saved.error ?? "That set could not be put back" });
     }
   }
 
@@ -1033,8 +1097,9 @@ export function LogWorkout() {
           newestSetId={newestSetId}
           loadingSets={sets === undefined && !offline && knownSession !== null}
           repeatingId={repeatingId}
-          removingId={removingId}
           ending={ending}
+          editingPlan={editingPlan}
+          onEditingPlan={setEditingPlan}
           note={workoutNote}
           emptyMessage={
             offline ? "No sets yet. Add one by hand. Voice needs a connection." : undefined
@@ -1046,7 +1111,6 @@ export function LogWorkout() {
           }
           onRepeat={(group) => void repeatSet(group)}
           onEditSet={openEdit}
-          onRemoveSet={(setId) => void deleteSet(setId)}
           onFinish={() => {
             setFinishError(null);
             if (!stale) {
@@ -1099,8 +1163,8 @@ export function LogWorkout() {
                   onLink={(index) => void savePlan(linkWithNext(activePlan, index))}
                   onUnlink={(index) => void savePlan(unlinkSuperset(activePlan, index))}
                   onEditSet={openEdit}
-                  onRemoveSet={(setId) => void deleteSet(setId)}
-                  removingId={removingId}
+                  onNeedForm={(exerciseName) => openManual(exerciseName)}
+                  editing={editingPlan}
                 />
                 {planView.extras.length > 0 ? (
                   <div className="mt-2">
@@ -1114,31 +1178,26 @@ export function LogWorkout() {
                           name={group.name}
                           sets={group.sets}
                           newestSetId={newestSetId}
-                          expanded={expandedExtra === group.exerciseId}
-                          onToggle={() =>
-                            setExpandedExtra((current) =>
-                              current === group.exerciseId ? null : group.exerciseId,
-                            )
-                          }
+                          exerciseHref={exerciseLink(group.exerciseId, "/") ?? undefined}
                           onRepeat={() => void repeatSet(group)}
                           repeating={repeatingId === group.exerciseId}
                           onEditSet={openEdit}
-                          onRemoveSet={(setId) => void deleteSet(setId)}
-                          removingId={removingId}
                           footer={
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const appended = [
-                                  ...activePlan,
-                                  blankPlanItem(group.exerciseId, group.name),
-                                ];
-                                void savePlan(linkWithNext(appended, appended.length - 2));
-                              }}
-                              className="mb-2 ml-14 min-h-11 text-sm font-medium text-muted"
-                            >
-                              Superset with plan
-                            </button>
+                            editingPlan ? (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const appended = [
+                                    ...activePlan,
+                                    blankPlanItem(group.exerciseId, group.name),
+                                  ];
+                                  void savePlan(linkWithNext(appended, appended.length - 2));
+                                }}
+                                className="mb-2 ml-14 min-h-11 text-base font-medium text-muted"
+                              >
+                                Superset with plan
+                              </button>
+                            ) : null
                           }
                         />
                       ))}
@@ -1160,16 +1219,36 @@ export function LogWorkout() {
           }}
         />
       ) : (
-        <HomeView
-          lastWorkout={lastWorkout}
-          weekSummary={weekSummary}
-          routines={routineList ?? cachedRoutines ?? undefined}
-          voiceBusy={voiceBusy}
-          offline={offline}
-          onVoice={() => void startVoice()}
-          onManual={openManual}
-          onStartRoutine={(routineId) => void beginWorkout.startRoutine(routineId)}
-        />
+        <>
+          <HomeView
+            lastWorkout={lastWorkout}
+            weekSummary={weekSummary}
+            routines={routineList ?? cachedRoutines ?? undefined}
+            voiceBusy={voiceBusy}
+            offline={offline}
+            typing={homeTyping}
+            repeating={beginWorkout.pending}
+            onVoice={() => void startVoice()}
+            onType={() => setHomeTyping(true)}
+            onRepeat={(sessionIds) => void beginWorkout.repeatWorkouts(sessionIds)}
+            onStartRoutine={(routineId) => void beginWorkout.startRoutine(routineId)}
+          />
+          {homeTyping ? (
+            <div className="fixed inset-x-0 bottom-0 z-20">
+              <Composer
+                autoFocus
+                text={text}
+                onTextChange={setText}
+                onSubmitText={() => void submitText()}
+                parsingText={voice.status === "parsing" && source === "text"}
+                onVoice={() => void startVoice()}
+                onManual={() => openManual()}
+                busy={voiceBusy}
+                offline={offline}
+              />
+            </div>
+          ) : null}
+        </>
       )}
 
       <OpenWorkoutSheet
@@ -1181,7 +1260,7 @@ export function LogWorkout() {
       <Toast
         key={activeToast ? `${activeToast.id}-${activeToast.message}` : "none"}
         toast={activeToast}
-        raised={showWorkout}
+        raised={showWorkout || homeTyping}
         onDismiss={() => {
           if (voice.status === "error") {
             dispatch({ type: "dismiss" });
@@ -1212,6 +1291,16 @@ export function LogWorkout() {
         onDiscard={discardDraft}
         onConfirm={() => void confirmDraft()}
         onRecordAgain={() => void startVoice()}
+        exerciseHref={(name) => {
+          const formatted = formatExerciseName(name);
+          const match = formatted
+            ? exercises?.exercises.find(
+                (exercise) =>
+                  formatExerciseName(exercise.name)?.normalizedName === formatted.normalizedName,
+              )
+            : undefined;
+          return match ? exerciseLink(match._id, "/") : null;
+        }}
       />
 
       {manual ? (
@@ -1245,6 +1334,15 @@ export function LogWorkout() {
           }))}
           onClose={() => setManual(null)}
           onAdd={addManual}
+          onDelete={
+            manual.mode === "edit"
+              ? () => {
+                  const setId = manual.setId;
+                  setManual(null);
+                  void deleteSet(setId);
+                }
+              : undefined
+          }
         />
       ) : null}
 

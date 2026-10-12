@@ -7,6 +7,7 @@ import { PageHeader, SectionLabel } from "@/components/PageHeader";
 import { useBrowserTimeZone } from "@/components/useBrowserTimeZone";
 import { useWeightUnit } from "@/components/WeightUnit";
 import { api } from "@/convex/_generated/api";
+import { exerciseLink } from "@/lib/exerciseLink";
 import { formatLongDate, formatMonthHeading, monthKey } from "@/lib/format";
 import { formatHistoryDayMeta, visibleHistoryDays, type HistoryDay, type HistoryExercise } from "@/lib/historyDays";
 import { supersetBlocks } from "@/convex/lib/superset";
@@ -200,14 +201,21 @@ function HistoryNames({ exercises }: { exercises: HistoryExercise[] }) {
   return blocks.map((block, blockIndex) => (
     <span key={block.items[0]?.exerciseId ?? blockIndex}>
       {blockIndex > 0 ? ", " : null}
-      {block.items.map((exercise, index) => (
-        <span key={exercise.exerciseId}>
-          {index > 0 ? (block.supersetId ? " + " : ", ") : null}
-          <Link href={`/exercises/${exercise.exerciseId}`} className="hover:underline">
-            {exercise.name}
-          </Link>
-        </span>
-      ))}
+      {block.items.map((exercise, index) => {
+        const href = exerciseLink(exercise.exerciseId, "/history");
+        return (
+          <span key={exercise.exerciseId}>
+            {index > 0 ? (block.supersetId ? " + " : ", ") : null}
+            {href ? (
+              <Link href={href} className="hover:underline">
+                {exercise.name}
+              </Link>
+            ) : (
+              <span>{exercise.name}</span>
+            )}
+          </span>
+        );
+      })}
     </span>
   ));
 }

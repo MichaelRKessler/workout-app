@@ -43,8 +43,11 @@ export function HomeView({
   voiceBusy,
   offline = false,
   onVoice,
-  onManual,
+  onType,
   onStartRoutine,
+  onRepeat,
+  repeating = false,
+  typing = false,
 }: {
   lastWorkout: HistoryDay | null | undefined;
   weekSummary?: WeekSummary | null;
@@ -53,11 +56,21 @@ export function HomeView({
   voiceBusy: boolean;
   offline?: boolean;
   onVoice: () => void;
-  onManual: () => void;
+  /** Opens the same typed-set bar used during a workout. */
+  onType: () => void;
   onStartRoutine?: (routineId: string) => void;
+  onRepeat?: (sessionIds: string[]) => void;
+  repeating?: boolean;
+  typing?: boolean;
 }) {
   return (
-    <div className="flex min-h-[calc(100dvh-env(safe-area-inset-top))] flex-col px-5 pt-3 pb-[calc(20px+env(safe-area-inset-bottom))]">
+    <div
+      className={`flex min-h-[calc(100dvh-env(safe-area-inset-top))] flex-col px-5 pt-3 ${
+        typing
+          ? "pb-[calc(8.5rem+env(safe-area-inset-bottom))]"
+          : "pb-[calc(20px+env(safe-area-inset-bottom))]"
+      }`}
+    >
       <header className="flex min-h-11 items-center justify-between gap-3">
         <div className="flex items-center gap-2.5">
           <BrandMark />
@@ -96,7 +109,7 @@ export function HomeView({
 
         <button
           type="button"
-          onClick={onManual}
+          onClick={onType}
           className="mt-5 inline-flex min-h-11 items-center gap-2 rounded-full px-4 text-base font-medium hover:bg-fill-2"
         >
           <KeyboardIcon className="size-5" />
@@ -149,29 +162,52 @@ export function HomeView({
 
       {weekSummary ? <WeeklySummary summary={weekSummary} /> : null}
 
-      {lastWorkout ? <LastWorkoutCard workout={lastWorkout} /> : null}
+      {lastWorkout ? (
+        <LastWorkoutCard workout={lastWorkout} onRepeat={onRepeat} repeating={repeating} />
+      ) : null}
     </div>
   );
 }
 
-function LastWorkoutCard({ workout }: { workout: HistoryDay }) {
+function LastWorkoutCard({
+  workout,
+  onRepeat,
+  repeating,
+}: {
+  workout: HistoryDay;
+  onRepeat?: (sessionIds: string[]) => void;
+  repeating: boolean;
+}) {
   const unit = useWeightUnit();
   return (
-    <Link
-      href={`/history/day/${workout.dayKey}`}
-      className="flex items-center gap-3.5 rounded-[1.25rem] border border-line bg-surface p-4 hover:bg-fill-2"
-    >
-      <span className="flex min-w-0 flex-1 flex-col gap-1">
-        <span className="text-xs leading-snug font-medium tracking-[0.06em] text-subtle uppercase" suppressHydrationWarning>
-          Last workout · {formatShortDate(workout.startedAt)}
+    <div className="flex items-center gap-3 rounded-[1.25rem] border border-line bg-surface p-4">
+      <Link
+        href={`/history/day/${workout.dayKey}`}
+        className="flex min-w-0 flex-1 items-center gap-3 hover:opacity-80"
+      >
+        <span className="flex min-w-0 flex-1 flex-col gap-1">
+          <span className="text-xs leading-snug font-medium tracking-[0.06em] text-subtle uppercase" suppressHydrationWarning>
+            Last workout · {formatShortDate(workout.startedAt)}
+          </span>
+          <span className="line-clamp-2 text-base font-medium">
+            {workout.exercises.length > 0 ? formatSupersetNames(workout.exercises) : "No sets"}
+          </span>
+          <span className="text-sm text-pretty text-muted">{formatHistoryDayMeta(workout, unit)}</span>
         </span>
-        <span className="line-clamp-2 text-base font-medium">
-          {workout.exercises.length > 0 ? formatSupersetNames(workout.exercises) : "No sets"}
-        </span>
-        <span className="text-sm text-pretty text-muted">{formatHistoryDayMeta(workout, unit)}</span>
-      </span>
-      <ChevronRightIcon className="size-5 shrink-0 text-subtle" />
-    </Link>
+        <ChevronRightIcon className="size-5 shrink-0 text-subtle" />
+      </Link>
+      {onRepeat ? (
+        <button
+          type="button"
+          disabled={repeating}
+          aria-label="Repeat last workout"
+          onClick={() => onRepeat(workout.sessionIds)}
+          className="min-h-12 shrink-0 rounded-full bg-inverse px-4 text-base font-semibold text-inverse-ink disabled:opacity-60"
+        >
+          {repeating ? "Starting…" : "Repeat"}
+        </button>
+      ) : null}
+    </div>
   );
 }
 

@@ -7,12 +7,15 @@ import { usePreviousExercise } from "@/components/workout/usePreviousExercise";
 import { useWeightUnit } from "@/components/WeightUnit";
 import { PlusIcon, Spinner } from "@/components/icons";
 import type { Id } from "@/convex/_generated/dataModel";
-import { formatRoutineTarget, formatSetShort } from "@/lib/format";
-import type { SetLine } from "@/lib/groupSets";
-import { prefillValues, setFromPrefill } from "@/lib/prefill";
-import { formatSuggestion, suggestionAlreadyShown, suggestNext } from "@/lib/suggestion";
+import { setKind } from "@/convex/lib/measures";
 import { planProgress, routinePrefillFromTarget } from "@/convex/lib/routinePlan";
 import { cleanSupersetId, supersetBlocks, supersetNextId } from "@/convex/lib/superset";
+import { exerciseLink } from "@/lib/exerciseLink";
+import { describeSet, formatRoutineTarget, formatSetShort } from "@/lib/format";
+import type { SetLine } from "@/lib/groupSets";
+import { planLogOffer, planLogSpeech, type LoggedPlanSet } from "@/lib/planLog";
+import { formatSuggestion, suggestionAlreadyShown, suggestNext } from "@/lib/suggestion";
+import Link from "next/link";
 
 export type PlanRow = {
   exerciseId: string;
@@ -44,8 +47,8 @@ export function WorkoutPlanList({
   onLink,
   onUnlink,
   onEditSet,
-  onRemoveSet,
-  removingId,
+  onNeedForm,
+  editing = false,
 }: {
   name: string | null;
   rows: PlanRow[];
@@ -54,7 +57,7 @@ export function WorkoutPlanList({
   offline: boolean;
   sessionSets: SetLine[];
   excludeSessionId?: Id<"sessions">;
-  onLog: (exerciseId: string, name: string, set: ReturnType<typeof setFromPrefill>) => void;
+  onLog: (exerciseId: string, name: string, set: LoggedPlanSet) => void;
   onRepeat: (row: PlanRow) => void;
   repeatingId: string | null;
   onSkip: (exerciseId: string, skipped: boolean) => void;
@@ -62,8 +65,9 @@ export function WorkoutPlanList({
   onLink: (index: number) => void;
   onUnlink: (index: number) => void;
   onEditSet: (set: SetLine) => void;
-  onRemoveSet: (setId: string) => void;
-  removingId: string | null;
+  /** Opens the set form when there is no target and no previous set. */
+  onNeedForm: (exerciseName: string) => void;
+  editing?: boolean;
 }) {
   const nextId = supersetNextId(
     rows.map((row) => ({
@@ -113,7 +117,6 @@ export function WorkoutPlanList({
                     sessionSets={sessionSets}
                     excludeSessionId={excludeSessionId}
                     repeating={repeatingId === row.exerciseId}
-                    removingId={removingId}
                     onLog={onLog}
                     onRepeat={() => onRepeat(row)}
                     onSkip={onSkip}
@@ -121,7 +124,8 @@ export function WorkoutPlanList({
                     onLink={onLink}
                     onUnlink={onUnlink}
                     onEditSet={onEditSet}
-                    onRemoveSet={onRemoveSet}
+                    onNeedForm={onNeedForm}
+                    editing={editing}
                   />
                 );
               })}
@@ -146,7 +150,6 @@ function PlanRowView({
   sessionSets,
   excludeSessionId,
   repeating,
-  removingId,
   onLog,
   onRepeat,
   onSkip,
@@ -154,7 +157,8 @@ function PlanRowView({
   onLink,
   onUnlink,
   onEditSet,
-  onRemoveSet,
+  onNeedForm,
+  editing,
 }: {
   row: PlanRow;
   index: number;
@@ -168,20 +172,28 @@ function PlanRowView({
   sessionSets: SetLine[];
   excludeSessionId?: Id<"sessions">;
   repeating: boolean;
-  removingId: string | null;
-  onLog: (exerciseId: string, name: string, set: ReturnType<typeof setFromPrefill>) => void;
+  onLog: (exerciseId: string, name: string, set: LoggedPlanSet) => void;
   onRepeat: () => void;
   onSkip: (exerciseId: string, skipped: boolean) => void;
   onMove: (index: number, direction: -1 | 1) => void;
   onLink: (index: number) => void;
   onUnlink: (index: number) => void;
   onEditSet: (set: SetLine) => void;
-  onRemoveSet: (setId: string) => void;
+  onNeedForm: (exerciseName: string) => void;
+  editing: boolean;
 }) {
   const unit = useWeightUnit();
   const progress = planProgress(row.sets.length, row.targetSets, row.skipped);
   const target = formatRoutineTarget(row, unit);
   const detail = [target, progress.label].filter((part) => part !== null).join(" · ");
+  const progressHref = exerciseLink(row.exerciseId, "/");
+  const name = progressHref ? (
+    <Link href={progressHref} className="truncate text-base font-semibold tracking-[-0.01em] hover:underline">
+      {row.name}
+    </Link>
+  ) : (
+    <span className="truncate text-base font-semibold tracking-[-0.01em]">{row.name}</span>
+  );
 
   return (
     <li className={`border-b border-line-soft py-3 ${row.skipped ? "opacity-60" : ""}`}>
@@ -190,7 +202,7 @@ function PlanRowView({
         <ExerciseTile name={row.name} />
         <span className="flex min-w-0 flex-1 flex-col">
           <span className="flex min-w-0 items-center gap-2">
-            <span className="truncate text-base font-semibold tracking-[-0.01em]">{row.name}</span>
+            {name}
             {isNext ? (
               <span className="shrink-0 rounded-full bg-fill px-2 py-0.5 text-xs font-medium text-muted">
                 Next
@@ -200,11 +212,12 @@ function PlanRowView({
           {detail ? <span className="text-sm text-muted">{detail}</span> : null}
           {row.sets.length > 0 ? (
             <span className="mt-0.5 flex flex-wrap gap-x-3 font-mono text-sm text-muted">
-              {row.sets.map((set) => (
+              {row.sets.map((set, setIndex) => (
                 <button
                   key={set._id}
                   type="button"
                   onClick={() => onEditSet(set)}
+                  aria-label={`Edit set ${setIndex + 1} of ${row.name}, ${describeSet(set, unit)}`}
                   className="min-h-11 text-left"
                 >
                   {formatSetShort(set, unit)}
@@ -215,17 +228,7 @@ function PlanRowView({
             </span>
           ) : null}
         </span>
-        {row.sets.length === 0 ? (
-          <PlanLogButton
-            row={row}
-            logging={logging}
-            setsLoading={setsLoading}
-            offline={offline}
-            sessionSets={sessionSets}
-            excludeSessionId={excludeSessionId}
-            onLog={onLog}
-          />
-        ) : (
+        {row.sets.length > 0 ? (
           <button
             type="button"
             onClick={onRepeat}
@@ -235,54 +238,54 @@ function PlanRowView({
           >
             {repeating ? <Spinner className="size-4" /> : <PlusIcon className="size-5" />}
           </button>
-        )}
+        ) : null}
       </div>
-      <div className="mt-1 flex flex-wrap gap-1 pl-8">
-        <TextAction
-          label={`Move ${row.name} up`}
-          disabled={index === 0}
-          onClick={() => onMove(index, -1)}
-        >
-          Up
-        </TextAction>
-        <TextAction
-          label={`Move ${row.name} down`}
-          disabled={index === count - 1}
-          onClick={() => onMove(index, 1)}
-        >
-          Down
-        </TextAction>
-        <TextAction
-          label={row.skipped ? `Put ${row.name} back on the plan` : `Skip ${row.name}`}
-          onClick={() => onSkip(row.exerciseId, !row.skipped)}
-        >
-          {row.skipped ? "Undo skip" : "Skip"}
-        </TextAction>
-        {canLink ? (
-          <TextAction label={`Superset ${row.name} with the next exercise`} onClick={() => onLink(index)}>
-            Superset
-          </TextAction>
-        ) : null}
-        {canUnlink ? (
-          <TextAction label={`Ungroup ${row.name}`} onClick={() => onUnlink(index)}>
-            Ungroup
-          </TextAction>
-        ) : null}
-        {row.sets.length > 0 ? (
+      {row.sets.length === 0 ? (
+        <PlanLogButton
+          row={row}
+          logging={logging}
+          setsLoading={setsLoading}
+          offline={offline}
+          sessionSets={sessionSets}
+          excludeSessionId={excludeSessionId}
+          onLog={onLog}
+          onNeedForm={onNeedForm}
+        />
+      ) : null}
+      {editing ? (
+        <div className="mt-1 flex flex-wrap gap-1 pl-8">
           <TextAction
-            label={`Remove the last set of ${row.name}`}
-            disabled={removingId !== null}
-            onClick={() => {
-              const last = row.sets[row.sets.length - 1];
-              if (last) {
-                onRemoveSet(last._id);
-              }
-            }}
+            label={`Move ${row.name} up`}
+            disabled={index === 0}
+            onClick={() => onMove(index, -1)}
           >
-            {removingId && row.sets.some((set) => set._id === removingId) ? "Removing…" : "Remove set"}
+            Up
           </TextAction>
-        ) : null}
-      </div>
+          <TextAction
+            label={`Move ${row.name} down`}
+            disabled={index === count - 1}
+            onClick={() => onMove(index, 1)}
+          >
+            Down
+          </TextAction>
+          <TextAction
+            label={row.skipped ? `Put ${row.name} back on the plan` : `Skip ${row.name}`}
+            onClick={() => onSkip(row.exerciseId, !row.skipped)}
+          >
+            {row.skipped ? "Undo skip" : "Skip"}
+          </TextAction>
+          {canLink ? (
+            <TextAction label={`Superset ${row.name} with the next exercise`} onClick={() => onLink(index)}>
+              Superset
+            </TextAction>
+          ) : null}
+          {canUnlink ? (
+            <TextAction label={`Ungroup ${row.name}`} onClick={() => onUnlink(index)}>
+              Ungroup
+            </TextAction>
+          ) : null}
+        </div>
+      ) : null}
     </li>
   );
 }
@@ -295,6 +298,7 @@ function PlanLogButton({
   sessionSets,
   excludeSessionId,
   onLog,
+  onNeedForm,
 }: {
   row: PlanRow;
   logging: boolean;
@@ -302,19 +306,17 @@ function PlanLogButton({
   offline: boolean;
   sessionSets: SetLine[];
   excludeSessionId?: Id<"sessions">;
-  onLog: (exerciseId: string, name: string, set: ReturnType<typeof setFromPrefill>) => void;
+  onLog: (exerciseId: string, name: string, set: LoggedPlanSet) => void;
+  onNeedForm: (exerciseName: string) => void;
 }) {
   const unit = useWeightUnit();
   const progression = useProgression();
   const previous = usePreviousExercise(row.name, excludeSessionId);
   const ready = (offline || !previous.loading) && !setsLoading;
-  const values = prefillValues(
-    row.name,
-    sessionSets,
-    previous.sets,
-    routinePrefillFromTarget(row),
-  );
-  const set = setFromPrefill(values);
+  const offer = ready
+    ? planLogOffer(row.name, sessionSets, previous.sets, routinePrefillFromTarget(row), unit)
+    : null;
+  const primary = offer?.primary ?? null;
   const suggestion =
     ready && previous.sets
       ? suggestNext(previous.sets, {
@@ -325,46 +327,77 @@ function PlanLogButton({
         })
       : null;
   const suggestionLabel =
-    suggestion && set && !suggestionAlreadyShown(suggestion, { kind: values.kind, reps: values.reps, weightLb: set.weightLb })
+    suggestion &&
+    primary &&
+    !suggestionAlreadyShown(suggestion, {
+      kind: setKind(primary.set),
+      reps: primary.set.reps ? String(primary.set.reps) : "",
+      weightLb: primary.set.weightLb,
+    })
       ? formatSuggestion(suggestion, unit)
       : null;
 
   function logSuggested() {
-    if (!set || !suggestion) {
+    if (!primary || !suggestion) {
       return;
     }
     if (suggestion.kind === "weight") {
-      onLog(row.exerciseId, row.name, { ...set, weightLb: suggestion.weightLb, setType: "working" });
+      onLog(row.exerciseId, row.name, { ...primary.set, weightLb: suggestion.weightLb, setType: "working" });
       return;
     }
-    onLog(row.exerciseId, row.name, { ...set, reps: suggestion.reps, setType: "working" });
+    onLog(row.exerciseId, row.name, { ...primary.set, reps: suggestion.reps, setType: "working" });
   }
 
+  const buttonClass =
+    "min-h-12 w-full rounded-full px-4 text-left text-lg font-semibold disabled:opacity-60";
+
   return (
-    <span className="flex shrink-0 flex-col items-end gap-1">
+    <div className="mt-2 flex flex-col gap-2 pl-14">
+      <button
+        type="button"
+        disabled={!ready || logging}
+        aria-label={
+          primary ? planLogSpeech(row.name, primary.label, primary.set, unit) : `Add a set of ${row.name}`
+        }
+        onClick={() => {
+          if (!ready) {
+            return;
+          }
+          if (primary) {
+            onLog(row.exerciseId, row.name, primary.set);
+            return;
+          }
+          onNeedForm(row.name);
+        }}
+        className={`${buttonClass} bg-inverse text-inverse-ink`}
+      >
+        {logging ? "Logging…" : !ready ? "…" : (primary?.label ?? "Add set")}
+      </button>
+      {offer?.lastTime ? (
+        <button
+          type="button"
+          disabled={logging}
+          onClick={() => {
+            if (offer.lastTime) {
+              onLog(row.exerciseId, row.name, offer.lastTime.set);
+            }
+          }}
+          className="min-h-11 w-full rounded-full px-1 text-left text-base font-medium text-muted disabled:opacity-60"
+        >
+          {offer.lastTime.label}
+        </button>
+      ) : null}
       {suggestionLabel ? (
         <button
           type="button"
           disabled={logging}
           onClick={logSuggested}
-          className="min-h-11 max-w-40 rounded-full border border-line px-3 text-left text-sm font-medium disabled:opacity-60"
+          className="min-h-11 w-full rounded-full border border-line px-4 text-left text-base font-medium disabled:opacity-60"
         >
           {suggestionLabel}
         </button>
       ) : null}
-      <button
-        type="button"
-        disabled={!ready || logging || set === null}
-        onClick={() => {
-          if (set) {
-            onLog(row.exerciseId, row.name, set);
-          }
-        }}
-        className="min-h-11 shrink-0 rounded-full bg-inverse px-4 text-base font-semibold text-inverse-ink disabled:opacity-60"
-      >
-        {logging ? "Logging…" : ready ? "Log set" : "…"}
-      </button>
-    </span>
+    </div>
   );
 }
 
@@ -398,7 +431,7 @@ function TextAction({
       aria-label={label}
       disabled={disabled}
       onClick={onClick}
-      className="min-h-11 rounded-full px-3 text-sm font-medium text-muted hover:bg-fill-2 disabled:opacity-40"
+      className="min-h-11 rounded-full px-3 text-base font-medium text-muted hover:bg-fill-2 disabled:opacity-40"
     >
       {children}
     </button>

@@ -93,6 +93,7 @@ export function BodyScreen() {
   const [editing, setEditing] = useState<StoredEntry | null>(null);
   const [editDraft, setEditDraft] = useState<BodyDraft | null>(null);
   const [editError, setEditError] = useState<string | null>(null);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const parseAbortRef = useRef<AbortController | null>(null);
 
   const recorder = useRecorder({
@@ -271,6 +272,7 @@ export function BodyScreen() {
     setEditing(entry);
     setEditDraft(draftFromStored(entry, weightUnit, lengthUnit));
     setEditError(null);
+    setConfirmingDelete(false);
   }
 
   async function saveEdit() {
@@ -618,15 +620,44 @@ export function BodyScreen() {
                 {saving ? "Saving…" : "Save"}
               </Button>
             </div>
-            <Button
-              type="button"
-              variant="danger"
-              className="mt-2 w-full"
-              disabled={saving || offline}
-              onClick={() => void deleteEdit()}
-            >
-              Delete entry
-            </Button>
+            {confirmingDelete ? (
+              <div className="mt-3">
+                <p className="text-base text-muted">Delete this entry? This cannot be undone.</p>
+                <div className="mt-2 flex gap-2.5">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="lg"
+                    className="flex-1"
+                    disabled={saving}
+                    onClick={() => setConfirmingDelete(false)}
+                  >
+                    Keep entry
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="danger"
+                    size="lg"
+                    className="flex-1"
+                    disabled={saving || offline}
+                    onClick={() => void deleteEdit()}
+                  >
+                    {saving ? "Deleting…" : "Delete entry"}
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <Button
+                type="button"
+                variant="danger"
+                size="lg"
+                className="mt-2 w-full"
+                disabled={saving || offline}
+                onClick={() => setConfirmingDelete(true)}
+              >
+                Delete entry
+              </Button>
+            )}
             {offline ? (
               <p className="mt-2 text-sm text-muted">Editing or deleting a saved entry needs a connection.</p>
             ) : null}
@@ -781,4 +812,4 @@ function Field({ id, label, children }: { id: string; label: string; children: R
 }
 
 const fieldClass =
-  "mt-1.5 h-12 w-full rounded-xl border border-line bg-background px-3 text-base outline-none focus:border-foreground";
+  "mt-1.5 h-12 w-full rounded-xl border border-input bg-background px-3 text-base outline-none focus:border-foreground";

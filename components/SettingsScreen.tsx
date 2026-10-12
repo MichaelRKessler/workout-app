@@ -12,9 +12,12 @@ import { useLengthUnit, useWeightUnit } from "@/components/WeightUnit";
 import { api } from "@/convex/_generated/api";
 import type { LengthUnit } from "@/convex/lib/bodyMeasures";
 import { fromPounds, toPounds, WEIGHT_STEP, type WeightUnit } from "@/convex/lib/units";
+import { formatElapsed } from "@/lib/format";
+import { readRestChime, REST_CHIME_KEY, restChimeStored } from "@/lib/restChime";
+import { adjustRestSeconds, readRestSeconds, REST_STORAGE_KEY } from "@/lib/restTimer";
 import { useMutation, useQuery } from "convex/react";
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 export function SettingsScreen() {
   const viewer = useQuery(api.users.viewer);
@@ -144,6 +147,8 @@ export function SettingsScreen() {
           </p>
         </div>
       </section>
+
+      <RestSettings />
 
       <section aria-labelledby="settings-suggestions" className="mt-7">
         <SectionLabel id="settings-suggestions">Next weight</SectionLabel>
@@ -309,5 +314,93 @@ export function SettingsScreen() {
       </section>
       {signOut.dialog}
     </div>
+  );
+}
+
+function RestSettings() {
+  const [seconds, setSeconds] = useState(90);
+  const [chime, setChime] = useState(true);
+
+  useEffect(() => {
+    function sync() {
+      setSeconds(readRestSeconds(window.localStorage.getItem(REST_STORAGE_KEY)));
+      setChime(readRestChime(window.localStorage.getItem(REST_CHIME_KEY)));
+    }
+    sync();
+    window.addEventListener("workout-rest-default", sync);
+    window.addEventListener("workout-rest-chime", sync);
+    window.addEventListener("storage", sync);
+    return () => {
+      window.removeEventListener("workout-rest-default", sync);
+      window.removeEventListener("workout-rest-chime", sync);
+      window.removeEventListener("storage", sync);
+    };
+  }, []);
+
+  function change(direction: -1 | 1) {
+    const next = adjustRestSeconds(seconds, direction);
+    window.localStorage.setItem(REST_STORAGE_KEY, String(next));
+    setSeconds(next);
+    window.dispatchEvent(new Event("workout-rest-default"));
+  }
+
+  function toggleChime() {
+    const next = !chime;
+    window.localStorage.setItem(REST_CHIME_KEY, restChimeStored(next));
+    setChime(next);
+    window.dispatchEvent(new Event("workout-rest-chime"));
+  }
+
+  const buttonClass =
+    "flex size-11 items-center justify-center rounded-full border border-input bg-background text-lg font-semibold";
+
+  return (
+    <section aria-labelledby="settings-rest" className="mt-7">
+      <SectionLabel id="settings-rest">Rest</SectionLabel>
+      <div className="overflow-hidden rounded-[1.25rem] border border-line bg-surface">
+        <div className="flex min-h-14 items-center justify-between gap-4 px-4 py-3">
+          <span className="text-base font-medium">Default rest</span>
+          <div className="flex items-center gap-2">
+            <button type="button" aria-label="15 seconds less rest" onClick={() => change(-1)} className={buttonClass}>
+              −
+            </button>
+            <span className="min-w-14 text-center font-mono text-lg font-medium tabular-nums">
+              {formatElapsed(seconds * 1000)}
+            </span>
+            <button type="button" aria-label="15 seconds more rest" onClick={() => change(1)} className={buttonClass}>
+              +
+            </button>
+          </div>
+        </div>
+        <div className="flex min-h-14 items-center justify-between gap-4 border-t border-line px-4">
+          <span id="rest-chime-label" className="text-base font-medium">
+            Chime when rest ends
+          </span>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={chime}
+            aria-labelledby="rest-chime-label"
+            onClick={toggleChime}
+            className="-mr-1 flex h-11 items-center px-1"
+          >
+            <span
+              aria-hidden="true"
+              className={`relative h-8 w-13 rounded-full transition-colors ${chime ? "bg-foreground" : "bg-line"}`}
+            >
+              <span
+                className={`absolute top-0.5 left-0.5 size-7 rounded-full bg-surface shadow-[0_1px_3px_rgb(0_0_0/0.2)] transition-transform ${
+                  chime ? "translate-x-5" : "translate-x-0"
+                }`}
+              />
+            </span>
+          </button>
+        </div>
+        <p className="border-t border-line px-4 py-3 text-sm leading-normal text-muted">
+          This is the rest used before the first set, and the starting point for a new exercise.
+          Changing it during a rest is just for that rest until you tap Save as default.
+        </p>
+      </div>
+    </section>
   );
 }

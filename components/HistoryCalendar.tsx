@@ -157,7 +157,7 @@ function DayCell({
   timeZone: string;
 }) {
   if (!cell.inMonth) {
-    return <span className="mx-auto block size-10" />;
+    return <span className="block aspect-square w-full" />;
   }
   const bounds = calendarDayBounds(cell.dayKey, timeZone);
   const labelDate = bounds ? formatLongDate(bounds.start) : cell.dayKey;
@@ -167,7 +167,7 @@ function DayCell({
   if (count === 0) {
     return (
       <span
-        className={`mx-auto flex size-10 items-center justify-center rounded-full text-base text-subtle ${ring}`}
+        className={`flex aspect-square w-full items-center justify-center rounded-full text-base text-subtle ${ring}`}
         aria-label={today ? `${weekday} ${labelDate}, today` : undefined}
       >
         {cell.day}
@@ -180,7 +180,7 @@ function DayCell({
     <Link
       href={`/history/day/${cell.dayKey}`}
       aria-label={`Open ${workoutLabel} on ${weekday} ${labelDate}`}
-      className={`mx-auto flex size-10 items-center justify-center rounded-full bg-inverse text-base font-medium text-inverse-ink ${ring}`}
+      className={`flex aspect-square w-full items-center justify-center rounded-full bg-inverse text-base font-medium text-inverse-ink ${ring}`}
     >
       {cell.day}
     </Link>

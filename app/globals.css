@@ -13,6 +13,8 @@
   --inverse: #0e0f11;
   --inverse-ink: #ffffff;
   --accent: #e4572e;
+  --accent-ink: #c2410c;
+  --input-line: #8a8983;
   --danger: #b42318;
   --scrim: rgb(14 15 17 / 0.36);
   --shadow-ink: 14 15 17;
@@ -32,6 +34,8 @@
   --inverse: #f3f3f1;
   --inverse-ink: #0e0f11;
   --accent: #f06a43;
+  --accent-ink: #f06a43;
+  --input-line: #686b73;
   --danger: #ff8a75;
   --scrim: rgb(0 0 0 / 0.55);
   --shadow-ink: 0 0 0;
@@ -88,6 +92,8 @@
   --color-inverse: var(--inverse);
   --color-inverse-ink: var(--inverse-ink);
   --color-accent: var(--accent);
+  --color-accent-ink: var(--accent-ink);
+  --color-input: var(--input-line);
   --color-danger: var(--danger);
   --color-scrim: var(--scrim);
   --font-sans: var(--font-geist), ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;

@@ -17,6 +17,7 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { formatExerciseName } from "@/convex/lib/exerciseName";
 import { packSupersetOrder, supersetBlocks } from "@/convex/lib/superset";
+import { exerciseLink } from "@/lib/exerciseLink";
 import { readableError } from "@/lib/errors";
 import { EXAMPLE_EXERCISES } from "@/lib/examples";
 import {
@@ -63,12 +64,23 @@ type ManualState =
       calories: number | null;
       rpe: number | null;
       setType?: SetLine["setType"];
+      sessionId: Id<"sessions">;
+    };
+
+type DeleteTarget =
+  | { kind: "day" }
+  | {
+      kind: "session";
+      sessionId: Id<"sessions">;
+      label: string;
+      setCount: number;
     };
 
 /**
  * Every finished workout performed on one local calendar day.
  * Session documents stay separate: edits, new sets, and notes still target
- * one workout. Delete removes the whole day.
+ * one workout. A day with several workouts can delete one of them.
+ * Delete day still removes every workout on that date.
  */
 export function DayDetail({ dayKey }: { dayKey: string }) {
   const router = useRouter();
@@ -81,15 +93,15 @@ export function DayDetail({ dayKey }: { dayKey: string }) {
   const libraryQuery = useQuery(api.exercises.list);
   const log = useOfflineLog();
   const deleteDay = useMutation(api.sessions.removeDay);
+  const deleteSession = useMutation(api.sessions.remove);
   const setNote = useMutation(api.sessions.setNote);
   const createFromSessions = useMutation(api.routines.createFromSessions);
   const begin = useBeginWorkout();
   const unit = useWeightUnit();
 
-  const [expandedId, setExpandedId] = useState<string | null>(null);
   const [removingId, setRemovingId] = useState<string | null>(null);
   const [manualPending, setManualPending] = useState(false);
-  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [toast, setToast] = useState<Toasted | null>(null);
@@ -128,6 +140,28 @@ export function DayDetail({ dayKey }: { dayKey: string }) {
       })),
     );
   }, [orderedSessions, visibleSets]);
+
+  const groupsBySession = useMemo(() => {
+    const bySession = new Map<string, typeof groups>();
+    for (const session of orderedSessions) {
+      const sets = canonicalExerciseIds(
+        mergeVisibleSets(session.sets, log.outbox, { kind: "session", sessionId: session._id }),
+      );
+      const supersetByExercise = new Map<string, string | null>(
+        session.exercises.map((exercise) => [exercise.exerciseId, exercise.supersetId ?? null]),
+      );
+      bySession.set(
+        session._id,
+        packSupersetOrder(
+          groupPerformedSets(sets).map((group) => ({
+            ...group,
+            supersetId: supersetByExercise.get(group.exerciseId) ?? null,
+          })),
+        ),
+      );
+    }
+    return bySession;
+  }, [log.outbox, orderedSessions]);
 
   useEffect(() => {
     if (day?.sessions) {
@@ -281,24 +315,90 @@ export function DayDetail({ dayKey }: { dayKey: string }) {
     }
   }
 
+  function sessionForSet(setId: string) {
+    return orderedSessions.find((session) =>
+      mergeVisibleSets(session.sets, log.outbox, {
+        kind: "session",
+        sessionId: session._id,
+      }).some((set) => set._id === setId),
+    );
+  }
+
+  async function restoreRemovedSet(set: SetLine, sessionId: string, sessionStartedAt: number) {
+    setToast(null);
+    const saved = await log.saveSets({
+      placement: "completed",
+      sessionId,
+      sessionStartedAt,
+      note: null,
+      sets: [
+        {
+          exerciseName: set.exerciseName,
+          weightLb: set.weightLb,
+          reps: set.reps,
+          durationSec: set.durationSec,
+          distanceM: set.distanceM,
+          calories: set.calories ?? null,
+          rpe: set.rpe,
+          ...(set.setType !== undefined ? { setType: set.setType } : {}),
+          loggedAt: set.loggedAt,
+        },
+      ],
+    });
+    if (saved.status === "rejected") {
+      showToast({ tone: "error", message: saved.error ?? "That set could not be put back" });
+    }
+  }
+
   async function deleteSet(setId: string) {
+    if (removingId) {
+      return;
+    }
+    const snapshot = visibleSets.find((set) => set._id === setId);
+    const owner = sessionForSet(setId);
     setRemovingId(setId);
     const removed = await log.removeMany([setId]);
     setRemovingId(null);
     if (removed.status === "rejected" && removed.error) {
       showToast({ tone: "error", message: removed.error });
-    } else if (removed.status === "queued") {
-      showToast({ tone: "info", message: QUEUED_SAVE_MESSAGE });
+      return;
     }
+    if (!snapshot || !owner) {
+      if (removed.status === "queued") {
+        showToast({ tone: "info", message: QUEUED_SAVE_MESSAGE });
+      }
+      return;
+    }
+    showToast({
+      tone: "info",
+      message:
+        removed.status === "queued"
+          ? `Removed ${snapshot.exerciseName}. ${QUEUED_SAVE_MESSAGE}`
+          : `Removed ${snapshot.exerciseName}`,
+      action: {
+        label: "Undo",
+        onClick: () => void restoreRemovedSet(snapshot, owner._id, owner.startedAt),
+      },
+    });
   }
 
   async function confirmDelete() {
-    if (!bounds) {
+    if (!deleteTarget) {
       return;
     }
     setDeleting(true);
     setDeleteError(null);
     try {
+      if (deleteTarget.kind === "session") {
+        await deleteSession({ sessionId: deleteTarget.sessionId });
+        setDeleteTarget(null);
+        setDeleting(false);
+        return;
+      }
+      if (!bounds) {
+        setDeleting(false);
+        return;
+      }
       await deleteDay({ startedFrom: bounds.start, startedUntil: bounds.end });
       router.push("/history");
     } catch (error) {
@@ -368,66 +468,38 @@ export function DayDetail({ dayKey }: { dayKey: string }) {
           <p className="mt-1 text-sm text-pretty text-muted" suppressHydrationWarning>
             {orderedSessions.map((session) => formatTimeOfDay(session.startedAt)).join(" · ")}
           </p>
-        ) : null}
-        <div className="mt-4 flex flex-col gap-4">
-          {orderedSessions.map((session) => {
-            const draft = noteDrafts[session._id];
-            const label =
-              orderedSessions.length > 1
-                ? `Note · ${formatTimeOfDay(session.startedAt)}`
-                : "Note";
-            return (
-              <label key={session._id} className="block">
-                <span
-                  className="text-xs font-medium tracking-[0.06em] text-subtle uppercase"
-                  suppressHydrationWarning
-                >
-                  {label}
-                </span>
-                <textarea
-                  value={draft ?? session.note ?? ""}
-                  onChange={(event) =>
-                    setNoteDrafts((current) => ({
-                      ...current,
-                      [session._id]: event.target.value,
-                    }))
-                  }
-                  maxLength={500}
-                  rows={3}
-                  placeholder="Optional. How the workout felt."
-                  className="mt-2 w-full resize-none rounded-xl border border-line bg-background px-3 py-2 text-base outline-none focus:border-foreground"
-                />
-                {draft !== undefined ? (
-                  <Button
-                    variant="secondary"
-                    className="mt-2"
-                    disabled={savingNoteId === session._id}
-                    onClick={() => void saveNote(session._id, session.note ?? "")}
-                  >
-                    {savingNoteId === session._id ? "Saving…" : "Save note"}
-                  </Button>
-                ) : null}
-              </label>
-            );
-          })}
-        </div>
+        ) : (
+          <div className="mt-4">
+            <SessionNote
+              note={anchor.note}
+              draft={noteDrafts[anchor._id]}
+              saving={savingNoteId === anchor._id}
+              onDraft={(value) =>
+                setNoteDrafts((current) => ({ ...current, [anchor._id]: value }))
+              }
+              onSave={() => void saveNote(anchor._id, anchor.note ?? "")}
+            />
+          </div>
+        )}
       </PageHeader>
 
       <div className="mt-5 flex flex-wrap gap-2">
-        <Button
-          variant="secondary"
-          onClick={() =>
-            setManual({
-              key: Date.now(),
-              mode: "add",
-              exerciseName: groups[groups.length - 1]?.name ?? "",
-              sessionId: latest._id,
-              sessionStartedAt: latest.startedAt,
-            })
-          }
-        >
-          Add a set
-        </Button>
+        {orderedSessions.length === 1 ? (
+          <Button
+            variant="secondary"
+            onClick={() =>
+              setManual({
+                key: Date.now(),
+                mode: "add",
+                exerciseName: groups[groups.length - 1]?.name ?? "",
+                sessionId: latest._id,
+                sessionStartedAt: latest.startedAt,
+              })
+            }
+          >
+            Add a set
+          </Button>
+        ) : null}
         <Button
           variant="secondary"
           disabled={begin.pending}
@@ -453,7 +525,7 @@ export function DayDetail({ dayKey }: { dayKey: string }) {
             variant="danger"
             onClick={() => {
               setDeleteError(null);
-              setDeleteOpen(true);
+              setDeleteTarget({ kind: "day" });
             }}
           >
             Delete day
@@ -466,60 +538,109 @@ export function DayDetail({ dayKey }: { dayKey: string }) {
         </p>
       ) : null}
 
-      {groups.length === 0 ? (
-        <p className="mt-8 text-base text-muted">No sets were logged.</p>
-      ) : (
-        <ul aria-label="Exercises" className="mt-5 flex flex-col border-t border-line">
-          {supersetBlocks(groups).map((block) => (
-            <li
-              key={block.items.map((item) => item.exerciseId).join(":")}
-              className={block.supersetId ? "border-l-2 border-foreground pl-3" : undefined}
-            >
-              {block.supersetId ? (
-                <p className="pt-3 text-xs font-medium tracking-[0.06em] text-subtle uppercase">
-                  Superset
-                </p>
-              ) : null}
-              <ul>
-                {block.items.map((group) => (
-                  <ExerciseRow
-                    key={group.exerciseId}
-                    name={group.name}
-                    sets={group.sets}
-                    exerciseHref={
-                      group.exerciseId.startsWith("local:")
-                        ? undefined
-                        : `/exercises/${group.exerciseId}`
+      {orderedSessions.length > 1 ? (
+        <div className="mt-6 flex flex-col gap-8">
+          {orderedSessions.map((session) => {
+            const sessionGroups = groupsBySession.get(session._id) ?? [];
+            const when = formatTimeOfDay(session.startedAt);
+            return (
+              <section key={session._id} aria-label={`Workout at ${when}`}>
+                <h2 className="text-lg font-semibold tracking-[-0.02em]" suppressHydrationWarning>
+                  {when}
+                </h2>
+                <div className="mt-3">
+                  <SessionNote
+                    note={session.note}
+                    draft={noteDrafts[session._id]}
+                    saving={savingNoteId === session._id}
+                    onDraft={(value) =>
+                      setNoteDrafts((current) => ({ ...current, [session._id]: value }))
                     }
-                    expanded={expandedId === group.exerciseId}
-                    onToggle={() =>
-                      setExpandedId((current) =>
-                        current === group.exerciseId ? null : group.exerciseId,
-                      )
-                    }
-                    onEditSet={(set: SetLine) =>
+                    onSave={() => void saveNote(session._id, session.note ?? "")}
+                  />
+                </div>
+                <DayExerciseList
+                  groups={sessionGroups}
+                  from={`/history/day/${dayKey}`}
+                  onEdit={(set) =>
+                    setManual({
+                      key: Date.now(),
+                      mode: "edit",
+                      setId: set._id,
+                      sessionId: session._id,
+                      exerciseName: set.exerciseName,
+                      reps: set.reps,
+                      weightLb: set.weightLb,
+                      durationSec: set.durationSec,
+                      distanceM: set.distanceM,
+                      calories: set.calories ?? null,
+                      rpe: set.rpe,
+                      setType: set.setType,
+                    })
+                  }
+                />
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Button
+                    variant="secondary"
+                    onClick={() =>
                       setManual({
                         key: Date.now(),
-                        mode: "edit",
-                        setId: set._id,
-                        exerciseName: set.exerciseName,
-                        reps: set.reps,
-                        weightLb: set.weightLb,
-                        durationSec: set.durationSec,
-                        distanceM: set.distanceM,
-                        calories: set.calories ?? null,
-                        rpe: set.rpe,
-                        setType: set.setType,
+                        mode: "add",
+                        exerciseName: sessionGroups[sessionGroups.length - 1]?.name ?? "",
+                        sessionId: session._id,
+                        sessionStartedAt: session.startedAt,
                       })
                     }
-                    onRemoveSet={(setId) => void deleteSet(setId)}
-                    removingId={removingId}
-                  />
-                ))}
-              </ul>
-            </li>
-          ))}
-        </ul>
+                  >
+                    Add a set
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    disabled={begin.pending}
+                    onClick={() => void begin.repeatWorkouts([session._id])}
+                  >
+                    Repeat
+                  </Button>
+                  <Button
+                    variant="danger"
+                    onClick={() => {
+                      setDeleteError(null);
+                      setDeleteTarget({
+                        kind: "session",
+                        sessionId: session._id,
+                        label: when,
+                        setCount: session.sets.length,
+                      });
+                    }}
+                  >
+                    Delete workout
+                  </Button>
+                </div>
+              </section>
+            );
+          })}
+        </div>
+      ) : (
+        <DayExerciseList
+          groups={groups}
+          from={`/history/day/${dayKey}`}
+          onEdit={(set) =>
+            setManual({
+              key: Date.now(),
+              mode: "edit",
+              setId: set._id,
+              sessionId: anchor._id,
+              exerciseName: set.exerciseName,
+              reps: set.reps,
+              weightLb: set.weightLb,
+              durationSec: set.durationSec,
+              distanceM: set.distanceM,
+              calories: set.calories ?? null,
+              rpe: set.rpe,
+              setType: set.setType,
+            })
+          }
+        />
       )}
 
       {manual ? (
@@ -544,10 +665,19 @@ export function DayDetail({ dayKey }: { dayKey: string }) {
           library={library}
           truncatedLibrary={libraryQuery?.truncated}
           sessionSets={visibleSets}
-          excludeSessionId={manual.mode === "add" ? manual.sessionId : latest._id}
+          excludeSessionId={manual.sessionId}
           pending={manualPending}
           onClose={() => setManual(null)}
           onAdd={addManual}
+          onDelete={
+            manual.mode === "edit"
+              ? () => {
+                  const setId = manual.setId;
+                  setManual(null);
+                  void deleteSet(setId);
+                }
+              : undefined
+          }
         />
       ) : null}
 
@@ -572,15 +702,19 @@ export function DayDetail({ dayKey }: { dayKey: string }) {
       />
 
       <DeleteWorkoutSheet
-        open={deleteOpen}
-        summary={dateLabel}
-        title="Delete this day?"
-        body={`This permanently deletes ${pluralize(orderedSessions.length, "workout")} and ${pluralize(serverSetCount, "set")} from ${dateLabel}. This can't be undone.`}
-        confirmLabel="Delete day"
-        cancelLabel="Keep day"
+        open={deleteTarget !== null}
+        summary={deleteTarget?.kind === "session" ? deleteTarget.label : dateLabel}
+        title={deleteTarget?.kind === "session" ? "Delete this workout?" : "Delete this day?"}
+        body={
+          deleteTarget?.kind === "session"
+            ? `This permanently deletes this workout and ${pluralize(deleteTarget.setCount, "set")}. The other workouts on ${dateLabel} stay. This can't be undone.`
+            : `This permanently deletes ${pluralize(orderedSessions.length, "workout")} and ${pluralize(serverSetCount, "set")} from ${dateLabel}. This can't be undone.`
+        }
+        confirmLabel={deleteTarget?.kind === "session" ? "Delete workout" : "Delete day"}
+        cancelLabel={deleteTarget?.kind === "session" ? "Keep workout" : "Keep day"}
         pending={deleting}
         error={deleteError}
-        onCancel={() => setDeleteOpen(false)}
+        onCancel={() => setDeleteTarget(null)}
         onConfirm={() => void confirmDelete()}
       />
 
@@ -591,5 +725,84 @@ export function DayDetail({ dayKey }: { dayKey: string }) {
         onDismiss={() => setToast(null)}
       />
     </div>
+  );
+}
+
+function SessionNote({
+  note,
+  draft,
+  saving,
+  onDraft,
+  onSave,
+}: {
+  note: string | null;
+  draft: string | undefined;
+  saving: boolean;
+  onDraft: (value: string) => void;
+  onSave: () => void;
+}) {
+  return (
+    <label className="block">
+      <span className="text-xs font-medium tracking-[0.06em] text-subtle uppercase">Note</span>
+      <textarea
+        value={draft ?? note ?? ""}
+        onChange={(event) => onDraft(event.target.value)}
+        maxLength={500}
+        rows={3}
+        placeholder="Optional. How the workout felt."
+        className="mt-2 w-full resize-none rounded-xl border border-input bg-background px-3 py-2 text-base outline-none focus:border-foreground"
+      />
+      {draft !== undefined ? (
+        <Button variant="secondary" className="mt-2" disabled={saving} onClick={onSave}>
+          {saving ? "Saving…" : "Save note"}
+        </Button>
+      ) : null}
+    </label>
+  );
+}
+
+function DayExerciseList({
+  groups,
+  from,
+  onEdit,
+}: {
+  groups: Array<{
+    exerciseId: string;
+    name: string;
+    sets: SetLine[];
+    supersetId?: string | null;
+  }>;
+  from: string;
+  onEdit: (set: SetLine) => void;
+}) {
+  if (groups.length === 0) {
+    return <p className="mt-4 text-base text-muted">No sets were logged.</p>;
+  }
+  return (
+    <ul aria-label="Exercises" className="mt-4 flex flex-col border-t border-line">
+      {supersetBlocks(groups).map((block) => (
+        <li
+          key={block.items.map((item) => item.exerciseId).join(":")}
+          className={block.supersetId ? "border-l-2 border-foreground pl-3" : undefined}
+        >
+          {block.supersetId ? (
+            <p className="pt-3 text-xs font-medium tracking-[0.06em] text-subtle uppercase">
+              Superset
+            </p>
+          ) : null}
+          <ul>
+            {block.items.map((group) => (
+              <ExerciseRow
+                key={group.exerciseId}
+                name={group.name}
+                sets={group.sets}
+                exerciseHref={exerciseLink(group.exerciseId, from) ?? undefined}
+                onEditSet={onEdit}
+              />
+            ))}
+          </ul>
+        </li>
+      ))}
+    </ul>
   );
 }

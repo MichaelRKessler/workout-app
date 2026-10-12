@@ -1,13 +1,17 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readRestChime, restChimeStored, shouldPlayRestChime } from "../lib/restChime.ts";
 import {
   adjustRestSeconds,
+  bumpRestSeconds,
   DEFAULT_REST_SECONDS,
   MAX_REST_SECONDS,
   MIN_REST_SECONDS,
   readRestSeconds,
+  REST_BUMP_SECONDS,
   REST_VIBRATION_PATTERN,
   restEndFrom,
+  restIntervalActive,
   shiftActiveRest,
   shouldVibrateRest,
   vibrateForRest,
@@ -37,6 +41,41 @@ test("a running rest shifts with the length, and a finished one does not restart
   assert.equal(shouldVibrateRest(1, false), false);
   assert.equal(shouldVibrateRest(0, false), true);
   assert.equal(shouldVibrateRest(-20, true), false);
+});
+
+test("the rest bar steps by 30 seconds and stops ticking at zero", () => {
+  assert.equal(REST_BUMP_SECONDS, 30);
+  assert.equal(bumpRestSeconds(90, 1), 120);
+  assert.equal(bumpRestSeconds(90, -1), 60);
+  assert.equal(bumpRestSeconds(MIN_REST_SECONDS, -1), MIN_REST_SECONDS);
+  const endsAt = restEndFrom(1_000, 30);
+  assert.equal(restIntervalActive(endsAt, endsAt - 1), true);
+  assert.equal(restIntervalActive(endsAt, endsAt), false);
+  assert.equal(restIntervalActive(null, endsAt), false);
+});
+
+test("the rest chime is on until it is turned off, and skip stays quiet", () => {
+  assert.equal(readRestChime(null), true);
+  assert.equal(readRestChime("on"), true);
+  assert.equal(readRestChime("off"), false);
+  assert.equal(restChimeStored(true), "on");
+  assert.equal(restChimeStored(false), "off");
+  assert.equal(
+    shouldPlayRestChime({ enabled: true, remainingMs: 0, alreadyPlayed: false, skipped: false }),
+    true,
+  );
+  assert.equal(
+    shouldPlayRestChime({ enabled: false, remainingMs: 0, alreadyPlayed: false, skipped: false }),
+    false,
+  );
+  assert.equal(
+    shouldPlayRestChime({ enabled: true, remainingMs: 0, alreadyPlayed: false, skipped: true }),
+    false,
+  );
+  assert.equal(
+    shouldPlayRestChime({ enabled: true, remainingMs: 20, alreadyPlayed: false, skipped: false }),
+    false,
+  );
 });
 
 test("vibration uses one pattern and ignores browsers that cannot vibrate", () => {

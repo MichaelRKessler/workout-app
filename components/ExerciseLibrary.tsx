@@ -7,6 +7,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { Sheet } from "@/components/Sheet";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { exerciseLink } from "@/lib/exerciseLink";
 import { readableError } from "@/lib/errors";
 import { pluralize } from "@/lib/format";
 import { useMutation, usePaginatedQuery } from "convex/react";
@@ -119,7 +120,7 @@ export function ExerciseLibrary() {
               <span className="flex min-h-11 items-center justify-between gap-3">
                 <span className="min-w-0">
                   <Link
-                    href={`/exercises/${exercise._id}`}
+                    href={exerciseLink(exercise._id, "/exercises") ?? `/exercises/${exercise._id}`}
                     className="block truncate text-base font-medium hover:underline"
                   >
                     {exercise.name}
@@ -188,7 +189,7 @@ export function ExerciseLibrary() {
             onChange={(event) => setDraftName(event.target.value)}
             maxLength={80}
             autoComplete="off"
-            className="mt-2 h-12 w-full rounded-xl border border-line bg-background px-3 text-base outline-none focus:border-foreground"
+            className="mt-2 h-12 w-full rounded-xl border border-input bg-background px-3 text-base outline-none focus:border-foreground"
           />
           {error ? (
             <p role="alert" className="mt-3 text-sm text-danger">

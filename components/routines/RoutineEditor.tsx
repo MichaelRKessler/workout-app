@@ -27,7 +27,7 @@ import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
 
 const fieldClass =
-  "h-12 w-full min-w-0 rounded-xl border border-line bg-background px-3 text-base outline-none focus:border-foreground";
+  "h-12 w-full min-w-0 rounded-xl border border-input bg-background px-3 text-base outline-none focus:border-foreground";
 
 function nextKey(): string {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;

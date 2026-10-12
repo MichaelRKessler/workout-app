@@ -11,12 +11,19 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { formatCalories, formatClock, formatDistance } from "@/convex/lib/measures";
 import { SetTypeTag } from "@/components/SetTypePicker";
+import { exerciseBackHref, exerciseBackLabel } from "@/lib/exerciseLink";
 import { formatSetShort, formatShortDate, formatVolumeLb, formatWeightLb, pluralize } from "@/lib/format";
 import { usePaginatedQuery, useQuery } from "convex/react";
 import Link from "next/link";
 import { useMemo } from "react";
 
-export function ExerciseHistory({ exerciseId }: { exerciseId: string }) {
+export function ExerciseHistory({
+  exerciseId,
+  from = null,
+}: {
+  exerciseId: string;
+  from?: string | null;
+}) {
   const unit = useWeightUnit();
   const timeZone = useBrowserTimeZone();
   const { offline } = useOfflineLog();
@@ -61,10 +68,13 @@ export function ExerciseHistory({ exerciseId }: { exerciseId: string }) {
     }).filter((group) => group !== null);
   }, [results]);
 
+  const backHref = exerciseBackHref(from);
+  const backLabel = exerciseBackLabel(backHref);
+
   if (detail === undefined || status === "LoadingFirstPage") {
     return (
       <div className="px-5 pt-3">
-        <PageHeader backHref="/history" backLabel="Back to history" title="Exercise" />
+        <PageHeader backHref={backHref} backLabel={backLabel} title="Exercise" />
         <p className="mt-8 text-base text-muted">Loading exercise…</p>
       </div>
     );
@@ -73,7 +83,7 @@ export function ExerciseHistory({ exerciseId }: { exerciseId: string }) {
   if (detail === null) {
     return (
       <div className="px-5 pt-3">
-        <PageHeader backHref="/history" backLabel="Back to history" title="Exercise not found" />
+        <PageHeader backHref={backHref} backLabel={backLabel} title="Exercise not found" />
         <p className="mt-3 text-base leading-normal text-muted">
           That exercise is not in your history.
         </p>
@@ -93,7 +103,7 @@ export function ExerciseHistory({ exerciseId }: { exerciseId: string }) {
 
   return (
     <div className="px-5 pt-3 pb-[calc(32px+env(safe-area-inset-bottom))]">
-      <PageHeader backHref="/history" backLabel="Back to history" title={detail.name}>
+      <PageHeader backHref={backHref} backLabel={backLabel} title={detail.name}>
         <MuscleGroupField
           exerciseId={detail._id}
           exerciseName={detail.name}
@@ -132,7 +142,7 @@ export function ExerciseHistory({ exerciseId }: { exerciseId: string }) {
                     {formatSetShort(set, unit)}
                     <SetTypeTag setType={set.setType} />
                     {highlight.has(set._id) ? (
-                      <span className="font-sans text-xs font-semibold tracking-[0.05em] text-accent uppercase">
+                      <span className="font-sans text-xs font-semibold tracking-[0.05em] text-accent-ink uppercase">
                         PR
                       </span>
                     ) : null}
