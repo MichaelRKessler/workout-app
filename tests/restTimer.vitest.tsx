@@ -154,3 +154,14 @@ test("before the first set the bar says it changes the default", () => {
   expect(window.localStorage.getItem("workout-rest-seconds")).toBe("120");
   expect(screen.getByText("Default rest 2:00")).toBeInstanceOf(HTMLElement);
 });
+
+test("a rest started while the workout loads is not replaced by an older saved one", () => {
+  const first = startKeyedRest("w1");
+  first.unmount();
+  advance(60_000);
+
+  const back = render(<RestTimer setCount={0} loading={false} restLabel="Bench" workoutKey="loading" />);
+  back.rerender(<RestTimer setCount={1} loading={false} restLabel="Bench" workoutKey="loading" />);
+  back.rerender(<RestTimer setCount={1} loading={false} restLabel="Bench" workoutKey="w1" />);
+  expect(screen.getByText("1:30")).toBeInstanceOf(HTMLElement);
+});
