@@ -126,3 +126,36 @@ export function suggestionAlreadyShown(
   }
   return current.weightLb === suggestion.weightLb;
 }
+
+/**
+ * One plain sentence on why a suggestion is that number, from the same sets
+ * `suggestNext` read: "All 3 sets reached 8 reps last time, so 5 lb more."
+ */
+export function explainSuggestion(
+  previousSets: SuggestionSet[],
+  suggestion: Suggestion,
+  options: { unit: WeightUnit; routine?: SuggestionTarget | null },
+): string | null {
+  const countable = previousSets.filter(
+    (set) => setKind(set) === "strength" && countsTowardRecord(set),
+  );
+  const reps = options.routine?.targetReps ?? countable[0]?.reps ?? null;
+  if (countable.length === 0 || reps == null) {
+    return null;
+  }
+  const reached =
+    countable.length === 1
+      ? `You reached ${reps} reps last time`
+      : `All ${countable.length} sets reached ${reps} reps last time`;
+  if (suggestion.kind === "reps") {
+    const minReps = Math.min(...countable.map((set) => set.reps ?? 0));
+    const more = suggestion.reps - minReps;
+    return more > 0 ? `${reached}, so ${more} more ${more === 1 ? "rep" : "reps"}.` : null;
+  }
+  const first = countable[0]?.weightLb;
+  if (first === undefined) {
+    return null;
+  }
+  const step = roundWeight(fromPounds(suggestion.weightLb, options.unit) - fromPounds(first, options.unit));
+  return step > 0 ? `${reached}, so ${step} ${options.unit} more.` : null;
+}
