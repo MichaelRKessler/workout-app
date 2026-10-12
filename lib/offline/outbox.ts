@@ -3,6 +3,7 @@ import { formatExerciseName } from "../../convex/lib/exerciseName.ts";
 import type { PersonalRecord } from "../../convex/lib/records.ts";
 import { isSetType, resolvedSetType, type SetType } from "../../convex/lib/setType.ts";
 import type { SetLine } from "../groupSets.ts";
+import { newerClock, parseClock, type ClockReading } from "./clock.ts";
 
 const CLOSED_CAP = 200;
 const KNOWN_CAP = 1000;
@@ -38,8 +39,19 @@ export type PendingSet = {
   note: string | null;
   set: SetBody;
   syncError: string | null;
+  errorChangedAt?: number;
   echoedRevision: number | null;
   ackedSetId: string | null;
+};
+
+/**
+ * `errorChangedAt` is when syncError was last set or cleared on this phone.
+ * A merge keeps the copy that changed last, so another tab's stale copy
+ * cannot erase a rejection or undo a retry. Older queues omit it.
+ */
+export type ErrorState = {
+  syncError: string | null;
+  errorChangedAt?: number;
 };
 
 export type PendingEdit = {
@@ -53,6 +65,7 @@ export type PendingEdit = {
   rpe: number | null;
   setType?: SetType;
   syncError: string | null;
+  errorChangedAt?: number;
   echoed: boolean;
 };
 
@@ -60,6 +73,7 @@ export type PendingDelete = {
   deleteId: string;
   setId: string;
   syncError: string | null;
+  errorChangedAt?: number;
   echoed: boolean;
 };
 
@@ -71,6 +85,7 @@ export type PendingAction = {
   note: string | null;
   requestedAt: number;
   syncError: string | null;
+  errorChangedAt?: number;
   echoed: boolean;
 };
 
@@ -87,6 +102,7 @@ export type PendingBody = {
   thighCm: number | null;
   note: string | null;
   syncError: string | null;
+  errorChangedAt?: number;
   echoed: boolean;
 };
 
@@ -117,6 +133,8 @@ export type Outbox = {
   deletes: PendingDelete[];
   actions: PendingAction[];
   body: PendingBody[];
+  /** Null until this phone has read the server clock. */
+  clock: ClockReading | null;
 };
 
 export type SyncBatch = {
@@ -130,7 +148,8 @@ export type SyncBatch = {
 export type SetSyncResult = {
   clientId: string;
   revision: number;
-  status: "applied" | "rejected";
+  /** "removed" means the server deleted this set and will not save its client id again. */
+  status: "applied" | "rejected" | "removed";
   setId: string | null;
   sessionId: string | null;
   personalRecord: PersonalRecord | null;
@@ -187,6 +206,71 @@ export function emptyOutbox(): Outbox {
     deletes: [],
     actions: [],
     body: [],
+    clock: null,
+  };
+}
+
+/** Records a new server clock reading, keeping whichever reading is later. */
+export function recordClock(outbox: Outbox, reading: ClockReading | null): Outbox {
+  const clock = newerClock(outbox.clock, reading);
+  return clock === outbox.clock ? outbox : { ...outbox, clock };
+}
+
+/** Marks an item failed now. */
+export function markFailed<T extends ErrorState>(item: T, message: string, now: number): T {
+  return { ...item, syncError: message, errorChangedAt: now };
+}
+
+/**
+ * Clears an item's error for another try. An item with no error is left
+ * as is, so a stale copy does not look newer than another tab's rejection.
+ */
+export function clearError<T extends ErrorState>(item: T, now: number): T {
+  if (item.syncError === null) {
+    return item;
+  }
+  return { ...item, syncError: null, errorChangedAt: now };
+}
+
+/**
+ * Takes items off the queue and records each one as dropped, so a stale copy
+ * in storage or another tab cannot put it back when the queues merge. Just
+ * filtering the list is not enough: the merge is a union.
+ */
+export function dropQueued(
+  outbox: Outbox,
+  items: Array<{ kind: DroppedItem["kind"]; id: string }>,
+): Outbox {
+  if (items.length === 0) {
+    return outbox;
+  }
+  const idsOf = (kind: DroppedItem["kind"]) =>
+    new Set(items.filter((item) => item.kind === kind).map((item) => item.id));
+  const sets = idsOf("set");
+  const edits = idsOf("edit");
+  const deletes = idsOf("delete");
+  const actions = idsOf("action");
+  const body = idsOf("body");
+
+  let dropped = outbox.dropped;
+  for (const set of outbox.sets) {
+    if (sets.has(set.clientId)) {
+      dropped = rememberDrop(dropped, { kind: "set", id: set.clientId, revision: set.revision });
+    }
+  }
+  for (const item of items) {
+    if (item.kind !== "set") {
+      dropped = rememberDrop(dropped, { kind: item.kind, id: item.id, revision: 1 });
+    }
+  }
+  return {
+    ...outbox,
+    dropped,
+    sets: outbox.sets.filter((set) => !sets.has(set.clientId)),
+    edits: outbox.edits.filter((edit) => !edits.has(edit.editId)),
+    deletes: outbox.deletes.filter((deletion) => !deletes.has(deletion.deleteId)),
+    actions: outbox.actions.filter((action) => !actions.has(action.actionId)),
+    body: outbox.body.filter((entry) => !body.has(entry.clientId)),
   };
 }
 
@@ -365,9 +449,7 @@ export function enqueueSets(
           : outbox.openSessionClientId,
       sets: [...outbox.sets, ...added],
       actions: outbox.actions.map((action) =>
-        action.sessionClientId === sessionClientId && action.syncError
-          ? { ...action, syncError: null }
-          : action,
+        action.sessionClientId === sessionClientId ? clearError(action, input.now) : action,
       ),
     },
     clientIds,
@@ -415,25 +497,41 @@ export function removePendingSet(outbox: Outbox, clientId: string): Outbox {
   };
 }
 
+/** A newer edit of the same set replaces the older one, which is dropped. */
 export function queueEdit(
   outbox: Outbox,
   edit: Omit<PendingEdit, "syncError" | "echoed">,
 ): Outbox {
   const next: PendingEdit = { ...edit, syncError: null, echoed: false };
-  const without = outbox.edits.filter((item) => item.setId !== edit.setId);
-  return { ...outbox, edits: [...without, next] };
+  const replaced = dropQueued(
+    outbox,
+    outbox.edits
+      .filter((item) => item.setId === edit.setId && item.editId !== edit.editId)
+      .map((item) => ({ kind: "edit" as const, id: item.editId })),
+  );
+  return {
+    ...replaced,
+    edits: [...replaced.edits.filter((item) => item.editId !== edit.editId), next],
+  };
 }
 
+/** A delete replaces any queued edit or older delete of the same set. */
 export function queueDelete(outbox: Outbox, deleteId: string, setId: string): Outbox {
-  const deletes = outbox.deletes.filter((item) => item.setId !== setId);
+  const replaced = dropQueued(outbox, [
+    ...outbox.edits
+      .filter((item) => item.setId === setId)
+      .map((item) => ({ kind: "edit" as const, id: item.editId })),
+    ...outbox.deletes
+      .filter((item) => item.setId === setId && item.deleteId !== deleteId)
+      .map((item) => ({ kind: "delete" as const, id: item.deleteId })),
+  ]);
   return {
-    ...outbox,
-    edits: outbox.edits.filter((item) => item.setId !== setId),
+    ...replaced,
     deletes: [
-      ...deletes,
+      ...replaced.deletes.filter((item) => item.deleteId !== deleteId),
       { deleteId, setId, syncError: null, echoed: false },
     ],
-    sets: outbox.sets.map((set) =>
+    sets: replaced.sets.map((set) =>
       set.ackedSetId === setId
         ? { ...set, removed: true, revision: set.revision + 1, syncError: null }
         : set,
@@ -441,17 +539,28 @@ export function queueDelete(outbox: Outbox, deleteId: string, setId: string): Ou
   };
 }
 
+/** A newer request of the same kind for the same workout replaces the older one. */
 export function queueAction(
   outbox: Outbox,
   action: Omit<PendingAction, "syncError" | "echoed">,
 ): Outbox {
-  const actions = outbox.actions.filter(
-    (item) =>
-      !(item.kind === action.kind && item.sessionClientId === action.sessionClientId),
+  const replaced = dropQueued(
+    outbox,
+    outbox.actions
+      .filter(
+        (item) =>
+          item.kind === action.kind &&
+          item.sessionClientId === action.sessionClientId &&
+          item.actionId !== action.actionId,
+      )
+      .map((item) => ({ kind: "action" as const, id: item.actionId })),
   );
   return {
-    ...outbox,
-    actions: [...actions, { ...action, syncError: null, echoed: false }],
+    ...replaced,
+    actions: [
+      ...replaced.actions.filter((item) => item.actionId !== action.actionId),
+      { ...action, syncError: null, echoed: false },
+    ],
   };
 }
 
@@ -467,10 +576,7 @@ export function enqueueBody(
 }
 
 export function removePendingBody(outbox: Outbox, clientId: string): Outbox {
-  return {
-    ...outbox,
-    body: outbox.body.filter((item) => item.clientId !== clientId),
-  };
+  return dropQueued(outbox, [{ kind: "body", id: clientId }]);
 }
 
 export function nextBatch(outbox: Outbox, limit = OFFLINE_BATCH_LIMIT): SyncBatch {
@@ -545,6 +651,7 @@ export function batchHasWork(batch: SyncBatch): boolean {
 export function applySyncResult(
   outbox: Outbox,
   result: SyncResult,
+  now = Date.now(),
 ): { outbox: Outbox; personalRecords: PersonalRecord[] } {
   const personalRecords: PersonalRecord[] = [];
   const setResults = new Map(result.sets.map((item) => [item.clientId, item]));
@@ -581,8 +688,14 @@ export function applySyncResult(
     if (!item) {
       return [stamped];
     }
+    if (item.status === "removed") {
+      // Deleted on the server, maybe from another device. Any revision of it
+      // would get the same answer, so it leaves the queue.
+      dropped = rememberDrop(dropped, { kind: "set", id: stamped.clientId, revision: stamped.revision });
+      return [];
+    }
     if (item.status === "rejected") {
-      return [{ ...stamped, syncError: item.message ?? "That set could not be saved" }];
+      return [markFailed(stamped, item.message ?? "That set could not be saved", now)];
     }
     if (item.setId) {
       knownSetIds = rememberKnown(knownSetIds, stamped.clientId, item.setId);
@@ -591,11 +704,11 @@ export function applySyncResult(
       personalRecords.push(item.personalRecord);
     }
     if (stamped.revision !== item.revision) {
+      // An ack for an older revision. Any error belongs to the newer one, so it stays.
       return [
         {
           ...stamped,
           ackedSetId: item.setId ?? stamped.ackedSetId,
-          syncError: null,
         },
       ];
     }
@@ -619,7 +732,7 @@ export function applySyncResult(
       return [edit];
     }
     if (item.status === "rejected") {
-      return [{ ...edit, syncError: item.message ?? "That edit could not be saved" }];
+      return [markFailed(edit, item.message ?? "That edit could not be saved", now)];
     }
     if (item.personalRecord) {
       personalRecords.push(item.personalRecord);
@@ -633,7 +746,7 @@ export function applySyncResult(
       return deletion;
     }
     if (item.status === "rejected") {
-      return { ...deletion, syncError: item.message ?? "That set could not be removed" };
+      return markFailed(deletion, item.message ?? "That set could not be removed", now);
     }
     return { ...deletion, echoed: true, syncError: null };
   });
@@ -648,7 +761,7 @@ export function applySyncResult(
       return action;
     }
     if (item.status === "rejected") {
-      return { ...action, syncError: item.message ?? "That workout could not be saved" };
+      return markFailed(action, item.message ?? "That workout could not be saved", now);
     }
     if (action.kind === "complete" || action.kind === "discard") {
       closedSessionClientIds = rememberClosed(closedSessionClientIds, action.sessionClientId);
@@ -671,7 +784,7 @@ export function applySyncResult(
       return [entry];
     }
     if (item.status === "rejected") {
-      return [{ ...entry, syncError: item.message ?? "That entry could not be saved" }];
+      return [markFailed(entry, item.message ?? "That entry could not be saved", now)];
     }
     dropped = rememberDrop(dropped, { kind: "body", id: entry.clientId, revision: 1 });
     return [];
@@ -688,6 +801,7 @@ export function applySyncResult(
       deletes,
       actions,
       body,
+      clock: outbox.clock,
     },
     personalRecords,
   };
@@ -986,6 +1100,7 @@ export function parseOutbox(value: unknown): Outbox {
     deletes: parseList(value.deletes, parsePendingDelete),
     actions: parseList(value.actions, parsePendingAction),
     body: parseList(value.body, parsePendingBody),
+    clock: parseClock(value.clock),
   };
 }
 
@@ -1066,7 +1181,7 @@ function parsePendingSet(value: unknown): PendingSet | null {
         : {}),
       loggedAt: typeof body.loggedAt === "number" ? body.loggedAt : 0,
     },
-    syncError: typeof value.syncError === "string" ? value.syncError : null,
+    ...parseErrorState(value),
     echoedRevision: typeof value.echoedRevision === "number" ? value.echoedRevision : null,
     ackedSetId: typeof value.ackedSetId === "string" ? value.ackedSetId : null,
   };
@@ -1089,7 +1204,7 @@ function parsePendingEdit(value: unknown): PendingEdit | null {
     ...(typeof value.calories === "number" ? { calories: value.calories } : {}),
     rpe: typeof value.rpe === "number" ? value.rpe : null,
     ...(isSetType(value.setType) ? { setType: value.setType } : {}),
-    syncError: typeof value.syncError === "string" ? value.syncError : null,
+    ...parseErrorState(value),
     echoed: value.echoed === true,
   };
 }
@@ -1101,7 +1216,7 @@ function parsePendingDelete(value: unknown): PendingDelete | null {
   return {
     deleteId: value.deleteId,
     setId: value.setId,
-    syncError: typeof value.syncError === "string" ? value.syncError : null,
+    ...parseErrorState(value),
     echoed: value.echoed === true,
   };
 }
@@ -1122,7 +1237,7 @@ function parsePendingBody(value: unknown): PendingBody | null {
     hipsCm: numberOrNull(value.hipsCm),
     thighCm: numberOrNull(value.thighCm),
     note: typeof value.note === "string" ? value.note : null,
-    syncError: typeof value.syncError === "string" ? value.syncError : null,
+    ...parseErrorState(value),
     echoed: value.echoed === true,
   };
 }
@@ -1141,8 +1256,17 @@ function parsePendingAction(value: unknown): PendingAction | null {
     kind: value.kind,
     note: typeof value.note === "string" ? value.note : null,
     requestedAt: typeof value.requestedAt === "number" ? value.requestedAt : 0,
-    syncError: typeof value.syncError === "string" ? value.syncError : null,
+    ...parseErrorState(value),
     echoed: value.echoed === true,
+  };
+}
+
+function parseErrorState(value: Record<string, unknown>): ErrorState {
+  return {
+    syncError: typeof value.syncError === "string" ? value.syncError : null,
+    ...(typeof value.errorChangedAt === "number" && Number.isFinite(value.errorChangedAt)
+      ? { errorChangedAt: value.errorChangedAt }
+      : {}),
   };
 }
 
@@ -1174,6 +1298,11 @@ function keepPendingSet(
   }
   if (set.echoedRevision !== set.revision) {
     return true;
+  }
+  // Acked with no set id: an older server's answer for a set deleted
+  // elsewhere. It will never appear on the server, so it would stay forever.
+  if (set.ackedSetId === null) {
+    return false;
   }
   if (set.clientId && byClientId.has(set.clientId)) {
     return false;

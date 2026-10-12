@@ -35,6 +35,31 @@ export function bumpRestSeconds(current: number, direction: -1 | 1): number {
   return clampRestSeconds(current + direction * REST_BUMP_SECONDS);
 }
 
+/**
+ * A ±30 s tap after a set. A running rest moves its end. Once rest is done or
+ * skipped, + starts 30 more seconds and − only shortens the next rest. With no
+ * rest yet, either starts one at the new length.
+ */
+export function bumpRest(input: {
+  endsAt: number | null;
+  now: number;
+  seconds: number;
+  direction: -1 | 1;
+}): { endsAt: number | null; seconds: number; restarted: boolean } {
+  const { endsAt, now, seconds, direction } = input;
+  if (endsAt !== null && endsAt <= now) {
+    if (direction === 1) {
+      return { endsAt: now + REST_BUMP_SECONDS * 1000, seconds, restarted: true };
+    }
+    return { endsAt, seconds: bumpRestSeconds(seconds, -1), restarted: false };
+  }
+  const next = bumpRestSeconds(seconds, direction);
+  if (endsAt === null) {
+    return { endsAt: restEndFrom(now, next), seconds: next, restarted: true };
+  }
+  return { endsAt: shiftActiveRest(endsAt, now, seconds, next), seconds: next, restarted: false };
+}
+
 /** The countdown interval runs only while time is left. */
 export function restIntervalActive(endsAt: number | null, now: number): boolean {
   return endsAt !== null && endsAt > now;

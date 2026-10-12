@@ -15,6 +15,11 @@ import {
 } from "@/lib/exerciseRest";
 import { pluralize } from "@/lib/format";
 import { holdChanges, prepareBatch, splitBatch } from "@/lib/offline/batch";
+import {
+  CLOCK_READING_MAX_ROUND_TRIP_MS,
+  clockReading,
+  type ClockReading,
+} from "@/lib/offline/clock";
 import { resolveDocumentId } from "@/lib/offline/documentId";
 import { withQueueLock } from "@/lib/offline/lock";
 import { mergeOutboxes } from "@/lib/offline/merge";
@@ -22,12 +27,14 @@ import { OFFLINE_BANNER } from "@/lib/offline/messages";
 import {
   applySyncResult,
   batchHasWork,
+  dropQueued,
   editPendingSet,
   emptyOutbox,
   enqueueBody,
   enqueueSets,
   firstSyncError,
   knownServerIds,
+  markFailed,
   nextBatch,
   parseOutbox,
   pendingChangeCount,
@@ -35,6 +42,7 @@ import {
   queueAction,
   queueDelete,
   queueEdit,
+  recordClock,
   reconcileOutbox,
   releaseOpenSession,
   removePendingBody,
@@ -55,7 +63,7 @@ import {
   discardPendingItem,
   listPendingItems,
 } from "@/lib/offline/pendingItems";
-import { RETRY_BASE_MS, nextRetryDelay } from "@/lib/offline/retry";
+import { RETRY_BASE_MS, RETRY_CAP_MS, nextRetryDelay } from "@/lib/offline/retry";
 import { shouldSendFinishDirectly, syncFailurePlan } from "@/lib/offline/syncPlan";
 import {
   accountKey,
@@ -189,6 +197,7 @@ export function OfflineSyncProvider({
 }) {
   const { offline } = useConnectivity();
   const accept = useMutation(api.offline.accept);
+  const readServerTime = useMutation(api.offline.serverTime);
   const setExerciseRest = useMutation(api.exercises.setRest);
   const completeSession = useMutation(api.sessions.complete);
   const keepGoingSession = useMutation(api.sessions.keepGoing);
@@ -215,6 +224,8 @@ export function OfflineSyncProvider({
   const actionResults = useRef(new Map<string, SyncResult["actions"][number]>());
   const bodyResults = useRef(new Map<string, SyncResult["body"][number]>());
   const acceptRef = useRef(accept);
+  const serverTimeRef = useRef(readServerTime);
+  const clockAskedAtRef = useRef<number | null>(null);
   const completeRef = useRef(completeSession);
   const keepGoingRef = useRef(keepGoingSession);
   const discardRef = useRef(discardSession);
@@ -227,6 +238,7 @@ export function OfflineSyncProvider({
   emailRef.current = email;
   offlineRef.current = offline;
   acceptRef.current = accept;
+  serverTimeRef.current = readServerTime;
   completeRef.current = completeSession;
   keepGoingRef.current = keepGoingSession;
   discardRef.current = discardSession;
@@ -393,13 +405,13 @@ export function OfflineSyncProvider({
   }, []);
 
   const applyRaw = useCallback(
-    (gen: number, result: SyncResult) => {
+    (gen: number, result: SyncResult, clock: ClockReading | null) => {
       if (flushSerial.current !== gen || offlineWritesSuspended()) {
         record(result);
         return;
       }
       record(result);
-      const next = applySyncResult(outboxRef.current, result).outbox;
+      const next = recordClock(applySyncResult(outboxRef.current, result).outbox, clock);
       if (lockDepth.current > 0) {
         writeThrough(next);
       } else {
@@ -433,10 +445,15 @@ export function OfflineSyncProvider({
       }
       const gen = flushSerial.current + 1;
       flushSerial.current = gen;
+      const sentAt = Date.now();
       const invocation = acceptRef
-        .current(batchPayload(prepared.batch))
+        .current(batchPayload(prepared.batch, outboxRef.current.clock))
         .then(
-          (raw) => ({ kind: "ok" as const, raw: toSyncResult(raw) }),
+          (raw) => ({
+            kind: "ok" as const,
+            raw: toSyncResult(raw),
+            clock: clockReading(sentAt, Date.now(), raw.serverNow),
+          }),
           (error: unknown) => ({ kind: "error" as const, error }),
         );
       const outcome = await Promise.race([
@@ -459,13 +476,13 @@ export function OfflineSyncProvider({
         validationMessage: outcome.kind === "error" ? readableError(outcome.error) : "",
       });
       if (plan.action === "apply" && outcome.kind === "ok") {
-        applyRaw(gen, outcome.raw);
+        applyRaw(gen, outcome.raw, outcome.clock);
         return "ok";
       }
       if (plan.action === "stop") {
         void invocation.then((later) => {
           if (later.kind === "ok") {
-            applyRaw(gen, later.raw);
+            applyRaw(gen, later.raw, later.clock);
           }
         });
         return "stop";
@@ -487,6 +504,24 @@ export function OfflineSyncProvider({
     [applyRaw, writeThrough],
   );
 
+  // With no clock reading yet, the first batch would go uncorrected, so ask
+  // the server first. A failed ask waits a few minutes before the next one.
+  const askServerClock = useCallback(async (): Promise<ClockReading | null> => {
+    const askedAt = clockAskedAtRef.current;
+    if (askedAt !== null && Date.now() - askedAt < RETRY_CAP_MS) {
+      return null;
+    }
+    const sentAt = Date.now();
+    clockAskedAtRef.current = sentAt;
+    return await Promise.race([
+      serverTimeRef.current({}).then(
+        (serverNow) => clockReading(sentAt, Date.now(), serverNow),
+        () => null,
+      ),
+      delay(CLOCK_READING_MAX_ROUND_TRIP_MS).then(() => null),
+    ]);
+  }, []);
+
   const sendBatch = useCallback(
     async (respectBackoff: boolean, depth = 0) => {
       if (depth > 12 || offlineRef.current || offlineWritesSuspended()) {
@@ -496,7 +531,13 @@ export function OfflineSyncProvider({
         return;
       }
       await withLock(async () => {
-        const merged = readMerged();
+        let merged = readMerged();
+        if (!merged.clock) {
+          const reading = await askServerClock();
+          if (reading) {
+            merged = recordClock(readMerged(), reading);
+          }
+        }
         const prepared = prepareBatch(merged, nextBatch(merged));
         const held = holdChanges(merged, prepared.held);
         writeThrough(held);
@@ -512,7 +553,7 @@ export function OfflineSyncProvider({
         }
       });
     },
-    [postBatch, readMerged, withLock, writeThrough],
+    [askServerClock, postBatch, readMerged, withLock, writeThrough],
   );
 
   const flush = useCallback(
@@ -776,10 +817,7 @@ export function OfflineSyncProvider({
       await wait();
       const result = editResults.current.get(editId);
       if (result?.status === "rejected") {
-        persist({
-          ...outboxRef.current,
-          edits: outboxRef.current.edits.filter((edit) => edit.editId !== editId),
-        });
+        persist(dropQueued(outboxRef.current, [{ kind: "edit", id: editId }]));
         return outcome("rejected", result.message);
       }
       if (result?.status === "applied") {
@@ -823,10 +861,7 @@ export function OfflineSyncProvider({
         .map((id) => deleteResults.current.get(id))
         .find((item) => item?.status === "rejected");
       if (rejected) {
-        persist({
-          ...outboxRef.current,
-          deletes: outboxRef.current.deletes.filter((item) => item.deleteId !== rejected.deleteId),
-        });
+        persist(dropQueued(outboxRef.current, [{ kind: "delete", id: rejected.deleteId }]));
         return outcome("rejected", rejected.message);
       }
       const applied = deleteIds.every((id) => deleteResults.current.get(id)?.status === "applied");
@@ -1095,15 +1130,16 @@ function interpretSets(
   });
   const rejected = matched.filter((item) => item?.status === "rejected");
   if (rejected.length === clientIds.length && rejected.every((item) => item)) {
-    const drop = new Set(clientIds);
-    persist({
-      ...outbox,
-      sets: outbox.sets.filter((set) => !drop.has(set.clientId)),
-    });
+    persist(dropQueued(outbox, clientIds.map((clientId) => ({ kind: "set" as const, id: clientId }))));
     return outcome("rejected", rejected[0]?.message ?? "That set could not be saved");
   }
-  if (matched.length === clientIds.length && matched.every((item) => item?.status === "applied")) {
-    const applied = matched.flatMap((item) => (item ? [item] : []));
+  // A removed set already left the queue when the result was applied.
+  const settled = matched.every((item) => item?.status === "applied" || item?.status === "removed");
+  if (matched.length === clientIds.length && settled) {
+    const applied = matched.flatMap((item) => (item?.status === "applied" ? [item] : []));
+    if (applied.length === 0) {
+      return outcome("rejected", "That set was deleted, so the change was not saved");
+    }
     return {
       status: "synced",
       error: null,
@@ -1151,9 +1187,18 @@ function newClientId(): string {
   return `c${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`;
 }
 
-function batchPayload(batch: SyncBatch) {
+/**
+ * Sends the phone's measured clock offset rather than its clock at send time,
+ * so a request the Convex client held while offline is not shifted by the
+ * delay. With no reading yet, times go unshifted apart from the server's
+ * clamp to its own now.
+ */
+function batchPayload(batch: SyncBatch, clock: ClockReading | null) {
   return {
-    clientNow: Date.now(),
+    // Without a reading yet (the server time ask failed or timed out), send
+    // the phone's clock as the older client did, so a wrong clock is still
+    // corrected, even though delivery delay then counts against it.
+    ...(clock ? { clockOffsetMs: clock.offsetMs } : { clientNow: Date.now() }),
     sets: batch.sets.map((set) => ({
       clientId: set.clientId,
       revision: set.revision,
@@ -1256,6 +1301,7 @@ function toSyncResult(raw: {
 }
 
 function withSyncError(current: Outbox, batch: SyncBatch, message: string): Outbox {
+  const now = Date.now();
   const setIds = new Set(batch.sets.map((set) => set.clientId));
   const editIds = new Set(batch.edits.map((edit) => edit.editId));
   const deleteIds = new Set(batch.deletes.map((deletion) => deletion.deleteId));
@@ -1264,21 +1310,21 @@ function withSyncError(current: Outbox, batch: SyncBatch, message: string): Outb
   return {
     ...current,
     sets: current.sets.map((set) =>
-      setIds.has(set.clientId) && set.echoedRevision !== set.revision ? { ...set, syncError: message } : set,
+      setIds.has(set.clientId) && set.echoedRevision !== set.revision ? markFailed(set, message, now) : set,
     ),
     edits: current.edits.map((edit) =>
-      editIds.has(edit.editId) && !edit.echoed ? { ...edit, syncError: message } : edit,
+      editIds.has(edit.editId) && !edit.echoed ? markFailed(edit, message, now) : edit,
     ),
     deletes: current.deletes.map((deletion) =>
       deleteIds.has(deletion.deleteId) && !deletion.echoed
-        ? { ...deletion, syncError: message }
+        ? markFailed(deletion, message, now)
         : deletion,
     ),
     actions: current.actions.map((action) =>
-      actionIds.has(action.actionId) && !action.echoed ? { ...action, syncError: message } : action,
+      actionIds.has(action.actionId) && !action.echoed ? markFailed(action, message, now) : action,
     ),
     body: current.body.map((entry) =>
-      bodyIds.has(entry.clientId) && !entry.echoed ? { ...entry, syncError: message } : entry,
+      bodyIds.has(entry.clientId) && !entry.echoed ? markFailed(entry, message, now) : entry,
     ),
   };
 }

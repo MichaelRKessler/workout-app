@@ -1280,16 +1280,6 @@ export function LogWorkout() {
         onDiscard={discardDraft}
         onConfirm={() => void confirmDraft()}
         onRecordAgain={() => void startVoice()}
-        exerciseHref={(name) => {
-          const formatted = formatExerciseName(name);
-          const match = formatted
-            ? exercises?.exercises.find(
-                (exercise) =>
-                  formatExerciseName(exercise.name)?.normalizedName === formatted.normalizedName,
-              )
-            : undefined;
-          return match ? exerciseLink(match._id, "/") : null;
-        }}
       />
 
       {manual ? (

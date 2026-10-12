@@ -1,7 +1,7 @@
 "use client";
 
 import { CloseIcon } from "@/components/icons";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 export type ToastMessage = {
   message: string;
@@ -9,9 +9,18 @@ export type ToastMessage = {
   action?: { label: string; onClick: () => void };
 };
 
+/** How long a toast stays. Undo and other actions get longer to reach. */
+export function toastDuration(toast: Pick<ToastMessage, "tone" | "action">): number {
+  if (toast.tone === "error") {
+    return 9000;
+  }
+  return toast.action ? 10000 : 6000;
+}
+
 /**
  * A short note above the bottom controls. Give it a `key` per message so the
- * timer restarts for each one.
+ * timer restarts for each one. The timer pauses while the toast is hovered or
+ * has focus, so its action can still be reached.
  */
 export function Toast({
   toast,
@@ -27,18 +36,16 @@ export function Toast({
     onDismissRef.current = onDismiss;
   });
 
-  const visible = toast !== null;
-  const tone = toast?.tone;
+  const [hovered, setHovered] = useState(false);
+  const [focused, setFocused] = useState(false);
+  const duration = toast ? toastDuration(toast) : null;
   useEffect(() => {
-    if (!visible) {
+    if (duration === null || hovered || focused) {
       return;
     }
-    const timer = window.setTimeout(
-      () => onDismissRef.current(),
-      tone === "error" ? 9000 : 6000,
-    );
+    const timer = window.setTimeout(() => onDismissRef.current(), duration);
     return () => window.clearTimeout(timer);
-  }, [visible, tone]);
+  }, [duration, hovered, focused]);
 
   return (
     <div
@@ -52,6 +59,14 @@ export function Toast({
       {toast ? (
         <div
           role={toast.tone === "error" ? "alert" : undefined}
+          onPointerEnter={() => setHovered(true)}
+          onPointerLeave={() => setHovered(false)}
+          onFocus={() => setFocused(true)}
+          onBlur={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+              setFocused(false);
+            }
+          }}
           className="pointer-events-auto flex min-h-12 w-full max-w-lg animate-[sheet-in_200ms_ease-out] items-center justify-between gap-2 rounded-2xl bg-inverse py-1 pr-1 pl-4 text-inverse-ink shadow-lift"
         >
           <p className="py-2 text-sm">{toast.message}</p>

@@ -13,8 +13,13 @@ import { SetTypePicker } from "@/components/SetTypePicker";
 import { newDraftSetId, type DraftSet, type VoiceDraft } from "@/lib/voice/confirm";
 import { MAX_VOICE_SETS } from "@/lib/voice/proposal";
 import { cleanSupersetId, linkWithNext, supersetBlocks, unlinkSuperset } from "@/convex/lib/superset";
-import { draftGroupLabel, groupIdenticalSets, patchSetGroup, resizeSetGroup } from "@/lib/confirmGroups";
-import Link from "next/link";
+import {
+  draftGroupLabel,
+  groupIdenticalSets,
+  patchSetGroup,
+  resizeSetGroup,
+  withDraftSetIds,
+} from "@/lib/confirmGroups";
 import { useState } from "react";
 
 const fieldClass =
@@ -32,7 +37,6 @@ export function ConfirmSheet({
   onDiscard,
   onConfirm,
   onRecordAgain,
-  exerciseHref,
 }: {
   open: boolean;
   draft: VoiceDraft | null;
@@ -44,8 +48,6 @@ export function ConfirmSheet({
   onDiscard: () => void;
   onConfirm: () => void;
   onRecordAgain: () => void;
-  /** Progress page for an exercise name, when this account already has it. */
-  exerciseHref?: (name: string) => string | null;
 }) {
   const unit = useWeightUnit();
   if (!draft) {
@@ -165,7 +167,6 @@ export function ConfirmSheet({
                       excludeSessionId={excludeSessionId}
                       onChange={(nextExercise) => updateExercise(at, nextExercise)}
                       onRemove={() => removeExercise(at)}
-                      exerciseHref={exerciseHref?.(exercise.exerciseName) ?? null}
                     />
                     {at < draft.exercises.length - 1 && !linked ? (
                       <button
@@ -231,7 +232,6 @@ function ExerciseConfirmBlock({
   excludeSessionId,
   onChange,
   onRemove,
-  exerciseHref,
 }: {
   exercise: VoiceDraft["exercises"][number];
   index: number;
@@ -242,13 +242,28 @@ function ExerciseConfirmBlock({
   excludeSessionId?: Id<"sessions">;
   onChange: (exercise: VoiceDraft["exercises"][number]) => void;
   onRemove: () => void;
-  exerciseHref?: string | null;
 }) {
   const history = usePreviousExercise(exercise.exerciseName, excludeSessionId);
-  const [expandedStart, setExpandedStart] = useState<number | null>(null);
-  const [moreStart, setMoreStart] = useState<number | null>(null);
+  // The open row is remembered by its sets' ids, not its position, so editing
+  // it into a match with a neighbor cannot regroup it shut.
+  const [openIds, setOpenIds] = useState<ReadonlySet<string> | null>(null);
+  const [moreOpen, setMoreOpen] = useState(false);
   const [splitIds, setSplitIds] = useState<Set<string>>(() => new Set());
-  const groups = groupIdenticalSets(exercise.sets, splitIds);
+  const groups = groupIdenticalSets(exercise.sets, splitIds, openIds ?? undefined);
+
+  function closeRow() {
+    setOpenIds(null);
+    setMoreOpen(false);
+  }
+
+  function openRow(start: number, count: number) {
+    const held = withDraftSetIds(exercise.sets, start, count, newDraftSetId);
+    if (held.sets !== exercise.sets) {
+      replaceSets(held.sets);
+    }
+    setOpenIds(new Set(held.ids));
+    setMoreOpen(false);
+  }
 
   function replaceSets(sets: DraftSet[]) {
     onChange({ ...exercise, sets });
@@ -264,30 +279,22 @@ function ExerciseConfirmBlock({
     }
     const room = MAX_VOICE_SETS - totalSets;
     const capped = nextCount > count ? Math.min(nextCount, count + room) : nextCount;
-    replaceSets(resizeSetGroup(exercise.sets, start, count, capped));
+    const resized = resizeSetGroup(exercise.sets, start, count, capped);
+    if (capped <= count) {
+      replaceSets(resized);
+      return;
+    }
+    // New copies join the open row, or they would show as a row of their own.
+    const added = withDraftSetIds(resized, start + count, capped - count, newDraftSetId);
+    replaceSets(added.sets);
+    setOpenIds((current) => (current ? new Set([...current, ...added.ids]) : current));
   }
 
   function splitGroup(start: number, count: number) {
-    const ids = exercise.sets.slice(start, start + count).map((set) => set.draftSetId ?? newDraftSetId());
-    replaceSets(
-      exercise.sets.map((set, setIndex) => {
-        const offset = setIndex - start;
-        if (offset < 0 || offset >= count) {
-          return set;
-        }
-        return { ...set, draftSetId: ids[offset] };
-      }),
-    );
-    setSplitIds((current) => {
-      const next = new Set(current);
-      for (const id of ids) {
-        if (id) {
-          next.add(id);
-        }
-      }
-      return next;
-    });
-    setExpandedStart(null);
+    const split = withDraftSetIds(exercise.sets, start, count, newDraftSetId);
+    replaceSets(split.sets);
+    setSplitIds((current) => new Set([...current, ...split.ids]));
+    closeRow();
   }
 
   function removeSet(setIndex: number) {
@@ -295,6 +302,7 @@ function ExerciseConfirmBlock({
       return;
     }
     onChange({ ...exercise, sets: exercise.sets.filter((_, index) => index !== setIndex) });
+    closeRow();
   }
 
   function addSet() {
@@ -332,16 +340,8 @@ function ExerciseConfirmBlock({
           </button>
         ) : null}
       </div>
-      {history.label || exerciseHref ? (
-        <p className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-base text-muted">
-          {history.label ? <span>{history.label}</span> : null}
-          {exerciseHref ? (
-            <Link href={exerciseHref} className="min-h-11 font-medium text-foreground underline">
-              Progress
-            </Link>
-          ) : null}
-        </p>
-      ) : null}
+      {/* No progress link here: leaving the page would drop the unsaved parse. */}
+      {history.label ? <p className="mt-2 text-base text-muted">{history.label}</p> : null}
 
       <div className="mt-3 flex flex-col gap-2">
         {groups.map((group) => {
@@ -350,15 +350,16 @@ function ExerciseConfirmBlock({
             return null;
           }
           const label = draftGroupLabel(group.count, sample, unit);
-          const open = expandedStart === group.start;
-          const more = moreStart === group.start;
+          const open =
+            openIds !== null && sample.draftSetId !== undefined && openIds.has(sample.draftSetId);
+          const more = open && moreOpen;
           return (
-            <div key={`${group.start}-${sample.draftSetId ?? "group"}`} className="rounded-2xl bg-surface p-2">
+            <div key={group.start} className="rounded-2xl bg-surface p-2">
               <button
                 type="button"
                 aria-expanded={open}
                 disabled={saving}
-                onClick={() => setExpandedStart(open ? null : group.start)}
+                onClick={() => (open ? closeRow() : openRow(group.start, group.count))}
                 className="flex min-h-14 w-full items-center text-left text-lg font-semibold disabled:opacity-60"
               >
                 {label}
@@ -453,7 +454,7 @@ function ExerciseConfirmBlock({
                     type="button"
                     aria-expanded={more}
                     disabled={saving}
-                    onClick={() => setMoreStart(more ? null : group.start)}
+                    onClick={() => setMoreOpen(!more)}
                     className="min-h-11 self-start text-base font-medium"
                   >
                     {more ? "Less" : "More"}

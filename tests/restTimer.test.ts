@@ -3,6 +3,7 @@ import test from "node:test";
 import { readRestChime, restChimeStored, shouldPlayRestChime } from "../lib/restChime.ts";
 import {
   adjustRestSeconds,
+  bumpRest,
   bumpRestSeconds,
   DEFAULT_REST_SECONDS,
   MAX_REST_SECONDS,
@@ -91,4 +92,33 @@ test("vibration uses one pattern and ignores browsers that cannot vibrate", () =
       throw new Error("blocked");
     });
   });
+});
+
+test("+30 s after rest is done starts 30 more seconds, not a whole rest", () => {
+  const now = 1_000_000;
+  const done = bumpRest({ endsAt: now - 5_000, now, seconds: 90, direction: 1 });
+  assert.equal(done.endsAt, now + REST_BUMP_SECONDS * 1000);
+  assert.equal(done.seconds, 90);
+  assert.equal(done.restarted, true);
+});
+
+test("−30 s after rest is done only shortens the next rest", () => {
+  const now = 1_000_000;
+  const done = bumpRest({ endsAt: now, now, seconds: 120, direction: -1 });
+  assert.equal(done.endsAt, now);
+  assert.equal(done.seconds, 90);
+  assert.equal(done.restarted, false);
+});
+
+test("a running rest moves its end, and no rest yet starts one", () => {
+  const now = 1_000_000;
+  const running = bumpRest({ endsAt: now + 60_000, now, seconds: 90, direction: 1 });
+  assert.equal(running.endsAt, now + 90_000);
+  assert.equal(running.seconds, 120);
+  assert.equal(running.restarted, false);
+
+  const idle = bumpRest({ endsAt: null, now, seconds: 90, direction: -1 });
+  assert.equal(idle.endsAt, now + 60_000);
+  assert.equal(idle.seconds, 60);
+  assert.equal(idle.restarted, true);
 });

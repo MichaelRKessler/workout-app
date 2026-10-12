@@ -1,6 +1,8 @@
 import { formatSetShort } from "../format.ts";
 import type { PendingRest } from "../exerciseRest.ts";
 import {
+  clearError,
+  dropQueued,
   type Outbox,
   type PendingAction,
   type PendingBody,
@@ -60,19 +62,19 @@ export function listPendingItems(outbox: Outbox, rests: PendingRest[]): PendingI
   return items;
 }
 
-export function clearItemError(outbox: Outbox, id: string): Outbox {
+export function clearItemError(outbox: Outbox, id: string, now = Date.now()): Outbox {
   if (id.startsWith("set:")) {
     const clientId = id.slice("set:".length);
     return {
       ...outbox,
-      sets: outbox.sets.map((set) => (set.clientId === clientId ? { ...set, syncError: null } : set)),
+      sets: outbox.sets.map((set) => (set.clientId === clientId ? clearError(set, now) : set)),
     };
   }
   if (id.startsWith("edit:")) {
     const editId = id.slice("edit:".length);
     return {
       ...outbox,
-      edits: outbox.edits.map((edit) => (edit.editId === editId ? { ...edit, syncError: null } : edit)),
+      edits: outbox.edits.map((edit) => (edit.editId === editId ? clearError(edit, now) : edit)),
     };
   }
   if (id.startsWith("delete:")) {
@@ -80,7 +82,7 @@ export function clearItemError(outbox: Outbox, id: string): Outbox {
     return {
       ...outbox,
       deletes: outbox.deletes.map((deletion) =>
-        deletion.deleteId === deleteId ? { ...deletion, syncError: null } : deletion,
+        deletion.deleteId === deleteId ? clearError(deletion, now) : deletion,
       ),
     };
   }
@@ -89,7 +91,7 @@ export function clearItemError(outbox: Outbox, id: string): Outbox {
     return {
       ...outbox,
       actions: outbox.actions.map((action) =>
-        action.actionId === actionId ? { ...action, syncError: null } : action,
+        action.actionId === actionId ? clearError(action, now) : action,
       ),
     };
   }
@@ -97,20 +99,20 @@ export function clearItemError(outbox: Outbox, id: string): Outbox {
     const clientId = id.slice("body:".length);
     return {
       ...outbox,
-      body: outbox.body.map((entry) => (entry.clientId === clientId ? { ...entry, syncError: null } : entry)),
+      body: outbox.body.map((entry) => (entry.clientId === clientId ? clearError(entry, now) : entry)),
     };
   }
   return outbox;
 }
 
-export function clearAllErrors(outbox: Outbox): Outbox {
+export function clearAllErrors(outbox: Outbox, now = Date.now()): Outbox {
   return {
     ...outbox,
-    sets: outbox.sets.map((set) => ({ ...set, syncError: null })),
-    edits: outbox.edits.map((edit) => ({ ...edit, syncError: null })),
-    deletes: outbox.deletes.map((deletion) => ({ ...deletion, syncError: null })),
-    actions: outbox.actions.map((action) => ({ ...action, syncError: null })),
-    body: outbox.body.map((entry) => ({ ...entry, syncError: null })),
+    sets: outbox.sets.map((set) => clearError(set, now)),
+    edits: outbox.edits.map((edit) => clearError(edit, now)),
+    deletes: outbox.deletes.map((deletion) => clearError(deletion, now)),
+    actions: outbox.actions.map((action) => clearError(action, now)),
+    body: outbox.body.map((entry) => clearError(entry, now)),
   };
 }
 
@@ -119,58 +121,12 @@ export function clearAllErrors(outbox: Outbox): Outbox {
  * restore it. The caller must already have confirmed.
  */
 export function discardPendingItem(outbox: Outbox, id: string): Outbox {
-  if (id.startsWith("set:")) {
-    const clientId = id.slice("set:".length);
-    const set = outbox.sets.find((item) => item.clientId === clientId);
-    return {
-      ...outbox,
-      sets: outbox.sets.filter((item) => item.clientId !== clientId),
-      dropped: set
-        ? remember(outbox.dropped, { kind: "set", id: clientId, revision: set.revision })
-        : outbox.dropped,
-    };
-  }
-  if (id.startsWith("edit:")) {
-    const editId = id.slice("edit:".length);
-    return {
-      ...outbox,
-      edits: outbox.edits.filter((item) => item.editId !== editId),
-      dropped: remember(outbox.dropped, { kind: "edit", id: editId, revision: 1 }),
-    };
-  }
-  if (id.startsWith("delete:")) {
-    const deleteId = id.slice("delete:".length);
-    return {
-      ...outbox,
-      deletes: outbox.deletes.filter((item) => item.deleteId !== deleteId),
-      dropped: remember(outbox.dropped, { kind: "delete", id: deleteId, revision: 1 }),
-    };
-  }
-  if (id.startsWith("action:")) {
-    const actionId = id.slice("action:".length);
-    return {
-      ...outbox,
-      actions: outbox.actions.filter((item) => item.actionId !== actionId),
-      dropped: remember(outbox.dropped, { kind: "action", id: actionId, revision: 1 }),
-    };
-  }
-  if (id.startsWith("body:")) {
-    const clientId = id.slice("body:".length);
-    return {
-      ...outbox,
-      body: outbox.body.filter((item) => item.clientId !== clientId),
-      dropped: remember(outbox.dropped, { kind: "body", id: clientId, revision: 1 }),
-    };
+  for (const kind of ["set", "edit", "delete", "action", "body"] as const) {
+    if (id.startsWith(`${kind}:`)) {
+      return dropQueued(outbox, [{ kind, id: id.slice(kind.length + 1) }]);
+    }
   }
   return outbox;
-}
-
-function remember(
-  dropped: Outbox["dropped"],
-  item: Outbox["dropped"][number],
-): Outbox["dropped"] {
-  const without = dropped.filter((entry) => !(entry.kind === item.kind && entry.id === item.id));
-  return [...without, item].slice(-2000);
 }
 
 function describeSet(set: PendingSet): PendingItem {

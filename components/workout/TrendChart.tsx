@@ -235,6 +235,13 @@ export function TrendChart({
     finishGesture(event.clientX);
   }
 
+  // The browser cancels the pointer when a vertical swipe becomes a page
+  // scroll. That is not a tap, so nothing new is selected.
+  function onPlotPointerCancel(event: ReactPointerEvent<HTMLDivElement>) {
+    if (gestureRef.current?.pointerId !== event.pointerId) return;
+    gestureRef.current = null;
+  }
+
   function onKey(key: string) {
     if (key === "Escape") {
       setSelectedKey(null);
@@ -358,7 +365,7 @@ export function TrendChart({
             onPointerDown={onPlotPointerDown}
             onPointerMove={onPlotPointerMove}
             onPointerUp={onPlotPointerUp}
-            onPointerCancel={onPlotPointerUp}
+            onPointerCancel={onPlotPointerCancel}
             onKey={onKey}
           />
         ) : stats ? (

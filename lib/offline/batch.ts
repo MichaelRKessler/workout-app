@@ -1,6 +1,7 @@
 import { isPhoneClientId, resolveDocumentId } from "./documentId.ts";
 import {
   knownServerIds,
+  markFailed,
   type Outbox,
   type PendingDelete,
   type PendingEdit,
@@ -77,7 +78,7 @@ export function prepareBatch(
   };
 }
 
-export function holdChanges(outbox: Outbox, held: HeldChange[]): Outbox {
+export function holdChanges(outbox: Outbox, held: HeldChange[], now = Date.now()): Outbox {
   if (held.length === 0) {
     return outbox;
   }
@@ -89,11 +90,11 @@ export function holdChanges(outbox: Outbox, held: HeldChange[]): Outbox {
     ...outbox,
     edits: outbox.edits.map((edit) => {
       const message = edits.get(edit.editId);
-      return message && !edit.echoed ? { ...edit, syncError: message } : edit;
+      return message && !edit.echoed ? markFailed(edit, message, now) : edit;
     }),
     deletes: outbox.deletes.map((deletion) => {
       const message = deletes.get(deletion.deleteId);
-      return message && !deletion.echoed ? { ...deletion, syncError: message } : deletion;
+      return message && !deletion.echoed ? markFailed(deletion, message, now) : deletion;
     }),
   };
 }

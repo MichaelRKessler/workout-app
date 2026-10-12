@@ -25,6 +25,8 @@ const STALL_MS = 2 * 60 * 1000;
 const BACKFILL_EXERCISES = 5;
 const BACKFILL_SESSIONS = 4;
 const LIBRARY_CAP = 100;
+const STALLED_PAGE = 8;
+const DUPLICATE_SCAN = 8;
 
 const METRICS: MarkMetric[] = ["weight", "epley", "reps", "duration", "distance", "calories"];
 
@@ -47,20 +49,65 @@ export type RecordedSets = {
 };
 
 type ReadCtx = QueryCtx | MutationCtx;
+type StatsPatch = Omit<Partial<Doc<"exerciseStats">>, "_id" | "_creationTime">;
 
+/**
+ * The stats row for readers. Earlier code could leave two rows for one
+ * exercise. Readers treat that as no stats and scan the sets until a write
+ * settles the rows.
+ */
 export async function findExerciseStats(
   ctx: ReadCtx,
   userId: Id<"users">,
   exerciseId: Id<"exercises">,
 ): Promise<Doc<"exerciseStats"> | null> {
-  const stats = await ctx.db
+  const rows = await ctx.db
     .query("exerciseStats")
     .withIndex("by_user_and_exercise", (q) => q.eq("userId", userId).eq("exerciseId", exerciseId))
-    .unique();
-  if (!stats || stats.userId !== userId || stats.exerciseId !== exerciseId) {
+    .take(2);
+  const stats = rows[0];
+  if (rows.length !== 1 || !stats || stats.userId !== userId || stats.exerciseId !== exerciseId) {
     return null;
   }
   return stats;
+}
+
+/**
+ * The stats row for writers. Extra rows are deleted, and the one kept is
+ * rebuilt under a generation neither row used, since both rows wrote marks
+ * and session calories under their own generations.
+ */
+async function settledStats(
+  ctx: MutationCtx,
+  userId: Id<"users">,
+  exerciseId: Id<"exercises">,
+): Promise<Doc<"exerciseStats"> | null> {
+  const rows = await ctx.db
+    .query("exerciseStats")
+    .withIndex("by_user_and_exercise", (q) => q.eq("userId", userId).eq("exerciseId", exerciseId))
+    .take(DUPLICATE_SCAN);
+  const [stats, ...extras] = rows;
+  if (!stats || stats.userId !== userId || stats.exerciseId !== exerciseId) {
+    return null;
+  }
+  if (extras.length === 0) {
+    return stats;
+  }
+  for (const extra of extras) {
+    await ctx.db.delete("exerciseStats", extra._id);
+  }
+  await schedulePage(ctx, stats, {
+    ...storedBests(emptyBests()),
+    generation: Math.max(...rows.map((row) => row.generation)) + 1,
+    phase: "purge",
+    cursor: null,
+    ready: false,
+    dirty: false,
+    drop: false,
+    setCount: 0,
+    lastLoggedAt: null,
+  });
+  return await ctx.db.get("exerciseStats", stats._id);
 }
 
 /** Library counts stay capped at 100. Ready stats avoid reading the sets. */
@@ -106,7 +153,7 @@ export async function recordInsertedSets(
   }
   const sorted = [...created].sort((left, right) => left.loggedAt - right.loggedAt || (left._id < right._id ? -1 : 1));
   await noteAddedSessions(ctx, sorted);
-  const stats = await findExerciseStats(ctx, userId, exerciseId);
+  const stats = await settledStats(ctx, userId, exerciseId);
   const earliest = sorted[0]?.loggedAt ?? 0;
   const appending =
     stats !== null &&
@@ -121,7 +168,9 @@ export async function recordInsertedSets(
     await requestRebuild(ctx, userId, exerciseId);
     return announced;
   }
-  if (await historyIsOnly(ctx, userId, exerciseId, sorted)) {
+  // Only a missing row starts fresh. A row that is still rebuilding is marked
+  // dirty below, so the rebuild picks these sets up and no second row appears.
+  if (!stats && (await historyIsOnly(ctx, userId, exerciseId, sorted))) {
     return await commitFresh(ctx, userId, exerciseId, exerciseName, sorted);
   }
   const announced = await announceFromScan(ctx, userId, exerciseId, exerciseName, sorted);
@@ -140,7 +189,7 @@ export async function recordEditedSet(
   before: ReturnType<typeof recordPoint>,
   after: ReturnType<typeof recordPoint>,
 ): Promise<PersonalRecord | null> {
-  const stats = await findExerciseStats(ctx, userId, exerciseId);
+  const stats = await settledStats(ctx, userId, exerciseId);
   const latest =
     stats !== null &&
     stats.ready &&
@@ -217,41 +266,35 @@ export async function requestRebuild(
   exerciseId: Id<"exercises">,
 ): Promise<void> {
   const exercise = await ctx.db.get("exercises", exerciseId);
-  const stats = await findExerciseStats(ctx, userId, exerciseId);
-  const now = Date.now();
+  const stats = await settledStats(ctx, userId, exerciseId);
   const missing = !exercise || exercise.userId !== userId;
   if (missing) {
     if (!stats) {
       return;
     }
-    await ctx.db.patch("exerciseStats", stats._id, {
+    await schedulePage(ctx, stats, {
       drop: true,
       ready: false,
       dirty: false,
       phase: "purge",
       cursor: null,
-      scheduledAt: now,
     });
-    await schedulePage(userId, exerciseId, stats.generation, null, ctx);
     return;
   }
   if (!stats) {
-    await ctx.db.insert("exerciseStats", blankStats(userId, exerciseId, 1, now));
-    await schedulePage(userId, exerciseId, 1, null, ctx);
+    await ctx.db.insert("exerciseStats", { ...blankStats(userId, exerciseId, 1, Date.now()), step: 1 });
+    await queuePage(ctx, { userId, exerciseId, generation: 1, cursor: null, step: 1 });
     return;
   }
   if (stats.ready) {
-    const generation = stats.generation + 1;
-    await ctx.db.patch("exerciseStats", stats._id, {
-      generation,
+    await schedulePage(ctx, stats, {
+      generation: stats.generation + 1,
       phase: "purge",
       cursor: null,
       ready: false,
       dirty: false,
       drop: false,
-      scheduledAt: now,
     });
-    await schedulePage(userId, exerciseId, generation, null, ctx);
     return;
   }
   if (!stats.dirty) {
@@ -266,10 +309,20 @@ export async function runRebuildPage(
     exerciseId: Id<"exercises">;
     generation: number;
     cursor: string | null;
+    step?: number;
   },
 ): Promise<void> {
-  const stats = await findExerciseStats(ctx, args.userId, args.exerciseId);
-  if (!stats || stats.generation !== args.generation || (stats.cursor ?? null) !== (args.cursor ?? null)) {
+  const stats = await settledStats(ctx, args.userId, args.exerciseId);
+  // Every phase starts at a null cursor, so the step is what tells a page
+  // apart from a duplicate or late copy. Running one twice would fold every
+  // set in again.
+  if (
+    !stats ||
+    stats.ready ||
+    stats.generation !== args.generation ||
+    (stats.cursor ?? null) !== (args.cursor ?? null) ||
+    (stats.step ?? 0) !== (args.step ?? 0)
+  ) {
     return;
   }
   const exercise = await ctx.db.get("exercises", args.exerciseId);
@@ -277,23 +330,16 @@ export async function runRebuildPage(
     return;
   }
   if (!exercise && !stats.drop) {
-    await ctx.db.patch("exerciseStats", stats._id, {
+    await schedulePage(ctx, stats, {
       drop: true,
       ready: false,
       phase: "purge",
       cursor: null,
-      scheduledAt: Date.now(),
     });
-    await schedulePage(args.userId, args.exerciseId, stats.generation, null, ctx);
     return;
   }
   if (stats.drop && stats.phase === "walk") {
-    await ctx.db.patch("exerciseStats", stats._id, {
-      phase: "purge",
-      cursor: null,
-      scheduledAt: Date.now(),
-    });
-    await schedulePage(args.userId, args.exerciseId, stats.generation, null, ctx);
+    await schedulePage(ctx, stats, { phase: "purge", cursor: null });
     return;
   }
   if (stats.phase === "purge") {
@@ -346,7 +392,7 @@ export async function runBackfill(ctx: MutationCtx, followUp: boolean): Promise<
       if (exercise.userId === undefined) {
         continue;
       }
-      const existing = await findExerciseStats(ctx, exercise.userId, exercise._id);
+      const existing = await settledStats(ctx, exercise.userId, exercise._id);
       if (!existing) {
         await requestRebuild(ctx, exercise.userId, exercise._id);
       }
@@ -401,17 +447,25 @@ export async function runBackfill(ctx: MutationCtx, followUp: boolean): Promise<
   }
 }
 
+/**
+ * Requeues rebuilds whose page has waited too long, oldest first, so rows that
+ * keep failing move to the back instead of hiding the rest. The copy reuses
+ * the row's step: if the first page was only slow, the later one does nothing.
+ */
 async function resumeStalled(ctx: MutationCtx, now: number): Promise<void> {
   const rows = await ctx.db
     .query("exerciseStats")
-    .withIndex("by_ready", (q) => q.eq("ready", false))
-    .take(8);
+    .withIndex("by_ready_and_scheduled", (q) => q.eq("ready", false).lte("scheduledAt", now - STALL_MS))
+    .take(STALLED_PAGE);
   for (const stats of rows) {
-    if (stats.scheduledAt !== null && now - stats.scheduledAt < STALL_MS) {
-      continue;
-    }
     await ctx.db.patch("exerciseStats", stats._id, { scheduledAt: now });
-    await schedulePage(stats.userId, stats.exerciseId, stats.generation, stats.cursor, ctx);
+    await queuePage(ctx, {
+      userId: stats.userId,
+      exerciseId: stats.exerciseId,
+      generation: stats.generation,
+      cursor: stats.cursor,
+      step: stats.step ?? 0,
+    });
   }
 }
 
@@ -436,12 +490,7 @@ async function purgeMarks(
     await continuePage(ctx, stats, page.continueCursor, {});
     return;
   }
-  await ctx.db.patch("exerciseStats", stats._id, {
-    phase: "purgeCalories",
-    cursor: null,
-    scheduledAt: Date.now(),
-  });
-  await schedulePage(stats.userId, stats.exerciseId, stats.generation, null, ctx);
+  await schedulePage(ctx, stats, { phase: "purgeCalories", cursor: null });
 }
 
 async function purgeCalories(
@@ -469,15 +518,13 @@ async function purgeCalories(
     await ctx.db.delete("exerciseStats", stats._id);
     return;
   }
-  await ctx.db.patch("exerciseStats", stats._id, {
+  await schedulePage(ctx, stats, {
     phase: "walk",
     cursor: null,
     setCount: 0,
     lastLoggedAt: null,
-    scheduledAt: Date.now(),
     ...storedBests(emptyBests()),
   });
-  await schedulePage(stats.userId, stats.exerciseId, stats.generation, null, ctx);
 }
 
 async function walkSets(
@@ -487,8 +534,7 @@ async function walkSets(
 ): Promise<void> {
   const exercise = await ctx.db.get("exercises", stats.exerciseId);
   if (!exercise || exercise.userId !== stats.userId) {
-    await ctx.db.patch("exerciseStats", stats._id, { drop: true, phase: "purge", cursor: null });
-    await schedulePage(stats.userId, stats.exerciseId, stats.generation, null, ctx);
+    await schedulePage(ctx, stats, { drop: true, phase: "purge", cursor: null });
     return;
   }
   const page = await ctx.db
@@ -539,10 +585,9 @@ async function walkSets(
     return;
   }
   if (stats.dirty) {
-    const generation = stats.generation + 1;
-    await ctx.db.patch("exerciseStats", stats._id, {
+    await schedulePage(ctx, stats, {
       ...storedBests(emptyBests()),
-      generation,
+      generation: stats.generation + 1,
       phase: "purge",
       cursor: null,
       ready: false,
@@ -550,9 +595,7 @@ async function walkSets(
       drop: false,
       setCount: 0,
       lastLoggedAt: null,
-      scheduledAt: Date.now(),
     });
-    await schedulePage(stats.userId, stats.exerciseId, generation, null, ctx);
     return;
   }
   await ctx.db.patch("exerciseStats", stats._id, {
@@ -955,25 +998,39 @@ async function continuePage(
   ctx: MutationCtx,
   stats: Doc<"exerciseStats">,
   cursor: string,
-  patch: Omit<Partial<Doc<"exerciseStats">>, "_id" | "_creationTime">,
+  patch: StatsPatch,
 ): Promise<void> {
-  await ctx.db.patch("exerciseStats", stats._id, { ...patch, cursor, scheduledAt: Date.now() });
-  await schedulePage(stats.userId, stats.exerciseId, stats.generation, cursor, ctx);
+  await schedulePage(ctx, stats, { ...patch, cursor });
 }
 
+/** Saves the row and queues its next page under a new step. */
 async function schedulePage(
-  userId: Id<"users">,
-  exerciseId: Id<"exercises">,
-  generation: number,
-  cursor: string | null,
   ctx: MutationCtx,
+  stats: Doc<"exerciseStats">,
+  patch: StatsPatch & { cursor: string | null },
 ): Promise<void> {
-  await ctx.scheduler.runAfter(0, internal.exerciseStats.rebuildPage, {
-    userId,
-    exerciseId,
-    generation,
-    cursor,
+  const step = (stats.step ?? 0) + 1;
+  await ctx.db.patch("exerciseStats", stats._id, { ...patch, step, scheduledAt: Date.now() });
+  await queuePage(ctx, {
+    userId: stats.userId,
+    exerciseId: stats.exerciseId,
+    generation: patch.generation ?? stats.generation,
+    cursor: patch.cursor,
+    step,
   });
+}
+
+async function queuePage(
+  ctx: MutationCtx,
+  page: {
+    userId: Id<"users">;
+    exerciseId: Id<"exercises">;
+    generation: number;
+    cursor: string | null;
+    step: number;
+  },
+): Promise<void> {
+  await ctx.scheduler.runAfter(0, internal.exerciseStats.rebuildPage, page);
 }
 
 function blankStats(userId: Id<"users">, exerciseId: Id<"exercises">, generation: number, now: number) {
@@ -989,6 +1046,7 @@ function blankStats(userId: Id<"users">, exerciseId: Id<"exercises">, generation
     cursor: null,
     phase: "purge" as const,
     scheduledAt: now,
+    step: 0,
     ...storedBests(emptyBests()),
   };
 }
