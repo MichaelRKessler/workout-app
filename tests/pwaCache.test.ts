@@ -34,6 +34,15 @@ test("cached HTML loses the login token and an old fetch time", () => {
   assert.equal(sanitizeCachedDocument("<p>No session</p>"), "<p>No session</p>");
 });
 
+test("a token split across two pushes is never cached", () => {
+  for (const cut of [4, 12, 20, 40]) {
+    const html =
+      `<script>self.__next_f.push([1,"{\\"token\\":\\"${token.slice(0, cut)}"])</script>` +
+      `<script>self.__next_f.push([1,"${token.slice(cut)}\\"}"])</script>`;
+    assert.equal(sanitizeCachedDocument(html), null, `cut at ${cut}`);
+  }
+});
+
 test("an update copies static files, sanitizes documents, and drops other bodies", () => {
   assert.equal(cachedEntryKind("/_next/static/chunk.js", "application/javascript"), "static");
   assert.equal(cachedEntryKind("/icons/icon-192.png", "image/png"), "static");
@@ -59,4 +68,6 @@ test("the worker sanitizer matches the app and purges the legacy cache", () => {
   const html = `{"token":"${token}","_timeFetched":42}<p>Bench</p>`;
   assert.equal(workerSanitize(html), sanitizeCachedDocument(html));
   assert.equal(workerSanitize(`token=${token}`), null);
+  const split = `"${token.slice(0, 20)}"])</script><script>push(["${token.slice(20)}"`;
+  assert.equal(workerSanitize(split), null);
 });

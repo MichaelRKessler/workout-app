@@ -8,15 +8,14 @@ type LockManagerLike = {
   request<T>(name: string, callback: () => Promise<T>): Promise<T>;
 };
 
-/**
- * One tab at a time may read-merge-write the queue or send it.
- * Browsers without Web Locks still run the callback; the merge keeps
- * the other tab's items when a storage event arrives.
- */
-export async function withQueueLock<T>(
-  email: string | null,
+export function sendLockName(email: string | null): string {
+  return `${queueLockName(email)}:send`;
+}
+
+async function withNamedLock<T>(
+  name: string,
   fn: () => Promise<T>,
-  locks?: LockManagerLike | null,
+  locks: LockManagerLike | null | undefined,
 ): Promise<T> {
   const manager =
     locks === undefined
@@ -27,5 +26,28 @@ export async function withQueueLock<T>(
   if (!manager) {
     return await fn();
   }
-  return await manager.request(queueLockName(email), fn);
+  return await manager.request(name, fn);
+}
+
+/**
+ * One tab at a time may read-merge-write the queue. Hold it only around
+ * storage, never across a network call, so another tab's new sets are
+ * written at once. Browsers without Web Locks still run the callback; the
+ * merge keeps the other tab's items when a storage event arrives.
+ */
+export async function withQueueLock<T>(
+  email: string | null,
+  fn: () => Promise<T>,
+  locks?: LockManagerLike | null,
+): Promise<T> {
+  return await withNamedLock(queueLockName(email), fn, locks);
+}
+
+/** One tab at a time may send the queue. It may wait on the network. */
+export async function withSendLock<T>(
+  email: string | null,
+  fn: () => Promise<T>,
+  locks?: LockManagerLike | null,
+): Promise<T> {
+  return await withNamedLock(sendLockName(email), fn, locks);
 }

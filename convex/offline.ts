@@ -1,6 +1,8 @@
 import { v } from "convex/values";
+import { internal } from "./_generated/api";
+import { internalMutation } from "./_generated/server";
 import { authedMutation } from "./lib/customFunctions";
-import { acceptOfflineBatch } from "./lib/offlineSync";
+import { REMOVAL_TTL_MS, acceptOfflineBatch } from "./lib/offlineSync";
 import { personalRecordValidator } from "./lib/records";
 import { setTypeValidator } from "./lib/setTypeValidator";
 
@@ -141,5 +143,31 @@ export const serverTime = authedMutation({
   returns: v.number(),
   handler: async () => {
     return Date.now();
+  },
+});
+
+const EXPIRE_PAGE = 200;
+
+/**
+ * Forget removed client ids after a while. A phone that stays offline longer
+ * than that could bring a removed set back, which is rarer than the table
+ * growing forever.
+ */
+export const expireRemovals = internalMutation({
+  args: {},
+  returns: v.number(),
+  handler: async (ctx) => {
+    const cutoff = Date.now() - REMOVAL_TTL_MS;
+    const stale = await ctx.db
+      .query("removedClientIds")
+      .withIndex("by_removed_at", (q) => q.lt("removedAt", cutoff))
+      .take(EXPIRE_PAGE);
+    for (const row of stale) {
+      await ctx.db.delete("removedClientIds", row._id);
+    }
+    if (stale.length === EXPIRE_PAGE) {
+      await ctx.scheduler.runAfter(0, internal.offline.expireRemovals, {});
+    }
+    return stale.length;
   },
 });

@@ -162,7 +162,7 @@ function sanitizeCachedDocument(html) {
   next = next.replace(/(_timeFetched\\\\?":\\s*)\\d+/g, function (_match, prefix) {
     return prefix + "0";
   });
-  if (/eyJ[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}/.test(next)) return null;
+  if (/eyJ[A-Za-z0-9_-]{16,}/.test(next)) return null;
   return next;
 }
 /* end-sanitizeCachedDocument */

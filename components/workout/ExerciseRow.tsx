@@ -101,7 +101,7 @@ export function ExerciseRow({
   const unit = useWeightUnit();
   const last = sets[sets.length - 1];
   const nameNode = exerciseHref ? (
-    <Link href={exerciseHref} className="truncate text-base font-semibold tracking-[-0.01em] hover:underline">
+    <Link href={exerciseHref} className="truncate text-base font-semibold tracking-[-0.01em] underline decoration-line underline-offset-4 hover:decoration-current">
       {name}
     </Link>
   ) : (

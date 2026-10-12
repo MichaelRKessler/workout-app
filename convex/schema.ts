@@ -47,8 +47,15 @@ export default defineSchema({
         v.literal("other"),
       ),
     ),
+    // Set on the source while a merge that didn't fit in one transaction is
+    // still moving its sets. Absent once the merge finishes or stops.
+    mergingInto: v.optional(v.id("exercises")),
+    // Set on the kept exercise while finished workouts' plans are repointed
+    // to it after a merge, so it can't be merged away mid-scan.
+    pendingPlanScans: v.optional(v.number()),
   })
     .index("by_user_and_normalized_name", ["userId", "normalizedName"])
+    .index("by_merging_into", ["mergingInto"])
     // Exercises with their own rest, listed in Settings so they can be reset.
     .index("by_user_and_rest", ["userId", "restSeconds"]),
   sessions: defineTable({
@@ -221,7 +228,9 @@ export default defineSchema({
     userId: v.id("users"),
     clientId: v.string(),
     removedAt: v.number(),
-  }).index("by_user_and_client_id", ["userId", "clientId"]),
+  })
+    .index("by_user_and_client_id", ["userId", "clientId"])
+    .index("by_removed_at", ["removedAt"]),
   // All-time bests for one exercise. New table, so existing documents are untouched.
   // `ready` is false while a paginated rebuild is walking history.
   exerciseStats: defineTable({

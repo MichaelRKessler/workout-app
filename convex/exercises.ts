@@ -1,15 +1,21 @@
 import { paginationOptsValidator, paginationResultValidator } from "convex/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { internalMutation } from "./_generated/server";
 import { isEmailAllowed, normalizeEmail } from "./lib/accessControl";
 import { authedMutation, authedQuery } from "./lib/customFunctions";
-import { applyMergeBatch } from "./lib/exerciseMerge";
+import {
+  adjustPlanScans,
+  applyMergeBatch,
+  clearMergeMarker,
+  stopMergeIfTargetGone,
+} from "./lib/exerciseMerge";
 import { effortsFromStats, findExerciseStats, libraryCount } from "./lib/exerciseStats";
 import { exerciseRecord } from "./lib/exerciseFields";
 import { formatExerciseName, MAX_KNOWN_EXERCISE_NAMES } from "./lib/exerciseName";
+import { repointSessionPlan } from "./lib/routineRecords";
 import { muscleGroupValidator, presentMuscle } from "./lib/muscleGroup";
 import { summarizeEfforts, trendFromSets, type TrendPoint } from "./lib/records";
 import { setExerciseRest } from "./lib/rest";
@@ -440,6 +446,8 @@ const libraryItemValidator = v.object({
   setCountCapped: v.boolean(),
   muscleGroup: muscleGroupValidator,
   muscleSource: v.union(v.literal("saved"), v.literal("suggested")),
+  // The kept exercise's name while a merge is still moving this one's sets.
+  mergingInto: v.union(v.string(), v.null()),
 });
 
 async function countSets(
@@ -463,6 +471,12 @@ async function countSets(
   };
 }
 
+/** The kept exercise's name while a merge is still moving this one's sets. */
+async function mergingIntoName(ctx: QueryCtx, exercise: Doc<"exercises">) {
+  const target = exercise.mergingInto ? await ctx.db.get("exercises", exercise.mergingInto) : null;
+  return target && target.userId === exercise.userId ? target.name : null;
+}
+
 /** Every exercise, with a set count. Pages follow the name index. */
 export const browse = authedQuery({
   args: { paginationOpts: paginationOptsValidator },
@@ -482,6 +496,7 @@ export const browse = authedQuery({
           setCount: counts.setCount,
           setCountCapped: counts.setCountCapped,
           ...presentMuscle(exercise),
+          mergingInto: await mergingIntoName(ctx, exercise),
         };
       }),
     );
@@ -514,6 +529,7 @@ export const byMuscle = authedQuery({
         name: exercise.name,
         ...(await countSets(ctx, ctx.userId, exercise._id)),
         ...presentMuscle(exercise),
+        mergingInto: await mergingIntoName(ctx, exercise),
       })),
     );
     return { exercises, truncated };
@@ -590,13 +606,7 @@ export const merge = authedMutation({
   }),
   handler: async (ctx, args) => {
     const result = await applyMergeBatch(ctx, ctx.userId, args.fromId, args.intoId);
-    if (!result.done) {
-      await ctx.scheduler.runAfter(0, internal.exercises.continueMerge, {
-        userId: ctx.userId,
-        fromId: args.fromId,
-        intoId: args.intoId,
-      });
-    }
+    await scheduleNextStep(ctx, ctx.userId, args.fromId, args.intoId, result.done);
     return {
       moved: result.moved,
       name: result.name,
@@ -623,16 +633,70 @@ export const continueMerge = internalMutation({
     const user = await ctx.db.get("users", args.userId);
     const email = user?.email ? normalizeEmail(user.email) : null;
     if (!email || !(await isEmailAllowed(ctx, email))) {
+      await clearMergeMarker(ctx, args.userId, args.fromId);
+      return null;
+    }
+    if (await stopMergeIfTargetGone(ctx, args.userId, args.fromId, args.intoId)) {
       return null;
     }
     const result = await applyMergeBatch(ctx, args.userId, args.fromId, args.intoId);
-    if (!result.done) {
-      await ctx.scheduler.runAfter(0, internal.exercises.continueMerge, {
-        userId: args.userId,
-        fromId: args.fromId,
-        intoId: args.intoId,
-      });
+    await scheduleNextStep(ctx, args.userId, args.fromId, args.intoId, result.done);
+    return null;
+  },
+});
+
+async function scheduleNextStep(
+  ctx: MutationCtx,
+  userId: Id<"users">,
+  fromId: Id<"exercises">,
+  intoId: Id<"exercises">,
+  done: boolean,
+): Promise<void> {
+  if (!done) {
+    await ctx.scheduler.runAfter(0, internal.exercises.continueMerge, { userId, fromId, intoId });
+    return;
+  }
+  await adjustPlanScans(ctx, intoId, 1);
+  await ctx.scheduler.runAfter(0, internal.exercises.repointFinishedPlans, {
+    userId,
+    fromId,
+    intoId,
+    cursor: null,
+  });
+}
+
+const FINISHED_PLAN_PAGE = 100;
+
+/**
+ * After a merge, walks finished workouts so a plan that listed the merged
+ * exercise but logged none of it points at the kept one too. One page per run.
+ */
+export const repointFinishedPlans = internalMutation({
+  args: {
+    userId: v.id("users"),
+    fromId: v.id("exercises"),
+    intoId: v.id("exercises"),
+    cursor: v.union(v.string(), v.null()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const result = await ctx.db
+      .query("sessions")
+      .withIndex("by_user_status_and_started", (q) =>
+        q.eq("userId", args.userId).eq("status", "completed"),
+      )
+      .paginate({ numItems: FINISHED_PLAN_PAGE, cursor: args.cursor });
+    for (const session of result.page) {
+      await repointSessionPlan(ctx, args.userId, session, args.fromId, args.intoId);
     }
+    if (!result.isDone) {
+      await ctx.scheduler.runAfter(0, internal.exercises.repointFinishedPlans, {
+        ...args,
+        cursor: result.continueCursor,
+      });
+      return null;
+    }
+    await adjustPlanScans(ctx, args.intoId, -1);
     return null;
   },
 });

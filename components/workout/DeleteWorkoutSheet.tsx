@@ -14,6 +14,7 @@ export function DeleteWorkoutSheet({
   body,
   confirmLabel = "Delete workout",
   cancelLabel = "Keep workout",
+  offline = false,
 }: {
   open: boolean;
   summary: string;
@@ -25,6 +26,8 @@ export function DeleteWorkoutSheet({
   body?: string;
   confirmLabel?: string;
   cancelLabel?: string;
+  /** A delete can't be queued, so it waits for a connection. */
+  offline?: boolean;
 }) {
   const message =
     body ??
@@ -39,6 +42,10 @@ export function DeleteWorkoutSheet({
         <p role="alert" className="mt-3 text-sm text-danger">
           {error}
         </p>
+      ) : offline ? (
+        <p role="status" className="mt-3 text-sm text-muted">
+          You&apos;re offline. Reconnect to delete.
+        </p>
       ) : null}
       <div className="mt-6 flex gap-2.5">
         <Button variant="secondary" size="lg" className="flex-1" onClick={onCancel} disabled={pending}>
@@ -49,7 +56,7 @@ export function DeleteWorkoutSheet({
           size="lg"
           className="flex-1 border border-danger"
           onClick={onConfirm}
-          disabled={pending}
+          disabled={pending || offline}
         >
           {pending ? "Deleting…" : confirmLabel}
         </Button>

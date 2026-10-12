@@ -19,4 +19,11 @@ crons.interval(
   {},
 );
 
+crons.interval(
+  "expire removed set ids",
+  { hours: 24 },
+  internal.offline.expireRemovals,
+  {},
+);
+
 export default crons;

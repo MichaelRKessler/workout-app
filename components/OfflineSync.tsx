@@ -23,7 +23,7 @@ import {
   type ClockReading,
 } from "@/lib/offline/clock";
 import { resolveDocumentId } from "@/lib/offline/documentId";
-import { withQueueLock } from "@/lib/offline/lock";
+import { withQueueLock, withSendLock } from "@/lib/offline/lock";
 import { mergeOutboxes } from "@/lib/offline/merge";
 import { OFFLINE_BANNER } from "@/lib/offline/messages";
 import {
@@ -323,6 +323,17 @@ export function OfflineSyncProvider({
     [publish, readMerged, withLock, writeThrough],
   );
 
+  // Re-read the stored queue under the lock and write one change to it, so a
+  // result that lands after a network call keeps what other tabs saved meanwhile.
+  const persistMerged = useCallback(
+    async (change: (current: Outbox) => Outbox) => {
+      await withLock(async () => {
+        writeThrough(change(readMerged()));
+      });
+    },
+    [readMerged, withLock, writeThrough],
+  );
+
   const ensureLoaded = useCallback(() => {
     if (loadedRef.current && hydratedEmail.current === emailRef.current) {
       return;
@@ -441,12 +452,12 @@ export function OfflineSyncProvider({
         validationMessage: "",
       });
       if (tooDeep.action === "reject") {
-        writeThrough(withSyncError(outboxRef.current, batch, tooDeep.message));
+        await persistMerged((current) => withSyncError(current, batch, tooDeep.message));
         return "ok";
       }
       const prepared = prepareBatch(outboxRef.current, batch);
       if (prepared.held.length > 0) {
-        writeThrough(holdChanges(outboxRef.current, prepared.held));
+        await persistMerged((current) => holdChanges(current, prepared.held));
       }
       if (!batchHasWork(prepared.batch)) {
         return "ok";
@@ -469,7 +480,7 @@ export function OfflineSyncProvider({
         delay(SYNC_TIMEOUT_MS).then(() => ({ kind: "timeout" as const })),
       ]);
       const validation = outcome.kind === "error" && isValidationError(outcome.error);
-      const parts = validation ? splitBatch(prepared.batch) : null;
+      const parts = outcome.kind === "error" ? splitBatch(prepared.batch) : null;
       const plan = syncFailurePlan({
         depth,
         outcome:
@@ -501,7 +512,7 @@ export function OfflineSyncProvider({
         return first === "stop" || second === "stop" ? "stop" : "ok";
       }
       if (plan.action === "reject") {
-        writeThrough(withSyncError(outboxRef.current, prepared.batch, plan.message));
+        await persistMerged((current) => withSyncError(current, prepared.batch, plan.message));
         return "ok";
       }
       nextRetryAtRef.current = Date.now() + retryDelayRef.current;
@@ -509,7 +520,7 @@ export function OfflineSyncProvider({
       setFlushError(outcome.kind === "error" ? readableError(outcome.error) : "That change could not be saved");
       return "stop";
     },
-    [applyRaw, writeThrough],
+    [applyRaw, persistMerged],
   );
 
   // Without a reading from this page load, the first batch could go out with
@@ -535,36 +546,46 @@ export function OfflineSyncProvider({
     return reading;
   }, []);
 
+  // The send lock keeps one tab sending at a time. The queue lock is taken only
+  // to read and write storage, so other tabs can save new sets while a batch
+  // waits on the network.
   const sendBatch = useCallback(
-    async (respectBackoff: boolean, depth = 0) => {
-      if (depth > 12 || offlineRef.current || offlineWritesSuspended()) {
+    async (respectBackoff: boolean) => {
+      if (offlineRef.current || offlineWritesSuspended()) {
         return;
       }
       if (respectBackoff && Date.now() < nextRetryAtRef.current) {
         return;
       }
-      await withLock(async () => {
-        let merged = readMerged();
-        // A failed ask keeps the stored reading: a corrected clock is rarer
-        // than a delivery delay, which is what sending no reading counts.
-        if (needsClockReading(merged.clock, clockFreshAtRef.current, monotonicNow())) {
-          const reading = await askServerClock();
-          if (reading) {
-            merged = recordClock(readMerged(), reading);
+      await withSendLock(emailRef.current, async () => {
+        for (let round = 0; round <= 12; round += 1) {
+          if (offlineRef.current || offlineWritesSuspended()) {
+            return;
           }
-        }
-        const prepared = prepareBatch(merged, nextBatch(merged));
-        const held = holdChanges(merged, prepared.held);
-        writeThrough(held);
-        if (!batchHasWork(prepared.batch)) {
-          return;
-        }
-        const status = await postBatch(prepared.batch, 0);
-        if (status !== "ok" || offlineRef.current) {
-          return;
-        }
-        if (batchHasWork(nextBatch(outboxRef.current))) {
-          await sendBatch(false, depth + 1);
+          // A failed ask keeps the stored reading: a corrected clock is rarer
+          // than a delivery delay, which is what sending no reading counts.
+          const reading = needsClockReading(readMerged().clock, clockFreshAtRef.current, monotonicNow())
+            ? await askServerClock()
+            : null;
+          const batch = await withLock(async () => {
+            let merged = readMerged();
+            if (reading) {
+              merged = recordClock(merged, reading);
+            }
+            const prepared = prepareBatch(merged, nextBatch(merged));
+            writeThrough(holdChanges(merged, prepared.held));
+            return prepared.batch;
+          });
+          if (!batchHasWork(batch)) {
+            return;
+          }
+          const status = await postBatch(batch, 0);
+          if (status !== "ok" || offlineRef.current) {
+            return;
+          }
+          if (!batchHasWork(nextBatch(outboxRef.current))) {
+            return;
+          }
         }
       });
     },

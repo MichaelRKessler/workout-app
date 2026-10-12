@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { planLogOffer, sameLoggedSet } from "../lib/planLog.ts";
+import { lastTimeSpeech, planLogOffer, sameLoggedSet } from "../lib/planLog.ts";
 
 const routine = { reps: 5, weightLb: 225, durationSec: null, distanceM: null, calories: null };
 const previous = [{ reps: 5, weightLb: 215 }];
@@ -12,6 +12,10 @@ test("a routine target is what Log set saves, and last time stays beside it", ()
   assert.equal(offer.primary?.set.weightLb, 225);
   assert.equal(offer.lastTime?.label, "Last time: 5 × 215");
   assert.equal(offer.lastTime?.set.weightLb, 215);
+  assert.equal(
+    lastTimeSpeech("Bench press", offer.lastTime!.set, "lb"),
+    "Log 5 × 215 of Bench press, same as last time",
+  );
 });
 
 test("a reps-only target takes its weight from last time, not bodyweight", () => {

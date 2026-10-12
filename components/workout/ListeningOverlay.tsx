@@ -34,8 +34,8 @@ export function ListeningOverlay({
   const [elapsedMs, setElapsedMs] = useState(0);
   const barsRef = useRef<Array<HTMLSpanElement | null>>([]);
   useEffect(() => {
+    // Parsing keeps the final recording time on screen.
     if (status !== "recording") {
-      setElapsedMs(0);
       return;
     }
     const startedAt = Date.now();

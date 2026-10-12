@@ -115,7 +115,6 @@ export function ActiveWorkout({
               {canEditPlan ? (
                 <button
                   type="button"
-                  aria-pressed={editingPlan}
                   onClick={() => onEditingPlan?.(!editingPlan)}
                   className="min-h-11 rounded-full px-3 text-base font-semibold hover:bg-fill-2"
                 >

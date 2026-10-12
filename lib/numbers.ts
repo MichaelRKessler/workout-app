@@ -1,12 +1,8 @@
+import { parseRepsInput } from "../convex/lib/setInput.ts";
+
+/** Same rule as every set form; see convex/lib/setInput.ts. */
 export function parseReps(value: string): number | null {
-  if (!/^\d+$/.test(value.trim())) {
-    return null;
-  }
-  const reps = Number(value.trim());
-  if (!Number.isInteger(reps) || reps < 1 || reps > 999) {
-    return null;
-  }
-  return reps;
+  return parseRepsInput(value);
 }
 
 export function parseWeightLb(value: string): number | null {

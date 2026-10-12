@@ -23,6 +23,7 @@ type LibraryItem = {
   setCountCapped: boolean;
   muscleGroup: MuscleGroup;
   muscleSource: "saved" | "suggested";
+  mergingInto: string | null;
 };
 
 type Conflict = {
@@ -166,20 +167,23 @@ export function ExerciseLibrary() {
                 <span className="min-w-0">
                   <Link
                     href={exerciseLink(exercise._id, muscleFilterHref(muscle, fromHome)) ?? `/exercises/${exercise._id}`}
-                    className="block truncate text-base font-medium hover:underline"
+                    className="block truncate text-base font-medium underline decoration-line underline-offset-4 hover:decoration-current"
                   >
                     {exercise.name}
                   </Link>
                   <span className="text-sm text-muted">
-                    {exercise.setCountCapped
-                      ? `${exercise.setCount}+ sets`
-                      : pluralize(exercise.setCount, "set")}
+                    {exercise.mergingInto
+                      ? `Moving sets onto ${exercise.mergingInto}…`
+                      : exercise.setCountCapped
+                        ? `${exercise.setCount}+ sets`
+                        : pluralize(exercise.setCount, "set")}
                   </span>
                 </span>
                 <button
                   type="button"
+                  disabled={exercise.mergingInto !== null}
                   onClick={() => openRename(exercise._id, exercise.name)}
-                  className="min-h-11 shrink-0 rounded-full px-3 text-sm font-medium hover:bg-fill-2"
+                  className="min-h-11 shrink-0 rounded-full px-3 text-sm font-medium hover:bg-fill-2 disabled:opacity-50"
                 >
                   Rename
                 </button>
