@@ -5,6 +5,7 @@ import { OfflineBanner, OfflineSyncProvider } from "@/components/OfflineSync";
 import { useConnectivity } from "@/components/useConnectivity";
 import { WeightUnitProvider } from "@/components/WeightUnit";
 import { BrandMark } from "@/components/icons";
+import { clearShellCache } from "@/lib/pwa/clearShellCache";
 import { api } from "@/convex/_generated/api";
 import {
   cacheStore,
@@ -15,7 +16,7 @@ import {
 } from "@/lib/offline/storage";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import Link from "next/link";
-import { ReactNode, useEffect, useState } from "react";
+import { ReactNode, useEffect, useRef, useState } from "react";
 
 export function AppShell({ children }: { children: ReactNode }) {
   const { isAuthenticated, isLoading } = useConvexAuth();
@@ -49,6 +50,24 @@ export function AppShell({ children }: { children: ReactNode }) {
       resumeOfflineWrites();
     }
   }, [isAuthenticated]);
+
+  // Any sign-out clears cached pages, not only the Sign out button: an expired
+  // session lands here too. Offline, auth can drop without a sign-out, so the
+  // cache stays until the connection is back.
+  const wasAuthenticated = useRef(false);
+  useEffect(() => {
+    if (isLoading) {
+      return;
+    }
+    if (isAuthenticated) {
+      wasAuthenticated.current = true;
+      return;
+    }
+    if (wasAuthenticated.current && !offline) {
+      wasAuthenticated.current = false;
+      void clearShellCache().catch(() => undefined);
+    }
+  }, [isAuthenticated, isLoading, offline]);
 
   const useCache =
     offline &&

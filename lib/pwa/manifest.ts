@@ -34,14 +34,14 @@ export const webAppManifest: MetadataRoute.Manifest = {
       name: "New workout",
       short_name: "New",
       description: "Start a workout, or continue the one already open",
-      url: "/start?action=new",
+      url: "/start?action=new&source=shortcut",
       icons: [{ src: "/icons/icon-192.png", sizes: "192x192", type: "image/png" }],
     },
     {
       name: "Repeat last workout",
       short_name: "Repeat",
       description: "Start from the exercises in your latest finished workout",
-      url: "/start?action=repeat",
+      url: "/start?action=repeat&source=shortcut",
       icons: [{ src: "/icons/icon-192.png", sizes: "192x192", type: "image/png" }],
     },
     {

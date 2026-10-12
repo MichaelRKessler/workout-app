@@ -28,8 +28,8 @@ test("manifest meets Chrome installability criteria", () => {
   assert.deepEqual(
     (webAppManifest.shortcuts ?? []).map((shortcut) => [shortcut.name, shortcut.url]),
     [
-      ["New workout", "/start?action=new"],
-      ["Repeat last workout", "/start?action=repeat"],
+      ["New workout", "/start?action=new&source=shortcut"],
+      ["Repeat last workout", "/start?action=repeat&source=shortcut"],
       ["Routines", "/routines"],
       ["Log body weight", "/body"],
     ],

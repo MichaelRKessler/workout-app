@@ -9,22 +9,28 @@ export function isInstalledDisplayMode(mode: string): boolean {
   return (INSTALLED_DISPLAY_MODES as readonly string[]).includes(mode);
 }
 
+/** Added to the manifest's shortcut links so /start knows a tap came from one. */
+export const SHORTCUT_SOURCE = "shortcut";
+
 /**
- * A link from another site must not start a workout by itself. The installed
- * app's shortcuts open in standalone with an empty referrer (or the Android
- * launcher referrer) and keep the one-tap behavior.
+ * A link from another site or app must not start a workout by itself. Android
+ * reports any app that opened the link (Gmail, WhatsApp) the same way as the
+ * launcher, so only the app's own shortcuts, marked with `source=shortcut`,
+ * keep the one-tap start. Links inside the app keep it too.
  */
 export function startNeedsConfirmation(input: {
   installed: boolean;
   referrer: string;
   pageOrigin: string;
+  source: string | null;
 }): boolean {
   if (!input.installed) {
     return true;
   }
   const referrer = input.referrer.trim();
+  const fromShortcut = input.source === SHORTCUT_SOURCE;
   if (referrer.length === 0) {
-    return false;
+    return !fromShortcut;
   }
   let url: URL;
   try {
@@ -33,7 +39,7 @@ export function startNeedsConfirmation(input: {
     return true;
   }
   if (url.protocol === "android-app:") {
-    return false;
+    return !fromShortcut;
   }
   return url.origin !== input.pageOrigin;
 }

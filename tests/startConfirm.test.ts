@@ -10,7 +10,7 @@ const pageOrigin = "https://repsandsets.vercel.app";
 
 test("a browser visit must confirm before starting a workout", () => {
   assert.equal(
-    startNeedsConfirmation({ installed: false, referrer: "", pageOrigin }),
+    startNeedsConfirmation({ installed: false, referrer: "", pageOrigin, source: "shortcut" }),
     true,
   );
   assert.equal(
@@ -18,6 +18,7 @@ test("a browser visit must confirm before starting a workout", () => {
       installed: false,
       referrer: "https://evil.example/link",
       pageOrigin,
+      source: "shortcut",
     }),
     true,
   );
@@ -26,6 +27,7 @@ test("a browser visit must confirm before starting a workout", () => {
       installed: true,
       referrer: "https://evil.example/link",
       pageOrigin,
+      source: "shortcut",
     }),
     true,
   );
@@ -33,7 +35,7 @@ test("a browser visit must confirm before starting a workout", () => {
 
 test("an installed shortcut starts without a second confirmation", () => {
   assert.equal(
-    startNeedsConfirmation({ installed: true, referrer: "", pageOrigin }),
+    startNeedsConfirmation({ installed: true, referrer: "", pageOrigin, source: "shortcut" }),
     false,
   );
   assert.equal(
@@ -41,6 +43,7 @@ test("an installed shortcut starts without a second confirmation", () => {
       installed: true,
       referrer: "android-app://com.chrome",
       pageOrigin,
+      source: "shortcut",
     }),
     false,
   );
@@ -49,11 +52,28 @@ test("an installed shortcut starts without a second confirmation", () => {
       installed: true,
       referrer: `${pageOrigin}/`,
       pageOrigin,
+      source: null,
     }),
     false,
   );
   assert.equal(isInstalledDisplayMode("standalone"), true);
   assert.equal(isInstalledDisplayMode("browser"), false);
+});
+
+test("a link another app opens in the installed app still asks first", () => {
+  assert.equal(
+    startNeedsConfirmation({
+      installed: true,
+      referrer: "android-app://com.google.android.gm/",
+      pageOrigin,
+      source: null,
+    }),
+    true,
+  );
+  assert.equal(
+    startNeedsConfirmation({ installed: true, referrer: "", pageOrigin, source: null }),
+    true,
+  );
 });
 
 test("the confirm copy names the shortcut", () => {

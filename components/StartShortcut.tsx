@@ -53,6 +53,7 @@ export function StartShortcut() {
           installed,
           referrer: document.referrer,
           pageOrigin: window.location.origin,
+          source: new URLSearchParams(window.location.search).get("source"),
         }),
       );
     } catch {

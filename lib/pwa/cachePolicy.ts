@@ -116,7 +116,7 @@ export function mayStoreResponse(input: {
  * Remove Convex Auth's server token from an HTML document before it is cached.
  * The fetch time is zeroed so the client keeps the token in localStorage
  * instead of treating this shell as a sign-out. Returns null when a
- * token-shaped value is still present.
+ * token-shaped value, or any piece of one, is still present.
  */
 export function sanitizeCachedDocument(html: string): string | null {
   if (typeof html !== "string" || html.length === 0 || html.length > 2_000_000) {
@@ -125,7 +125,9 @@ export function sanitizeCachedDocument(html: string): string | null {
   const next = html
     .replace(/\\?"eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\\?"/g, "null")
     .replace(/_timeFetched\\?":\s*\d+/g, (match) => match.replace(/\d+$/, "0"));
-  if (/eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/.test(next)) {
+  // Fail closed on any piece of a token. React can split a row across pushes,
+  // and then neither half matches the full token above.
+  if (/eyJ[A-Za-z0-9_-]{16,}/.test(next)) {
     return null;
   }
   return next;
