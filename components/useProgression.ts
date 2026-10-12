@@ -3,7 +3,7 @@
 import { useWeightUnit } from "@/components/WeightUnit";
 import { api } from "@/convex/_generated/api";
 import { effectiveIncrementLb } from "@/convex/lib/progression";
-import { loadProgression, saveProgression, browserStore } from "@/lib/offline/storage";
+import { loadProgression, saveProgression, cacheStore } from "@/lib/offline/storage";
 import { useQuery } from "convex/react";
 import { useEffect, useState } from "react";
 
@@ -15,7 +15,7 @@ export function useProgression() {
   );
 
   useEffect(() => {
-    setCached(loadProgression(browserStore()));
+    setCached(loadProgression(cacheStore()));
   }, []);
 
   useEffect(() => {
@@ -26,7 +26,7 @@ export function useProgression() {
       enabled: prefs.suggestNextWeight,
       incrementLb: prefs.progressionIncrementLb,
     };
-    saveProgression(browserStore(), next);
+    saveProgression(cacheStore(), next);
     setCached(next);
   }, [prefs]);
 

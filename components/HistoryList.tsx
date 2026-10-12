@@ -14,6 +14,7 @@ import { supersetBlocks } from "@/convex/lib/superset";
 import { usePaginatedQuery } from "convex/react";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { readLocal, writeLocal } from "@/lib/localValue";
 
 const HISTORY_VIEW_KEY = "workout-history-view";
 
@@ -30,7 +31,7 @@ export function HistoryList() {
   const [view, setView] = useState<HistoryView>("list");
 
   useEffect(() => {
-    const stored = window.localStorage.getItem(HISTORY_VIEW_KEY);
+    const stored = readLocal(HISTORY_VIEW_KEY);
     if (stored === "list" || stored === "calendar") {
       setView(stored);
     }
@@ -38,7 +39,7 @@ export function HistoryList() {
 
   function chooseView(next: HistoryView) {
     setView(next);
-    window.localStorage.setItem(HISTORY_VIEW_KEY, next);
+    writeLocal(HISTORY_VIEW_KEY, next);
   }
 
   const months = useMemo(() => {

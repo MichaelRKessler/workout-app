@@ -59,7 +59,7 @@ import {
   type PendingPlan,
   type PendingPlanExercise,
 } from "@/lib/offline/routineCache";
-import { browserStore, loadCachedAccess } from "@/lib/offline/storage";
+import { cacheStore, loadCachedAccess } from "@/lib/offline/storage";
 import { exerciseLink } from "@/lib/exerciseLink";
 import { setFromPrefill } from "@/lib/prefill";
 import { calendarDayBounds, calendarDayKey, groupHistoryDays } from "@/lib/historyDays";
@@ -79,6 +79,7 @@ import {
 } from "@/convex/lib/superset";
 import { useMutation, useQuery } from "convex/react";
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { readLocal } from "@/lib/localValue";
 
 type Toasted = ToastMessage & { id: number };
 
@@ -261,14 +262,14 @@ export function LogWorkout() {
   const [viewerEmail, setViewerEmail] = useState<string | null>(null);
 
   useEffect(() => {
-    setViewerEmail(loadCachedAccess(browserStore())?.email ?? null);
+    setViewerEmail(loadCachedAccess(cacheStore())?.email ?? null);
   }, []);
 
   useEffect(() => {
     function loadPlan() {
-      const email = loadCachedAccess(browserStore())?.email ?? viewerEmail;
-      setLocalPlan(loadPendingPlan(browserStore(), email));
-      setCachedRoutines(loadRoutineCache(browserStore(), email));
+      const email = loadCachedAccess(cacheStore())?.email ?? viewerEmail;
+      setLocalPlan(loadPendingPlan(cacheStore(), email));
+      setCachedRoutines(loadRoutineCache(cacheStore(), email));
     }
     loadPlan();
     window.addEventListener(PENDING_PLAN_EVENT, loadPlan);
@@ -279,7 +280,7 @@ export function LogWorkout() {
     if (!routineList) {
       return;
     }
-    saveRoutineCache(browserStore(), viewerEmail, routineList);
+    saveRoutineCache(cacheStore(), viewerEmail, routineList);
     setCachedRoutines(routineList);
   }, [routineList, viewerEmail]);
 
@@ -323,7 +324,7 @@ export function LogWorkout() {
       return;
     }
     if (openSession.plan.length > 0) {
-      publishPendingPlan(browserStore(), viewerEmail, null);
+      publishPendingPlan(cacheStore(), viewerEmail, null);
       setLocalPlan(null);
       return;
     }
@@ -355,7 +356,7 @@ export function LogWorkout() {
   const [deviceRest, setDeviceRest] = useState(DEFAULT_REST_SECONDS);
   useEffect(() => {
     const read = () =>
-      setDeviceRest(readRestSeconds(window.localStorage.getItem(REST_STORAGE_KEY)));
+      setDeviceRest(readRestSeconds(readLocal(REST_STORAGE_KEY)));
     read();
     window.addEventListener("workout-rest-default", read);
     return () => window.removeEventListener("workout-rest-default", read);
@@ -923,7 +924,7 @@ export function LogWorkout() {
       return;
     }
     setFinishOpen(false);
-    publishPendingPlan(browserStore(), viewerEmail, null);
+    publishPendingPlan(cacheStore(), viewerEmail, null);
     setLocalPlan(null);
     setFinished({
       summary: summarizeSessions([
@@ -967,7 +968,7 @@ export function LogWorkout() {
         routineId: localPlan?.routineId ?? snapshot?.plan?.routineId ?? null,
         exercises,
       };
-      publishPendingPlan(browserStore(), viewerEmail, plan);
+      publishPendingPlan(cacheStore(), viewerEmail, plan);
       setLocalPlan(plan);
       return;
     }
@@ -1022,7 +1023,7 @@ export function LogWorkout() {
 
   async function discardWorkout() {
     if (!knownSession && sessionSets.length === 0) {
-      publishPendingPlan(browserStore(), viewerEmail, null);
+      publishPendingPlan(cacheStore(), viewerEmail, null);
       setLocalPlan(null);
       return;
     }
@@ -1036,7 +1037,7 @@ export function LogWorkout() {
       showToast({ tone: "error", message: saved.error });
       return;
     }
-    publishPendingPlan(browserStore(), viewerEmail, null);
+    publishPendingPlan(cacheStore(), viewerEmail, null);
     setLocalPlan(null);
   }
 

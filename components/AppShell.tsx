@@ -7,7 +7,7 @@ import { WeightUnitProvider } from "@/components/WeightUnit";
 import { BrandMark } from "@/components/icons";
 import { api } from "@/convex/_generated/api";
 import {
-  browserStore,
+  cacheStore,
   loadCachedAccess,
   resumeOfflineWrites,
   saveCachedAccess,
@@ -25,7 +25,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [cacheReady, setCacheReady] = useState(false);
 
   useEffect(() => {
-    setCached(loadCachedAccess(browserStore()));
+    setCached(loadCachedAccess(cacheStore()));
     setCacheReady(true);
   }, []);
 
@@ -40,7 +40,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       isAdmin: status.isAdmin,
       request: status.request,
     };
-    saveCachedAccess(browserStore(), next);
+    saveCachedAccess(cacheStore(), next);
     setCached(next);
   }, [status]);
 

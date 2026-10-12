@@ -18,6 +18,7 @@ import { adjustRestSeconds, readRestSeconds, REST_STORAGE_KEY } from "@/lib/rest
 import { useMutation, useQuery } from "convex/react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { readLocal, writeLocal } from "@/lib/localValue";
 
 export function SettingsScreen() {
   const viewer = useQuery(api.users.viewer);
@@ -323,8 +324,8 @@ function RestSettings() {
 
   useEffect(() => {
     function sync() {
-      setSeconds(readRestSeconds(window.localStorage.getItem(REST_STORAGE_KEY)));
-      setChime(readRestChime(window.localStorage.getItem(REST_CHIME_KEY)));
+      setSeconds(readRestSeconds(readLocal(REST_STORAGE_KEY)));
+      setChime(readRestChime(readLocal(REST_CHIME_KEY)));
     }
     sync();
     window.addEventListener("workout-rest-default", sync);
@@ -339,14 +340,14 @@ function RestSettings() {
 
   function change(direction: -1 | 1) {
     const next = adjustRestSeconds(seconds, direction);
-    window.localStorage.setItem(REST_STORAGE_KEY, String(next));
+    writeLocal(REST_STORAGE_KEY, String(next));
     setSeconds(next);
     window.dispatchEvent(new Event("workout-rest-default"));
   }
 
   function toggleChime() {
     const next = !chime;
-    window.localStorage.setItem(REST_CHIME_KEY, restChimeStored(next));
+    writeLocal(REST_CHIME_KEY, restChimeStored(next));
     setChime(next);
     window.dispatchEvent(new Event("workout-rest-chime"));
   }

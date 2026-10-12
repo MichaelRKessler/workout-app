@@ -210,8 +210,27 @@ test("a storage failure while moving does not delete the old queue or return an 
     },
     keys: () => [...values.keys()],
   });
-  assert.throws(() => loadOutbox(store, "lifter@example.com"), OfflineStorageError);
+  const loaded = loadOutbox(store, "lifter@example.com");
+  assert.equal(loaded.sets[0]?.clientId, "client0001");
   assert.match(values.get("workout-offline:outbox:lifter@example.com") ?? "", /client0001/);
+});
+
+test("a blocked store still reports a storage error instead of an empty queue", () => {
+  const store = guardStore({
+    get: () => {
+      throw new Error("SecurityError");
+    },
+    set: () => {
+      throw new Error("SecurityError");
+    },
+    remove: () => {
+      throw new Error("SecurityError");
+    },
+    keys: () => {
+      throw new Error("SecurityError");
+    },
+  });
+  assert.throws(() => loadOutbox(store, "lifter@example.com"), OfflineStorageError);
 });
 
 test("global rest times follow the cached account, not whoever is loading", () => {

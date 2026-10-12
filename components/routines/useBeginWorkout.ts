@@ -9,7 +9,7 @@ import {
   publishPendingPlan,
   type CachedRoutine,
 } from "@/lib/offline/routineCache";
-import { browserStore, loadCachedAccess } from "@/lib/offline/storage";
+import { cacheStore, loadCachedAccess } from "@/lib/offline/storage";
 import { useMutation, useQuery } from "convex/react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
@@ -18,7 +18,7 @@ function useViewerEmail(): string | null {
   const status = useQuery(api.access.myStatus);
   const [cached, setCached] = useState<string | null>(null);
   useEffect(() => {
-    setCached(loadCachedAccess(browserStore())?.email ?? null);
+    setCached(loadCachedAccess(cacheStore())?.email ?? null);
   }, []);
   return status?.email ?? cached;
 }
@@ -48,7 +48,7 @@ export function useBeginWorkout() {
         setPromptOpen(true);
         return;
       }
-      const cached = loadRoutineCache(browserStore(), email)?.find(
+      const cached = loadRoutineCache(cacheStore(), email)?.find(
         (routine) => routine._id === routineId,
       );
       if (!cached || cached.exercises.length === 0) {
@@ -65,7 +65,7 @@ export function useBeginWorkout() {
         setPromptOpen(true);
         return;
       }
-      publishPendingPlan(browserStore(), email, null);
+      publishPendingPlan(cacheStore(), email, null);
       router.push("/");
     } catch (caught) {
       setError(readableError(caught));
@@ -75,7 +75,7 @@ export function useBeginWorkout() {
   }
 
   function startCached(routine: CachedRoutine) {
-    publishPendingPlan(browserStore(), email, {
+    publishPendingPlan(cacheStore(), email, {
       startedAt: Date.now(),
       name: routine.name,
       routineId: routine._id,
@@ -99,7 +99,7 @@ export function useBeginWorkout() {
         setPromptOpen(true);
         return;
       }
-      publishPendingPlan(browserStore(), email, null);
+      publishPendingPlan(cacheStore(), email, null);
       router.push("/");
     } catch (caught) {
       setError(readableError(caught));

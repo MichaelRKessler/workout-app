@@ -68,6 +68,7 @@ import { shouldSendFinishDirectly, syncFailurePlan } from "@/lib/offline/syncPla
 import {
   accountKey,
   browserStore,
+  cacheStore,
   loadOutbox,
   loadSnapshot,
   OfflineStorageError,
@@ -947,7 +948,8 @@ export function OfflineSyncProvider({
     }
     snapshotSerial.current = serial;
     setSnapshot(next);
-    saveSnapshot(browserStore(), emailRef.current, next);
+    // The snapshot is a cache; a full store must not break the log screen.
+    saveSnapshot(cacheStore(), emailRef.current, next);
   }, []);
 
   const reconcile = useCallback(
