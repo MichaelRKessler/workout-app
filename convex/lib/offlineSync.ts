@@ -419,6 +419,9 @@ export async function acceptOfflineBatch(
           matches.find((session) => session.status === "open") ??
           (missingRequested ? matches[0] : undefined);
         if (openMatch) {
+          if (openMatch.status === "completed") {
+            closedOnArrival.add(openMatch._id);
+          }
           rememberSession(key, item.sessionClientId, openMatch._id);
           return openMatch._id;
         }

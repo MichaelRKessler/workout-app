@@ -258,6 +258,9 @@ describe("merging exercises", () => {
     const stillGone = await t.run(async (ctx) => await ctx.db.get("exercises", seeded.fromId));
     expect(stillGone).toBeNull();
 
+    await t.run(async (ctx) => {
+      await ctx.db.patch("exercises", seeded.blockedFrom, { mergingInto: seeded.blockedInto });
+    });
     const stopped = await t.mutation(internal.exercises.continueMerge, {
       userId: blocked.userId,
       fromId: seeded.blockedFrom,
@@ -272,9 +275,10 @@ describe("merging exercises", () => {
           q.eq("userId", blocked.userId).eq("exerciseId", seeded.blockedFrom),
         )
         .take(5);
-      return { name: exercise?.name ?? null, sets: sets.length };
+      return { name: exercise?.name ?? null, sets: sets.length, merging: exercise?.mergingInto };
     });
-    expect(blockedStill).toEqual({ name: "Curls", sets: 1 });
+    // Stopped for lost access, it shows as a normal exercise again.
+    expect(blockedStill).toEqual({ name: "Curls", sets: 1, merging: undefined });
   });
 
   test("a running merge shows in the library, blocks chained merges, and survives a lost target", async () => {
@@ -350,6 +354,17 @@ describe("merging exercises", () => {
 
     const planOnly = await t.run(async (ctx) => await ctx.db.get("sessions", seeded.planOnly));
     expect(planOnly?.plan?.[0]?.exerciseId).toBe(seeded.intoId);
+    const kept = await t.run(async (ctx) => await ctx.db.get("exercises", seeded.intoId));
+    expect(kept?.pendingPlanScans).toBeUndefined();
+
+    // While finished plans are still being repointed, the kept exercise can't
+    // be merged away.
+    await t.run(async (ctx) => {
+      await ctx.db.patch("exercises", seeded.intoId, { pendingPlanScans: 1 });
+    });
+    await expect(
+      owner.asUser.mutation(api.exercises.merge, { fromId: seeded.intoId, intoId: seeded.otherId }),
+    ).rejects.toThrow(/still being updated/);
 
     // A merge started before this check whose target is gone stops cleanly.
     const lost = await t.run(async (ctx) => {

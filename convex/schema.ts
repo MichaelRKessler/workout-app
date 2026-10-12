@@ -50,6 +50,9 @@ export default defineSchema({
     // Set on the source while a merge that didn't fit in one transaction is
     // still moving its sets. Absent once the merge finishes or stops.
     mergingInto: v.optional(v.id("exercises")),
+    // Set on the kept exercise while finished workouts' plans are repointed
+    // to it after a merge, so it can't be merged away mid-scan.
+    pendingPlanScans: v.optional(v.number()),
   })
     .index("by_user_and_normalized_name", ["userId", "normalizedName"])
     .index("by_merging_into", ["mergingInto"])

@@ -405,6 +405,10 @@ describe("offline sync", () => {
       actions: [],
     });
     expect(later.sets[0]?.sessionId).toBe(saved.sets[0]?.sessionId);
+    const recreated = await t.run(
+      async (ctx) => await ctx.db.get("sessions", saved.sets[0]!.sessionId! as never),
+    );
+    expect((recreated as { completedAt?: number } | null)?.completedAt).toBe(NOW + 60_000);
   });
 
   test("removed client ids are forgotten after 30 days", async () => {

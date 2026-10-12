@@ -51,6 +51,9 @@ export async function applyMergeBatch(
   if (from.mergingInto !== undefined && from.mergingInto !== into._id) {
     throw userError(`${from.name} is still being merged. Try again when it finishes.`);
   }
+  if ((from.pendingPlanScans ?? 0) > 0) {
+    throw userError(`Workouts that used ${from.name} are still being updated. Try again when that finishes.`);
+  }
   if (await isMergeTarget(ctx, from._id)) {
     throw userError(`Sets are still moving onto ${from.name}. Try again when that finishes.`);
   }
@@ -129,4 +132,35 @@ export async function stopMergeIfTargetGone(
     await invalidateExercises(ctx, userId, [from._id]);
   }
   return true;
+}
+
+/**
+ * A merge that stops before it finishes, such as when the person loses
+ * access, leaves the source as a normal exercise so it can be merged again.
+ */
+export async function clearMergeMarker(
+  ctx: MutationCtx,
+  userId: Id<"users">,
+  fromId: Id<"exercises">,
+): Promise<void> {
+  const from = await ctx.db.get("exercises", fromId);
+  if (from && from.userId === userId && from.mergingInto !== undefined) {
+    await ctx.db.patch("exercises", from._id, { mergingInto: undefined });
+  }
+}
+
+/** Counts a finished-plan scan on the kept exercise until it ends. */
+export async function adjustPlanScans(
+  ctx: MutationCtx,
+  exerciseId: Id<"exercises">,
+  delta: 1 | -1,
+): Promise<void> {
+  const exercise = await ctx.db.get("exercises", exerciseId);
+  if (!exercise) {
+    return;
+  }
+  const next = Math.max(0, (exercise.pendingPlanScans ?? 0) + delta);
+  await ctx.db.patch("exercises", exercise._id, {
+    pendingPlanScans: next > 0 ? next : undefined,
+  });
 }

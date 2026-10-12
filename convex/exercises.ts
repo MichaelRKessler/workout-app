@@ -6,7 +6,12 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { internalMutation } from "./_generated/server";
 import { isEmailAllowed, normalizeEmail } from "./lib/accessControl";
 import { authedMutation, authedQuery } from "./lib/customFunctions";
-import { applyMergeBatch, stopMergeIfTargetGone } from "./lib/exerciseMerge";
+import {
+  adjustPlanScans,
+  applyMergeBatch,
+  clearMergeMarker,
+  stopMergeIfTargetGone,
+} from "./lib/exerciseMerge";
 import { effortsFromStats, findExerciseStats, libraryCount } from "./lib/exerciseStats";
 import { exerciseRecord } from "./lib/exerciseFields";
 import { formatExerciseName, MAX_KNOWN_EXERCISE_NAMES } from "./lib/exerciseName";
@@ -591,6 +596,7 @@ export const continueMerge = internalMutation({
     const user = await ctx.db.get("users", args.userId);
     const email = user?.email ? normalizeEmail(user.email) : null;
     if (!email || !(await isEmailAllowed(ctx, email))) {
+      await clearMergeMarker(ctx, args.userId, args.fromId);
       return null;
     }
     if (await stopMergeIfTargetGone(ctx, args.userId, args.fromId, args.intoId)) {
@@ -613,6 +619,7 @@ async function scheduleNextStep(
     await ctx.scheduler.runAfter(0, internal.exercises.continueMerge, { userId, fromId, intoId });
     return;
   }
+  await adjustPlanScans(ctx, intoId, 1);
   await ctx.scheduler.runAfter(0, internal.exercises.repointFinishedPlans, {
     userId,
     fromId,
@@ -650,7 +657,9 @@ export const repointFinishedPlans = internalMutation({
         ...args,
         cursor: result.continueCursor,
       });
+      return null;
     }
+    await adjustPlanScans(ctx, args.intoId, -1);
     return null;
   },
 });
