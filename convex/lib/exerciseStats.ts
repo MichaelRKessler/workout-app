@@ -2,6 +2,7 @@ import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import {
+  absorbPrimary,
   absorbSet,
   bestsFromStored,
   comparisonPoints,
@@ -27,6 +28,9 @@ const BACKFILL_SESSIONS = 4;
 const LIBRARY_CAP = 100;
 const STALLED_PAGE = 8;
 const DUPLICATE_SCAN = 8;
+const IN_PLACE_SETS = 30;
+const SESSION_SETS = 500;
+const RECORD_RULES = 2;
 
 const METRICS: MarkMetric[] = ["weight", "epley", "reps", "duration", "distance", "calories"];
 
@@ -75,7 +79,9 @@ export async function findExerciseStats(
 /**
  * The stats row for writers. Extra rows are deleted, and the one kept is
  * rebuilt under a generation neither row used, since both rows wrote marks
- * and session calories under their own generations.
+ * and session calories under their own generations. A row whose untimed
+ * distance best was kept under the old rules is rebuilt once, because a
+ * later timed set at that distance may have set the time to beat.
  */
 async function settledStats(
   ctx: MutationCtx,
@@ -91,7 +97,24 @@ async function settledStats(
     return null;
   }
   if (extras.length === 0) {
-    return stats;
+    const oldRules =
+      stats.ready &&
+      !stats.drop &&
+      (stats.recordRules ?? 1) < RECORD_RULES &&
+      stats.bestDistance !== null &&
+      stats.bestDistance.durationSec === null;
+    if (!oldRules) {
+      return stats;
+    }
+    await schedulePage(ctx, stats, {
+      generation: stats.generation + 1,
+      phase: "purge",
+      cursor: null,
+      ready: false,
+      dirty: false,
+      drop: false,
+    });
+    return await ctx.db.get("exerciseStats", stats._id);
   }
   for (const extra of extras) {
     await ctx.db.delete("exerciseStats", extra._id);
@@ -138,8 +161,9 @@ export function effortsFromStats(stats: Doc<"exerciseStats">): {
 
 /**
  * Records for sets that were just inserted. Appends update the stored bests
- * in place. A past set, or history that is not ready yet, keeps today's scan
- * for the announcement and schedules a rebuild.
+ * in place, and so does a past set that changes nothing later sets were
+ * judged against. Any other past set, or history that is not ready yet,
+ * keeps today's scan for the announcement and schedules a rebuild.
  */
 export async function recordInsertedSets(
   ctx: MutationCtx,
@@ -165,30 +189,36 @@ export async function recordInsertedSets(
   }
   if (stats?.ready && !stats.drop) {
     const announced = await announceFromMarks(ctx, stats, exerciseName, sorted);
-    await requestRebuild(ctx, userId, exerciseId);
+    if (!(await insertInPlace(ctx, stats, exerciseName, sorted))) {
+      await requestRebuild(ctx, userId, exerciseId, earliest);
+    }
     return announced;
   }
-  // Only a missing row starts fresh. A row that is still rebuilding is marked
-  // dirty below, so the rebuild picks these sets up and no second row appears.
+  // Only a missing row starts fresh. A row that is still rebuilding picks
+  // these sets up below, from a later page or by starting over, so no second
+  // row appears.
   if (!stats && (await historyIsOnly(ctx, userId, exerciseId, sorted))) {
     return await commitFresh(ctx, userId, exerciseId, exerciseName, sorted);
   }
   const announced = await announceFromScan(ctx, userId, exerciseId, exerciseName, sorted);
-  await requestRebuild(ctx, userId, exerciseId);
+  await requestRebuild(ctx, userId, exerciseId, earliest);
   return announced;
 }
 
-/** Announces an edit, then rebuilds. The latest set can be judged from marks. */
+/**
+ * Announces an edit. The latest set can be judged from marks. History is
+ * rebuilt unless the edit leaves it alone. Call it after the set is saved:
+ * the stamps written here replace the ones the save dropped.
+ */
 export async function recordEditedSet(
   ctx: MutationCtx,
   userId: Id<"users">,
-  exerciseId: Id<"exercises">,
   exerciseName: string,
-  loggedAt: number,
-  sessionId: Id<"sessions">,
-  before: ReturnType<typeof recordPoint>,
+  set: Doc<"sets">,
   after: ReturnType<typeof recordPoint>,
 ): Promise<PersonalRecord | null> {
+  const { exerciseId, loggedAt, sessionId } = set;
+  const before = recordPoint(set);
   const stats = await settledStats(ctx, userId, exerciseId);
   const latest =
     stats !== null &&
@@ -213,12 +243,50 @@ export async function recordEditedSet(
       before,
       after,
       earlier
-        .filter((set) => set.userId === userId && set.exerciseId === exerciseId)
-        .map((set) => recordPoint(set)),
+        .filter((row) => row.userId === userId && row.exerciseId === exerciseId)
+        .map((row) => recordPoint(row)),
     );
   }
-  await requestRebuild(ctx, userId, exerciseId);
+  if (!(stats?.ready && !stats.drop && (await editInPlace(ctx, stats, exerciseName, set, after)))) {
+    await requestRebuild(ctx, userId, exerciseId, loggedAt);
+  }
   return personalRecord;
+}
+
+/**
+ * Stats after sets were deleted. Sets that left the bests alone come off the
+ * count in place. Anything else rebuilds that exercise's history, and so does
+ * a large delete such as a long workout, since each set takes a few lookups.
+ */
+export async function recordRemovedSets(
+  ctx: MutationCtx,
+  userId: Id<"users">,
+  removed: Array<Doc<"sets">>,
+): Promise<void> {
+  const inPlace = removed.length <= IN_PLACE_SETS;
+  const byExercise = new Map<Id<"exercises">, Array<Doc<"sets">>>();
+  for (const set of removed) {
+    if (set.userId !== userId) {
+      continue;
+    }
+    const list = byExercise.get(set.exerciseId) ?? [];
+    list.push(set);
+    byExercise.set(set.exerciseId, list);
+  }
+  for (const [exerciseId, sets] of byExercise) {
+    const exercise = await ctx.db.get("exercises", exerciseId);
+    const stats = await settledStats(ctx, userId, exerciseId);
+    if (
+      inPlace &&
+      exercise?.userId === userId &&
+      stats?.ready &&
+      !stats.drop &&
+      (await removeInPlace(ctx, stats, sets))
+    ) {
+      continue;
+    }
+    await requestRebuild(ctx, userId, exerciseId, Math.min(...sets.map((set) => set.loggedAt)));
+  }
 }
 
 export async function invalidateExercises(
@@ -260,10 +328,16 @@ export async function stampsOrScan(
   );
 }
 
+/**
+ * Rebuilds an exercise's history after a change at `loggedAt`, or at an
+ * unknown time when it is left out. A rebuild already running starts over
+ * only when it has walked past that time.
+ */
 export async function requestRebuild(
   ctx: MutationCtx,
   userId: Id<"users">,
   exerciseId: Id<"exercises">,
+  loggedAt?: number,
 ): Promise<void> {
   const exercise = await ctx.db.get("exercises", exerciseId);
   const stats = await settledStats(ctx, userId, exerciseId);
@@ -297,9 +371,24 @@ export async function requestRebuild(
     });
     return;
   }
-  if (!stats.dirty) {
+  if (!stats.dirty && !rebuildWillRead(stats, loggedAt)) {
     await ctx.db.patch("exerciseStats", stats._id, { dirty: true });
   }
+}
+
+/**
+ * Whether a running rebuild will still read a change at this time. Pages
+ * walk sets oldest first from a cursor, so a set written after the last one
+ * walked is read by a later page. Nothing is walked before the walk phase.
+ */
+function rebuildWillRead(stats: Doc<"exerciseStats">, loggedAt: number | undefined): boolean {
+  if (loggedAt === undefined || stats.drop) {
+    return false;
+  }
+  if (stats.phase !== "walk" || stats.cursor === null) {
+    return true;
+  }
+  return stats.walkedThrough !== undefined && loggedAt > stats.walkedThrough;
 }
 
 export async function runRebuildPage(
@@ -581,7 +670,10 @@ async function walkSets(
     scheduledAt: Date.now(),
   };
   if (!page.isDone) {
-    await continuePage(ctx, stats, page.continueCursor, patch);
+    await continuePage(ctx, stats, page.continueCursor, {
+      ...patch,
+      walkedThrough: page.page[page.page.length - 1]?.loggedAt ?? stats.walkedThrough,
+    });
     return;
   }
   if (stats.dirty) {
@@ -604,6 +696,8 @@ async function walkSets(
     dirty: false,
     cursor: null,
     phase: "walk",
+    walkedThrough: undefined,
+    recordRules: RECORD_RULES,
   });
 }
 
@@ -677,12 +771,15 @@ async function commitFold(
     stats.lastLoggedAt === null || (last && last.loggedAt > stats.lastLoggedAt)
       ? (last?.loggedAt ?? stats.lastLoggedAt)
       : stats.lastLoggedAt;
+  // A row that reaches an append passed the check in settledStats, so its
+  // comparison is current and stays current with this fold.
   await ctx.db.patch("exerciseStats", stats._id, {
     ...storedBests(current),
     setCount: stats.setCount + sets.length,
     lastLoggedAt,
     ready,
     phase: "walk",
+    recordRules: RECORD_RULES,
   });
   if (announced) {
     return { headline: announced.headline, records: announced.records, perSet };
@@ -795,6 +892,237 @@ async function historyIsOnly(
   return rows.every((row) => ids.has(row._id) && row.userId === userId && row.exerciseId === exerciseId);
 }
 
+/**
+ * A past set that is no record at its own time, and adds no calories that
+ * count, changes nothing a later set was judged against. It needs only its
+ * empty stamps and the count. Anything else may change later stamps.
+ */
+async function insertInPlace(
+  ctx: MutationCtx,
+  stats: Doc<"exerciseStats">,
+  exerciseName: string,
+  sets: InsertedSet[],
+): Promise<boolean> {
+  if (sets.length > IN_PLACE_SETS || sets.some((set) => countableCalories(set) > 0)) {
+    return false;
+  }
+  for (const set of sets) {
+    // Marks at the set's own time are left out, so this best is never higher
+    // than the one a rebuild compares with. At worst a set rebuilds needlessly.
+    const bests = await bestsBefore(ctx, stats, set.loggedAt);
+    if (movesBests(absorbPrimary(exerciseName, bests, judged(set)))) {
+      return false;
+    }
+  }
+  let lastLoggedAt = stats.lastLoggedAt;
+  for (const set of sets) {
+    await writeStamps(ctx, set._id, undefined, []);
+    if (lastLoggedAt === null || set.loggedAt > lastLoggedAt) {
+      lastLoggedAt = set.loggedAt;
+    }
+  }
+  await ctx.db.patch("exerciseStats", stats._id, {
+    setCount: stats.setCount + sets.length,
+    lastLoggedAt,
+  });
+  return true;
+}
+
+/**
+ * An edit leaves history alone when only RPE changed, or when the old values
+ * were no record and held no best, the calories that count are unchanged,
+ * and the new values are no record at the set's own time. When nothing was
+ * logged after the set, new values that are a record fold in the way an
+ * append does.
+ */
+async function editInPlace(
+  ctx: MutationCtx,
+  stats: Doc<"exerciseStats">,
+  exerciseName: string,
+  set: Doc<"sets">,
+  after: ReturnType<typeof recordPoint>,
+): Promise<boolean> {
+  if (set.recordStamps !== undefined && sameMeasures(recordPoint(set), after)) {
+    await writeStamps(ctx, set._id, undefined, set.recordStamps);
+    return true;
+  }
+  if (
+    countableCalories(set) !== countableCalories(after) ||
+    !(await leftBestsAlone(ctx, stats, set))
+  ) {
+    return false;
+  }
+  const fromHere = await ctx.db
+    .query("sets")
+    .withIndex("by_user_exercise_and_logged", (q) =>
+      q.eq("userId", stats.userId).eq("exerciseId", stats.exerciseId).gte("loggedAt", set.loggedAt),
+    )
+    .take(2);
+  const latest = fromHere.length === 1 && fromHere[0]?._id === set._id;
+  // The old values moved no best, so for the latest set the stored bests are
+  // the bests before it.
+  const bests = latest ? bestsFromStored(stats) : await bestsBefore(ctx, stats, set.loggedAt);
+  const folded = absorbPrimary(exerciseName, bests, {
+    setId: set._id,
+    sessionId: set.sessionId,
+    loggedAt: set.loggedAt,
+    reps: after.reps,
+    weightLb: after.weightLb,
+    durationSec: after.durationSec,
+    distanceM: after.distanceM,
+    calories: after.calories,
+    setType: after.setType,
+  });
+  const moved = movesBests(folded);
+  if (moved && !latest) {
+    return false;
+  }
+  await writeStamps(ctx, set._id, undefined, folded.stamps);
+  if (moved) {
+    await writeMarks(ctx, stats, folded.marks);
+    await ctx.db.patch("exerciseStats", stats._id, storedBests(folded.bests));
+  }
+  return true;
+}
+
+/**
+ * Takes deleted sets off the count when they left the bests alone. Their
+ * calories come off their session's total when that session was never the
+ * calorie record, which a calorie stamp on one of its sets would show, and
+ * is not the best or second best now. Lowering such a session cannot change
+ * what a later session had to beat.
+ */
+async function removeInPlace(
+  ctx: MutationCtx,
+  stats: Doc<"exerciseStats">,
+  sets: Array<Doc<"sets">>,
+): Promise<boolean> {
+  if (stats.setCount < sets.length) {
+    return false;
+  }
+  for (const set of sets) {
+    if (!(await leftBestsAlone(ctx, stats, set))) {
+      return false;
+    }
+  }
+  const removedCalories = new Map<Id<"sessions">, number>();
+  for (const set of sets) {
+    const calories = countableCalories(set);
+    if (calories > 0) {
+      removedCalories.set(set.sessionId, (removedCalories.get(set.sessionId) ?? 0) + calories);
+    }
+  }
+  const totals: Array<{ row: Doc<"exerciseSessionCalories">; calories: number }> = [];
+  for (const [sessionId, calories] of removedCalories) {
+    if (
+      stats.bestCalories?.sessionId === sessionId ||
+      stats.secondCalories?.sessionId === sessionId
+    ) {
+      return false;
+    }
+    const rest = await ctx.db
+      .query("sets")
+      .withIndex("by_session_and_exercise", (q) =>
+        q.eq("sessionId", sessionId).eq("exerciseId", stats.exerciseId),
+      )
+      .take(SESSION_SETS + 1);
+    if (
+      rest.length > SESSION_SETS ||
+      rest.some(
+        (row) =>
+          row.recordStamps === undefined ||
+          row.recordStamps.some((stamp) => stamp.kind === "calories"),
+      )
+    ) {
+      return false;
+    }
+    const row = await sessionCaloriesRow(ctx, stats, sessionId);
+    if (!row || row.calories < calories) {
+      return false;
+    }
+    totals.push({ row, calories: row.calories - calories });
+  }
+  for (const { row, calories } of totals) {
+    if (calories > 0) {
+      await ctx.db.patch("exerciseSessionCalories", row._id, { calories });
+    } else {
+      await ctx.db.delete("exerciseSessionCalories", row._id);
+    }
+  }
+  const previous = stats.lastLoggedAt;
+  let lastLoggedAt = previous;
+  if (previous === null || sets.some((set) => set.loggedAt >= previous)) {
+    const newest = await ctx.db
+      .query("sets")
+      .withIndex("by_user_exercise_and_logged", (q) =>
+        q.eq("userId", stats.userId).eq("exerciseId", stats.exerciseId),
+      )
+      .order("desc")
+      .take(1);
+    lastLoggedAt = newest[0]?.loggedAt ?? null;
+  }
+  await ctx.db.patch("exerciseStats", stats._id, {
+    setCount: stats.setCount - sets.length,
+    lastLoggedAt,
+  });
+  return true;
+}
+
+/**
+ * Whether a set left the bests alone when it was judged: it has no record
+ * stamp, and no stored best or mark names it. A mark without a stamp is a
+ * timed distance set that set the time to beat. Calorie bests name sessions,
+ * so callers check those.
+ */
+async function leftBestsAlone(
+  ctx: MutationCtx,
+  stats: Doc<"exerciseStats">,
+  set: Doc<"sets">,
+): Promise<boolean> {
+  if (set.recordStamps === undefined || set.recordStamps.length > 0) {
+    return false;
+  }
+  const held = [stats.bestWeight, stats.bestEpley, stats.bestReps, stats.bestDuration, stats.bestDistance];
+  if (held.some((best) => best?.setId === set._id)) {
+    return false;
+  }
+  for (const metric of METRICS) {
+    const marks = await ctx.db
+      .query("recordMarks")
+      .withIndex("by_metric", (q) =>
+        q
+          .eq("userId", stats.userId)
+          .eq("exerciseId", stats.exerciseId)
+          .eq("generation", stats.generation)
+          .eq("metric", metric)
+          .eq("loggedAt", set.loggedAt),
+      )
+      .take(DUPLICATE_SCAN);
+    if (marks.length === DUPLICATE_SCAN || marks.some((mark) => mark.setId === set._id)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function movesBests(folded: { stamps: RecordStamp[]; marks: MarkDraft[] }): boolean {
+  return folded.stamps.length > 0 || folded.marks.length > 0;
+}
+
+function sameMeasures(
+  left: ReturnType<typeof recordPoint>,
+  right: ReturnType<typeof recordPoint>,
+): boolean {
+  return (
+    left.reps === right.reps &&
+    left.weightLb === right.weightLb &&
+    left.durationSec === right.durationSec &&
+    left.distanceM === right.distanceM &&
+    left.calories === right.calories &&
+    left.setType === right.setType
+  );
+}
+
 async function bestsBefore(
   ctx: MutationCtx,
   stats: Doc<"exerciseStats">,
@@ -890,6 +1218,24 @@ async function readSessionCalories(
     return 0;
   }
   return row.calories;
+}
+
+async function sessionCaloriesRow(
+  ctx: ReadCtx,
+  stats: Doc<"exerciseStats">,
+  sessionId: Id<"sessions">,
+): Promise<Doc<"exerciseSessionCalories"> | null> {
+  const row = await ctx.db
+    .query("exerciseSessionCalories")
+    .withIndex("by_session", (q) =>
+      q
+        .eq("userId", stats.userId)
+        .eq("exerciseId", stats.exerciseId)
+        .eq("generation", stats.generation)
+        .eq("sessionId", sessionId),
+    )
+    .unique();
+  return row && row.userId === stats.userId ? row : null;
 }
 
 async function writeSessionCalories(
@@ -1047,6 +1393,7 @@ function blankStats(userId: Id<"users">, exerciseId: Id<"exercises">, generation
     phase: "purge" as const,
     scheduledAt: now,
     step: 0,
+    recordRules: RECORD_RULES,
     ...storedBests(emptyBests()),
   };
 }

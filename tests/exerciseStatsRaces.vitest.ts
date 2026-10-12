@@ -3,9 +3,8 @@ import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
 import type { Doc, Id } from "../convex/_generated/dataModel";
-import { absorbSet, emptyBests } from "../convex/lib/recordBests";
-import { resolvedSetType } from "../convex/lib/setType";
 import schema from "../convex/schema";
+import { audit } from "./statsAudit";
 
 const modules = import.meta.glob("../convex/**/*.ts");
 const STALL_MS = 2 * 60 * 1000;
@@ -52,86 +51,6 @@ async function exerciseNamed(t: Backend, normalizedName: string) {
     throw new Error(`No exercise named ${normalizedName}`);
   }
   return exercise._id;
-}
-
-/** Recomputes every exercise's stats from its sets and lists what the stored rows get wrong. */
-async function audit(t: Backend): Promise<string[]> {
-  return await t.run(async (ctx) => {
-    const problems: string[] = [];
-    const rows = await ctx.db.query("exerciseStats").collect();
-    const exercises = await ctx.db.query("exercises").collect();
-    for (const exercise of exercises) {
-      const owned = rows.filter((row) => row.exerciseId === exercise._id);
-      if (owned.length > 1) {
-        problems.push(`${exercise.name}: ${owned.length} stats rows`);
-      }
-      const stats = owned[0];
-      if (!stats || !exercise.userId) {
-        continue;
-      }
-      if (!stats.ready) {
-        problems.push(`${exercise.name}: not ready`);
-        continue;
-      }
-      const userId = exercise.userId;
-      const sets = await ctx.db
-        .query("sets")
-        .withIndex("by_user_exercise_and_logged", (q) => q.eq("userId", userId).eq("exerciseId", exercise._id))
-        .order("asc")
-        .collect();
-      if (stats.setCount !== sets.length) {
-        problems.push(`${exercise.name}: setCount ${stats.setCount}, expected ${sets.length}`);
-      }
-      const last = sets.length > 0 ? Math.max(...sets.map((set) => set.loggedAt)) : null;
-      if (stats.lastLoggedAt !== last) {
-        problems.push(`${exercise.name}: lastLoggedAt ${stats.lastLoggedAt}, expected ${last}`);
-      }
-      let bests = emptyBests();
-      const sessionCalories = new Map<string, number>();
-      for (const set of sets) {
-        const folded = absorbSet(exercise.name, bests, sessionCalories.get(set.sessionId) ?? 0, {
-          setId: set._id,
-          sessionId: set.sessionId,
-          loggedAt: set.loggedAt,
-          reps: set.reps ?? null,
-          weightLb: set.weightLb,
-          durationSec: set.durationSec ?? null,
-          distanceM: set.distanceM ?? null,
-          calories: set.calories ?? null,
-          setType: resolvedSetType(set.setType),
-        });
-        bests = folded.bests;
-        sessionCalories.set(set.sessionId, folded.sessionCalories);
-        const stored = (set.recordStamps ?? []).map((stamp) => stamp.kind).join(",");
-        const expected = folded.stamps.map((stamp) => stamp.kind).join(",");
-        if (set.recordStamps === undefined || stored !== expected) {
-          problems.push(`${exercise.name} set ${set.weightLb}x${set.reps}: stamps [${stored}], expected [${expected}]`);
-        }
-      }
-      const compared: Array<[string, unknown, unknown]> = [
-        ["bestWeight", stats.bestWeight?.setId ?? null, bests.weight?.setId ?? null],
-        ["bestEpley", stats.bestEpley?.setId ?? null, bests.epley?.setId ?? null],
-        ["bestReps", stats.bestReps?.setId ?? null, bests.reps?.setId ?? null],
-        ["bestDuration", stats.bestDuration?.setId ?? null, bests.duration?.setId ?? null],
-        ["bestDistance", stats.bestDistance?.setId ?? null, bests.distance?.setId ?? null],
-        ["bestCalories", stats.bestCalories?.calories ?? null, bests.calories?.calories ?? null],
-      ];
-      for (const [field, stored, expected] of compared) {
-        if (stored !== expected) {
-          problems.push(`${exercise.name}: ${field} ${String(stored)}, expected ${String(expected)}`);
-        }
-      }
-      const marks = await ctx.db
-        .query("recordMarks")
-        .withIndex("by_exercise", (q) => q.eq("exerciseId", exercise._id))
-        .collect();
-      const staleMarks = marks.filter((mark) => mark.generation !== stats.generation).length;
-      if (staleMarks > 0) {
-        problems.push(`${exercise.name}: ${staleMarks} marks from another generation`);
-      }
-    }
-    return problems;
-  });
 }
 
 function statsFields(
