@@ -118,3 +118,38 @@ test("each parsed exercise gets its own id", () => {
   expect(draft.exercises[0]?.draftId).toBeTruthy();
   expect(draft.exercises[0]?.draftId).not.toBe(draft.exercises[1]?.draftId);
 });
+
+test("identical sets collapse into one row until they are edited", async () => {
+  const user = userEvent.setup();
+  function Many() {
+    const [draft, setDraft] = useState<VoiceDraft>({
+      note: "",
+      exercises: [
+        {
+          draftId: "bench",
+          exerciseName: "Bench",
+          sets: [set, set, set],
+        },
+      ],
+    });
+    return (
+      <ConfirmSheet
+        open
+        draft={draft}
+        source="text"
+        saving={false}
+        notice={null}
+        onChange={setDraft}
+        onDiscard={() => undefined}
+        onConfirm={() => undefined}
+        onRecordAgain={() => undefined}
+      />
+    );
+  }
+  render(<Many />);
+  expect(screen.queryByLabelText("Reps")).toBeNull();
+  await user.click(screen.getByRole("button", { name: "3 × 10 @ 30 lb" }));
+  expect(screen.getByLabelText("Reps")).toBeInstanceOf(HTMLElement);
+  await user.click(screen.getByRole("button", { name: "More" }));
+  expect(screen.getByLabelText("RPE")).toBeInstanceOf(HTMLElement);
+});

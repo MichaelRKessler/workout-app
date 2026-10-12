@@ -28,6 +28,18 @@ export function adjustRestSeconds(current: number, direction: -1 | 1): number {
   return clampRestSeconds(current + direction * REST_STEP_SECONDS);
 }
 
+/** The rest bar steps by 30 seconds. Settings still uses the 15 second step. */
+export const REST_BUMP_SECONDS = 30;
+
+export function bumpRestSeconds(current: number, direction: -1 | 1): number {
+  return clampRestSeconds(current + direction * REST_BUMP_SECONDS);
+}
+
+/** The countdown interval runs only while time is left. */
+export function restIntervalActive(endsAt: number | null, now: number): boolean {
+  return endsAt !== null && endsAt > now;
+}
+
 /** Shifts a running countdown. A finished or idle timer stays as it is. */
 export function shiftActiveRest(
   endsAt: number | null,

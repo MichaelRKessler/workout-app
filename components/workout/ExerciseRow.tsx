@@ -20,20 +20,48 @@ export function ExerciseTile({ name }: { name: string }) {
   );
 }
 
-function SetTokens({ sets, newestSetId }: { sets: SetLine[]; newestSetId?: string }) {
+function SetTokens({
+  name,
+  sets,
+  newestSetId,
+  onEditSet,
+}: {
+  name: string;
+  sets: SetLine[];
+  newestSetId?: string;
+  onEditSet?: (set: SetLine) => void;
+}) {
   const unit = useWeightUnit();
   return (
     <span className="flex flex-wrap gap-x-3 gap-y-0.5 font-mono text-sm text-muted">
-      {sets.map((set) => (
-        <span
-          key={set._id}
-          className={set._id === newestSetId ? "font-semibold text-foreground" : undefined}
-        >
-          {formatSetShort(set, unit)}
-          <SetTypeTag setType={set.setType} />
-          {set.pending ? <span className="ml-1 font-sans text-xs tracking-normal">· pending</span> : null}
-        </span>
-      ))}
+      {sets.map((set, index) => {
+        const label = (
+          <>
+            {formatSetShort(set, unit)}
+            <SetTypeTag setType={set.setType} />
+            {set.pending ? <span className="ml-1 font-sans text-xs tracking-normal">· pending</span> : null}
+          </>
+        );
+        const className = set._id === newestSetId ? "font-semibold text-foreground" : undefined;
+        if (!onEditSet) {
+          return (
+            <span key={set._id} className={className}>
+              {label}
+            </span>
+          );
+        }
+        return (
+          <button
+            key={set._id}
+            type="button"
+            onClick={() => onEditSet(set)}
+            aria-label={`Edit set ${index + 1} of ${name}, ${describeSet(set, unit)}`}
+            className={`min-h-11 text-left ${className ?? ""}`}
+          >
+            {label}
+          </button>
+        );
+      })}
     </span>
   );
 }
@@ -84,7 +112,7 @@ export function ExerciseRow({
       <ExerciseTile name={name} />
       <span className="flex min-w-0 flex-1 flex-col gap-1">
         {nameNode}
-        {onToggle && exerciseHref ? (
+        {onToggle && exerciseHref && !onEditSet ? (
           <button
             type="button"
             onClick={onToggle}
@@ -93,10 +121,10 @@ export function ExerciseRow({
             aria-label={`${expanded ? "Hide" : "Show"} sets for ${name}`}
             className="text-left"
           >
-            <SetTokens sets={sets} newestSetId={newestSetId} />
+            <SetTokens sets={sets} newestSetId={newestSetId} name={name} />
           </button>
         ) : (
-          <SetTokens sets={sets} newestSetId={newestSetId} />
+          <SetTokens sets={sets} newestSetId={newestSetId} name={name} onEditSet={onEditSet} />
         )}
       </span>
     </>
@@ -105,7 +133,7 @@ export function ExerciseRow({
   return (
     <li className="border-b border-line-soft last:border-b-0">
       <div className="flex items-center gap-3.5 py-3.5">
-        {onToggle && !exerciseHref ? (
+        {onToggle && !exerciseHref && !onEditSet ? (
           <button
             type="button"
             onClick={onToggle}

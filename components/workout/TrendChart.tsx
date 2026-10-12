@@ -311,7 +311,7 @@ export function TrendChart({
               <p className="text-sm text-muted" suppressHydrationWarning>
                 {formatChartDate(selected.startedAt, zone, true)}
                 {selected.pr ? (
-                  <span className="ml-2 text-xs font-semibold tracking-[0.05em] text-accent uppercase">PR</span>
+                  <span className="ml-2 text-xs font-semibold tracking-[0.05em] text-accent-ink uppercase">PR</span>
                 ) : null}
               </p>
               <p className="mt-0.5 text-lg leading-tight font-medium tracking-[-0.03em] tabular-nums whitespace-nowrap">

@@ -48,7 +48,7 @@ export function SaveRoutineSheet({
           onChange={(event) => setName(event.target.value)}
           maxLength={40}
           autoComplete="off"
-          className="mt-2 h-12 w-full rounded-xl border border-line bg-background px-3 text-base outline-none focus:border-foreground"
+          className="mt-2 h-12 w-full rounded-xl border border-input bg-background px-3 text-base outline-none focus:border-foreground"
         />
         {error ? (
           <p role="alert" className="mt-3 text-sm text-danger">

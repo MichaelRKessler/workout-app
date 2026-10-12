@@ -68,8 +68,8 @@ export function MuscleGroupField({
         onChange={(event) => void onChange(event.target.value)}
         className={
           compact
-            ? "h-11 max-w-full rounded-full border border-line bg-background px-3 text-sm outline-none focus:border-foreground disabled:opacity-60"
-            : "mt-2 h-12 w-full rounded-xl border border-line bg-background px-3 text-base outline-none focus:border-foreground disabled:opacity-60"
+            ? "h-11 max-w-full rounded-full border border-input bg-background px-3 text-sm outline-none focus:border-foreground disabled:opacity-60"
+            : "mt-2 h-12 w-full rounded-xl border border-input bg-background px-3 text-base outline-none focus:border-foreground disabled:opacity-60"
         }
       >
         <option value="auto">

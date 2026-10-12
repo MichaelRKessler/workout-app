@@ -100,6 +100,7 @@ export function ManualEntrySheet({
   planTargets,
   onClose,
   onAdd,
+  onDelete,
 }: {
   open: boolean;
   mode: "add" | "edit";
@@ -126,6 +127,8 @@ export function ManualEntrySheet({
   }>;
   onClose: () => void;
   onAdd: (set: LoggedSet) => Promise<string | null>;
+  /** Removes the set being edited. Shown only while editing. */
+  onDelete?: () => void;
 }) {
   const unit = useWeightUnit();
   const progression = useProgression();
@@ -344,7 +347,7 @@ export function ManualEntrySheet({
         >
           Exercise
         </label>
-        <div className="mt-2 flex h-12 items-center gap-2 rounded-xl border border-line bg-background px-3 text-subtle focus-within:border-foreground">
+        <div className="mt-2 flex h-12 items-center gap-2 rounded-xl border border-input bg-background px-3 text-subtle focus-within:border-foreground">
           <SearchIcon className="size-5 shrink-0" strokeWidth={1.8} />
           <input
             id="manual-exercise"
@@ -447,7 +450,7 @@ export function ManualEntrySheet({
               }}
             />
           ) : (
-            <label className="flex flex-col gap-1.5 rounded-2xl border border-line bg-background p-3">
+            <label className="flex flex-col gap-1.5 rounded-2xl border border-input bg-background p-3">
               <span className="text-xs font-medium tracking-[0.06em] text-subtle uppercase">
                 {values.kind === "timed" ? "Time" : "Distance"}
               </span>
@@ -491,7 +494,7 @@ export function ManualEntrySheet({
             }}
           />
           {values.kind === "distance" ? (
-            <label className="col-span-2 flex flex-col gap-1.5 rounded-2xl border border-line bg-background p-3">
+            <label className="col-span-2 flex flex-col gap-1.5 rounded-2xl border border-input bg-background p-3">
               <span className="text-xs font-medium tracking-[0.06em] text-subtle uppercase">
                 Time, optional
               </span>
@@ -508,7 +511,7 @@ export function ManualEntrySheet({
             </label>
           ) : null}
           {values.kind !== "strength" || values.calories.trim().length > 0 ? (
-            <label className="col-span-2 flex flex-col gap-1.5 rounded-2xl border border-line bg-background p-3">
+            <label className="col-span-2 flex flex-col gap-1.5 rounded-2xl border border-input bg-background p-3">
               <span className="text-xs font-medium tracking-[0.06em] text-subtle uppercase">
                 Calories, optional
               </span>
@@ -525,7 +528,7 @@ export function ManualEntrySheet({
               />
             </label>
           ) : null}
-          <label className="col-span-2 flex items-center justify-between gap-3 rounded-2xl border border-line bg-background px-3 py-2">
+          <label className="col-span-2 flex items-center justify-between gap-3 rounded-2xl border border-input bg-background px-3 py-2">
             <span className="shrink-0 text-xs font-medium tracking-[0.06em] text-subtle uppercase">RPE</span>
             <input
               value={values.rpe}
@@ -567,6 +570,18 @@ export function ManualEntrySheet({
         <Button type="submit" size="lg" className="mt-5 w-full" disabled={pending}>
           {pending ? "Saving…" : editing ? "Save" : "Add set"}
         </Button>
+        {editing && onDelete ? (
+          <Button
+            type="button"
+            variant="danger"
+            size="lg"
+            className="mt-2 w-full"
+            disabled={pending}
+            onClick={onDelete}
+          >
+            Delete set
+          </Button>
+        ) : null}
       </form>
     </Sheet>
   );
@@ -594,9 +609,9 @@ function Stepper({
   onStep: (delta: number) => void;
 }) {
   const buttonClass =
-    "flex h-12 min-w-0 flex-1 items-center justify-center rounded-full border border-line bg-surface text-foreground hover:bg-fill-2";
+    "flex h-12 min-w-0 flex-1 items-center justify-center rounded-full border border-input bg-surface text-foreground hover:bg-fill-2";
   return (
-    <div className="flex min-w-0 flex-col gap-2 rounded-2xl border border-line bg-background p-3">
+    <div className="flex min-w-0 flex-col gap-2 rounded-2xl border border-input bg-background p-3">
       <label htmlFor={id} className="text-xs font-medium tracking-[0.06em] text-subtle uppercase">
         {label}
       </label>

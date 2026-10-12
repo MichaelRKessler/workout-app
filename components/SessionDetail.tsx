@@ -9,6 +9,7 @@ import { useConnectivity } from "@/components/useConnectivity";
 import { ExerciseRow } from "@/components/workout/ExerciseRow";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { exerciseLink } from "@/lib/exerciseLink";
 import { formatLongDate, formatTimeOfDay, pluralize } from "@/lib/format";
 import { groupSets } from "@/lib/groupSets";
 import { packSupersetOrder, supersetBlocks } from "@/convex/lib/superset";
@@ -159,11 +160,7 @@ function OpenSessionDetail({
                     key={group.exerciseId}
                     name={group.name}
                     sets={group.sets}
-                    exerciseHref={
-                      group.exerciseId.startsWith("local:")
-                        ? undefined
-                        : `/exercises/${group.exerciseId}`
-                    }
+                    exerciseHref={exerciseLink(group.exerciseId, `/history/${session._id}`) ?? undefined}
                   />
                 ))}
               </ul>

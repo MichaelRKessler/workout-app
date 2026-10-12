@@ -71,7 +71,7 @@ export function AccessSettings() {
               onChange={(event) => setEmail(event.target.value)}
               placeholder="name@example.com"
               maxLength={320}
-              className="min-h-12 min-w-0 flex-1 rounded-xl border border-line bg-background px-3 text-base outline-none focus:border-foreground"
+              className="min-h-12 min-w-0 flex-1 rounded-xl border border-input bg-background px-3 text-base outline-none focus:border-foreground"
             />
             <Button type="submit" disabled={busy !== null}>
               {busy === "add" ? "Adding…" : "Add"}

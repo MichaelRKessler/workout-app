@@ -31,6 +31,8 @@ export type DraftSet = {
   /** Stored pounds behind the weight field, so an unedited kg display does not drift. */
   weightLb: number | null;
   setType: SetType;
+  /** Set when the user splits a repeated row, so those sets stay separate. */
+  draftSetId?: string;
 };
 
 export type VoiceDraft = {
@@ -43,6 +45,10 @@ export type VoiceDraft = {
     supersetId?: string | null;
   }>;
 };
+
+export function newDraftSetId(): string {
+  return newDraftId();
+}
 
 function newDraftId(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {

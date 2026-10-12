@@ -45,7 +45,7 @@ export function Toast({
       aria-live="polite"
       className={`pointer-events-none fixed inset-x-0 z-30 flex justify-center px-4 ${
         raised
-          ? "bottom-[calc(100px+env(safe-area-inset-bottom))]"
+          ? "bottom-[calc(15rem+env(safe-area-inset-bottom))]"
           : "bottom-[calc(20px+env(safe-area-inset-bottom))]"
       }`}
     >

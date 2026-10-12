@@ -1,13 +1,20 @@
 "use client";
 
-import { MinusIcon, PlusIcon } from "@/components/icons";
 import { formatElapsed } from "@/lib/format";
 import {
-  adjustRestSeconds,
+  playRestChime,
+  readRestChime,
+  REST_CHIME_KEY,
+  shouldPlayRestChime,
+  unlockRestAudio,
+} from "@/lib/restChime";
+import {
+  bumpRestSeconds,
   DEFAULT_REST_SECONDS,
   readRestSeconds,
   REST_STORAGE_KEY,
   restEndFrom,
+  restIntervalActive,
   shiftActiveRest,
   shouldVibrateRest,
   vibrateForRest,
@@ -15,8 +22,9 @@ import {
 import { useEffect, useRef, useState } from "react";
 
 /**
- * Countdown beside the workout clock. Before any set, the buttons change the
- * device default. After a set, they change that exercise's rest.
+ * Rest controls above the composer. Changing the time during a rest does not
+ * save it. "Save as default" stores it for this exercise. Before any set, the
+ * buttons change the device default, which Settings also edits.
  */
 export function RestTimer({
   setCount,
@@ -39,23 +47,34 @@ export function RestTimer({
   const [ready, setReady] = useState(false);
   const [endsAt, setEndsAt] = useState<number | null>(null);
   const [now, setNow] = useState(() => Date.now());
+  const [chimeOn, setChimeOn] = useState(true);
+  const [announcement, setAnnouncement] = useState("");
+  const [savedFlash, setSavedFlash] = useState(false);
   const previousCount = useRef<number | null>(null);
   const vibratedFor = useRef<number | null>(null);
+  const chimedFor = useRef<number | null>(null);
   const adjusted = useRef(false);
+  const skipped = useRef(false);
   const globalRef = useRef(globalSeconds);
   const displayRef = useRef(displaySeconds);
   const setCountRef = useRef(setCount);
   const holdRef = useRef(hold);
+  const endsAtRef = useRef(endsAt);
   globalRef.current = globalSeconds;
   displayRef.current = displaySeconds;
   setCountRef.current = setCount;
   holdRef.current = hold;
+  endsAtRef.current = endsAt;
 
   useEffect(() => {
     const stored = readRestSeconds(window.localStorage.getItem(REST_STORAGE_KEY));
     setGlobalSeconds(stored);
     setDisplaySeconds(stored);
+    setChimeOn(readRestChime(window.localStorage.getItem(REST_CHIME_KEY)));
     setReady(true);
+    const unlock = () => unlockRestAudio();
+    window.addEventListener("pointerdown", unlock);
+    return () => window.removeEventListener("pointerdown", unlock);
   }, []);
 
   useEffect(() => {
@@ -67,6 +86,25 @@ export function RestTimer({
   }, [ready, globalSeconds]);
 
   useEffect(() => {
+    function syncDefault() {
+      const stored = readRestSeconds(window.localStorage.getItem(REST_STORAGE_KEY));
+      setGlobalSeconds(stored);
+      if (setCountRef.current === 0 && endsAtRef.current === null) {
+        setDisplaySeconds(stored);
+      }
+    }
+    function syncChime() {
+      setChimeOn(readRestChime(window.localStorage.getItem(REST_CHIME_KEY)));
+    }
+    window.addEventListener("workout-rest-default", syncDefault);
+    window.addEventListener("workout-rest-chime", syncChime);
+    return () => {
+      window.removeEventListener("workout-rest-default", syncDefault);
+      window.removeEventListener("workout-rest-chime", syncChime);
+    };
+  }, []);
+
+  useEffect(() => {
     if (loading) {
       return;
     }
@@ -76,7 +114,10 @@ export function RestTimer({
     }
     if (setCount > previousCount.current) {
       adjusted.current = false;
+      skipped.current = false;
       vibratedFor.current = null;
+      chimedFor.current = null;
+      setSavedFlash(false);
       if (hold) {
         setEndsAt(null);
       } else {
@@ -85,6 +126,7 @@ export function RestTimer({
         setDisplaySeconds(duration);
         setEndsAt(restEndFrom(start, duration));
         setNow(start);
+        setAnnouncement(`Rest ${formatElapsed(duration * 1000)}`);
       }
     }
     previousCount.current = setCount;
@@ -105,99 +147,128 @@ export function RestTimer({
   }, [endsAt, exerciseRestSeconds]);
 
   useEffect(() => {
-    if (endsAt === null) {
+    if (!restIntervalActive(endsAt, Date.now())) {
       return;
     }
-    const timer = window.setInterval(() => setNow(Date.now()), 250);
+    const timer = window.setInterval(() => {
+      const at = Date.now();
+      setNow(at);
+      if (endsAt !== null && at >= endsAt) {
+        window.clearInterval(timer);
+      }
+    }, 250);
     return () => window.clearInterval(timer);
   }, [endsAt]);
 
   const remaining = endsAt === null ? null : endsAt - now;
   useEffect(() => {
-    if (endsAt === null || remaining === null) {
+    if (endsAt === null || remaining === null || remaining > 0 || skipped.current) {
       return;
     }
-    if (!shouldVibrateRest(remaining, vibratedFor.current === endsAt)) {
-      return;
+    if (shouldVibrateRest(remaining, vibratedFor.current === endsAt)) {
+      vibratedFor.current = endsAt;
+      const vibrate =
+        typeof navigator !== "undefined" && typeof navigator.vibrate === "function"
+          ? navigator.vibrate.bind(navigator)
+          : undefined;
+      vibrateForRest(vibrate);
     }
-    vibratedFor.current = endsAt;
-    const vibrate =
-      typeof navigator !== "undefined" && typeof navigator.vibrate === "function"
-        ? navigator.vibrate.bind(navigator)
-        : undefined;
-    vibrateForRest(vibrate);
-  }, [endsAt, remaining]);
+    if (
+      shouldPlayRestChime({
+        enabled: chimeOn,
+        remainingMs: remaining,
+        alreadyPlayed: chimedFor.current === endsAt,
+        skipped: skipped.current,
+      })
+    ) {
+      chimedFor.current = endsAt;
+      playRestChime();
+    }
+    setAnnouncement((current) => (current === "Rest done" ? current : "Rest done"));
+  }, [chimeOn, endsAt, remaining]);
 
   function adjust(direction: -1 | 1) {
     const at = Date.now();
     const previous = displayRef.current;
-    const next = adjustRestSeconds(previous, direction);
+    const next = bumpRestSeconds(previous, direction);
+    setSavedFlash(false);
     const beforeAnySet = setCountRef.current === 0;
     if (beforeAnySet) {
       setGlobalSeconds(next);
       setDisplaySeconds(next);
-      return;
-    }
-    if (holdRef.current) {
-      adjusted.current = true;
-      setDisplaySeconds(next);
-      onExerciseRest?.(next);
+      setAnnouncement(`Rest ${formatElapsed(next * 1000)}`);
       return;
     }
     adjusted.current = true;
     setDisplaySeconds(next);
-    setEndsAt((current) => {
-      if (current !== null && current > at) {
-        return shiftActiveRest(current, at, previous, next);
-      }
-      return restEndFrom(at, next);
-    });
+    if (!holdRef.current) {
+      setEndsAt((current) => {
+        if (current !== null && current > at) {
+          return shiftActiveRest(current, at, previous, next);
+        }
+        return restEndFrom(at, next);
+      });
+      setNow(at);
+    }
+    setAnnouncement(`Rest ${formatElapsed(next * 1000)}`);
+  }
+
+  function skip() {
+    if (endsAtRef.current === null) {
+      return;
+    }
+    skipped.current = true;
+    vibratedFor.current = endsAtRef.current;
+    chimedFor.current = endsAtRef.current;
+    const at = Date.now();
+    setEndsAt(at);
     setNow(at);
-    onExerciseRest?.(next);
+    setAnnouncement("Rest skipped");
+  }
+
+  function saveDefault() {
+    onExerciseRest?.(displayRef.current);
+    setSavedFlash(true);
+    setAnnouncement(`Saved ${formatElapsed(displayRef.current * 1000)} as the default rest`);
   }
 
   const running = remaining !== null && remaining > 0;
   const done = remaining !== null && remaining <= 0;
   const readout = done ? "Done" : formatElapsed(running ? remaining : displaySeconds * 1000);
-  const spoken = done
-    ? "Rest done"
-    : running
-      ? `Rest ${readout} remaining`
-      : `Rest length ${readout}`;
-
+  const savedLength = setCount > 0 ? (exerciseRestSeconds ?? globalSeconds) : globalSeconds;
+  const canSave = setCount > 0 && Boolean(onExerciseRest) && displaySeconds !== savedLength;
   const buttonClass =
-    "flex size-11 items-center justify-center rounded-full text-foreground hover:bg-fill-2";
+    "min-h-11 rounded-full border border-input bg-surface px-3 text-base font-semibold text-foreground hover:bg-fill-2";
 
   return (
-    <div
-      className="flex items-center gap-0.5 rounded-full border border-line bg-surface py-0.5 pr-0.5 pl-2.5"
-      title={restLabel ? `Rest follows ${restLabel}` : undefined}
-    >
-      <span className="sr-only">{spoken}</span>
-      <span aria-hidden="true" className="flex items-baseline gap-1 pr-0.5">
-        <span className="text-xs font-medium tracking-[0.06em] text-subtle uppercase">Rest</span>
-        <span
-          className={`font-mono text-sm tabular-nums ${done ? "font-semibold text-foreground" : "text-foreground"}`}
-        >
-          {readout}
-        </span>
-      </span>
-      <button
-        type="button"
-        aria-label="15 seconds less rest"
-        onClick={() => adjust(-1)}
-        className={buttonClass}
-      >
-        <MinusIcon className="size-4" strokeWidth={1.8} />
-      </button>
-      <button
-        type="button"
-        aria-label="15 seconds more rest"
-        onClick={() => adjust(1)}
-        className={buttonClass}
-      >
-        <PlusIcon className="size-4" strokeWidth={1.8} />
-      </button>
+    <div className="border-t border-line bg-background px-4 pt-2 pb-1">
+      <div className="mx-auto flex max-w-lg flex-wrap items-center gap-2">
+        <p className="mr-auto min-w-0" title={restLabel ? `Rest follows ${restLabel}` : undefined}>
+          <span className="block text-xs font-medium tracking-[0.06em] text-subtle uppercase">
+            Rest{restLabel && !hold ? ` · ${restLabel}` : ""}
+          </span>
+          <span className="font-mono text-2xl leading-none font-medium tabular-nums">{readout}</span>
+        </p>
+        <button type="button" onClick={() => adjust(-1)} className={buttonClass}>
+          −30s
+        </button>
+        <button type="button" onClick={() => adjust(1)} className={buttonClass}>
+          +30s
+        </button>
+        {running ? (
+          <button type="button" onClick={skip} className={buttonClass}>
+            Skip
+          </button>
+        ) : null}
+        {canSave ? (
+          <button type="button" onClick={saveDefault} className={buttonClass}>
+            {savedFlash ? "Saved" : "Save as default"}
+          </button>
+        ) : null}
+      </div>
+      <p className="sr-only" aria-live="polite">
+        {announcement}
+      </p>
     </div>
   );
 }

@@ -42,7 +42,7 @@ export function FinishSheet({
             maxLength={500}
             rows={3}
             placeholder="Optional. How the workout felt."
-            className="mt-2 w-full resize-none rounded-xl border border-line bg-background px-3 py-2 text-base outline-none focus:border-foreground"
+            className="mt-2 w-full resize-none rounded-xl border border-input bg-background px-3 py-2 text-base outline-none focus:border-foreground"
           />
         </label>
       ) : null}
