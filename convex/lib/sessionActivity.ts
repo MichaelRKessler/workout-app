@@ -49,7 +49,8 @@ export async function noteSetsAdded(
   if (!session || session.userId === undefined || session.setCount === undefined) {
     return;
   }
-  let last = session.lastSetAt ?? Number.NEGATIVE_INFINITY;
+  // An emptied workout saved by earlier code can still hold a removed set's time.
+  let last = session.setCount > 0 ? (session.lastSetAt ?? Number.NEGATIVE_INFINITY) : Number.NEGATIVE_INFINITY;
   for (const loggedAt of loggedAts) {
     if (loggedAt > last) {
       last = loggedAt;
@@ -100,6 +101,7 @@ export async function noteSetsRemoved(
   }
   await ctx.db.patch("sessions", sessionId, {
     setCount: sets.filter((set) => set.userId === session.userId).length,
-    ...(last !== null ? { lastSetAt: last } : {}),
+    // An empty workout has no newest set, so the next set is not placed after a removed one.
+    lastSetAt: last ?? undefined,
   });
 }
