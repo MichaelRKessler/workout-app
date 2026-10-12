@@ -13,6 +13,8 @@ export const rebuildPage = internalMutation({
     exerciseId: v.id("exercises"),
     generation: v.number(),
     cursor: v.union(v.string(), v.null()),
+    // Optional so pages queued before steps existed still validate.
+    step: v.optional(v.number()),
   },
   returns: v.null(),
   handler: async (ctx, args) => {

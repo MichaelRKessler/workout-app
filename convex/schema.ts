@@ -230,6 +230,9 @@ export default defineSchema({
     cursor: v.union(v.string(), v.null()),
     phase: v.union(v.literal("purge"), v.literal("purgeCalories"), v.literal("walk")),
     scheduledAt: v.union(v.number(), v.null()),
+    // Bumped each time a rebuild page is scheduled. A page only runs while its
+    // step is current. Rows written before this field read as step 0.
+    step: v.optional(v.number()),
     bestWeight: v.union(effortSnap, v.null()),
     bestEpley: v.union(effortSnap, v.null()),
     bestReps: v.union(effortSnap, v.null()),
@@ -239,7 +242,7 @@ export default defineSchema({
     secondCalories: v.union(calorieSnap, v.null()),
   })
     .index("by_user_and_exercise", ["userId", "exerciseId"])
-    .index("by_ready", ["ready"]),
+    .index("by_ready_and_scheduled", ["ready", "scheduledAt"]),
   // Monotonic personal records. The latest mark before a time is the best then.
   recordMarks: defineTable({
     userId: v.id("users"),
