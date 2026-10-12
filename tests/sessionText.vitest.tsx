@@ -2,6 +2,7 @@
 import { act, renderHook } from "@testing-library/react";
 import { beforeEach, expect, test, vi } from "vitest";
 import { useSessionText } from "@/components/useSessionText";
+import { composerTextKey } from "@/lib/offline/storage";
 
 beforeEach(() => {
   window.sessionStorage.clear();
@@ -38,4 +39,15 @@ test("blocked storage still lets you type", () => {
   const view = renderHook(() => useSessionText("composer"));
   act(() => view.result.current[1]("row 10 at 135"));
   expect(view.result.current[0]).toBe("row 10 at 135");
+});
+
+test("text typed by one account does not come back for another in the same tab", () => {
+  const first = renderHook(() => useSessionText(composerTextKey("first@example.com")));
+  act(() => first.result.current[1]("bench 5 at 225"));
+  first.unmount();
+
+  const second = renderHook(() => useSessionText(composerTextKey("second@example.com")));
+  expect(second.result.current[0]).toBe("");
+  const back = renderHook(() => useSessionText(composerTextKey("First@Example.com")));
+  expect(back.result.current[0]).toBe("bench 5 at 225");
 });
