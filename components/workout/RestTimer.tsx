@@ -9,6 +9,7 @@ import {
   unlockRestAudio,
 } from "@/lib/restChime";
 import {
+  bumpRest,
   bumpRestSeconds,
   DEFAULT_REST_SECONDS,
   readRestSeconds,
@@ -23,8 +24,8 @@ import { useEffect, useRef, useState } from "react";
 
 /**
  * Rest controls above the composer. Changing the time during a rest does not
- * save it. "Save as default" stores it for this exercise. Before any set, the
- * buttons change the device default, which Settings also edits.
+ * save it. "Save for <exercise>" stores it for that exercise only. Before any
+ * set, the buttons change the device default, which Settings also edits.
  */
 export function RestTimer({
   setCount,
@@ -72,9 +73,17 @@ export function RestTimer({
     setDisplaySeconds(stored);
     setChimeOn(readRestChime(window.localStorage.getItem(REST_CHIME_KEY)));
     setReady(true);
+    // iOS unlocks audio on touchend or click, not on a touch pointerdown.
     const unlock = () => unlockRestAudio();
-    window.addEventListener("pointerdown", unlock);
-    return () => window.removeEventListener("pointerdown", unlock);
+    const events = ["pointerdown", "touchend", "click"] as const;
+    for (const name of events) {
+      window.addEventListener(name, unlock, { passive: true });
+    }
+    return () => {
+      for (const name of events) {
+        window.removeEventListener(name, unlock);
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -200,17 +209,24 @@ export function RestTimer({
       return;
     }
     adjusted.current = true;
-    setDisplaySeconds(next);
-    if (!holdRef.current) {
-      setEndsAt((current) => {
-        if (current !== null && current > at) {
-          return shiftActiveRest(current, at, previous, next);
-        }
-        return restEndFrom(at, next);
-      });
-      setNow(at);
+    if (holdRef.current) {
+      setDisplaySeconds(next);
+      setAnnouncement(`Rest ${formatElapsed(next * 1000)}`);
+      return;
     }
-    setAnnouncement(`Rest ${formatElapsed(next * 1000)}`);
+    const bumped = bumpRest({ endsAt: endsAtRef.current, now: at, seconds: previous, direction });
+    if (bumped.restarted) {
+      // A skipped rest that starts again should still chime when it ends.
+      skipped.current = false;
+      vibratedFor.current = null;
+      chimedFor.current = null;
+    }
+    setDisplaySeconds(bumped.seconds);
+    setEndsAt(bumped.endsAt);
+    setNow(at);
+    const spoken =
+      bumped.restarted && bumped.endsAt !== null ? bumped.endsAt - at : bumped.seconds * 1000;
+    setAnnouncement(`Rest ${formatElapsed(spoken)}`);
   }
 
   function skip() {
@@ -229,7 +245,9 @@ export function RestTimer({
   function saveDefault() {
     onExerciseRest?.(displayRef.current);
     setSavedFlash(true);
-    setAnnouncement(`Saved ${formatElapsed(displayRef.current * 1000)} as the default rest`);
+    setAnnouncement(
+      `Saved ${formatElapsed(displayRef.current * 1000)} as the rest for ${restLabel ?? "this exercise"}`,
+    );
   }
 
   const running = remaining !== null && remaining > 0;
@@ -262,7 +280,7 @@ export function RestTimer({
         ) : null}
         {canSave ? (
           <button type="button" onClick={saveDefault} className={buttonClass}>
-            {savedFlash ? "Saved" : "Save as default"}
+            {savedFlash ? "Saved" : `Save for ${restLabel ?? "this exercise"}`}
           </button>
         ) : null}
       </div>

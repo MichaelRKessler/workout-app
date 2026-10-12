@@ -31,7 +31,7 @@ export function playRestChime(): void {
   }
   try {
     const context = sharedContext(Ctx);
-    if (context.state === "suspended") {
+    if (context.state !== "running") {
       void context.resume();
     }
     const start = context.currentTime;
@@ -42,6 +42,11 @@ export function playRestChime(): void {
   }
 }
 
+/**
+ * Call from a tap. iOS keeps audio locked until a sound starts inside a user
+ * gesture, and locks it again ("interrupted") after the app is backgrounded,
+ * so a silent one-sample buffer is played whenever the context is not running.
+ */
 export function unlockRestAudio(): void {
   const Ctx =
     window.AudioContext ??
@@ -51,9 +56,14 @@ export function unlockRestAudio(): void {
   }
   try {
     const context = sharedContext(Ctx);
-    if (context.state === "suspended") {
-      void context.resume();
+    if (context.state === "running") {
+      return;
     }
+    void context.resume();
+    const source = context.createBufferSource();
+    source.buffer = context.createBuffer(1, 1, context.sampleRate);
+    source.connect(context.destination);
+    source.start(0);
   } catch {
     // Unlocking is best-effort. The timer still finishes.
   }
