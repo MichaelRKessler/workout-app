@@ -144,3 +144,13 @@ test("a superset round that holds the rest forgets the saved one", () => {
   view.unmount();
   expect(window.sessionStorage.getItem("workout-rest-run")).toBeNull();
 });
+
+test("before the first set the bar says it changes the default", () => {
+  render(<RestTimer setCount={0} loading={false} />);
+  expect(screen.getByText("Rest · default")).toBeInstanceOf(HTMLElement);
+  act(() => {
+    screen.getByRole("button", { name: "+30s" }).click();
+  });
+  expect(window.localStorage.getItem("workout-rest-seconds")).toBe("120");
+  expect(screen.getByText("Default rest 2:00")).toBeInstanceOf(HTMLElement);
+});

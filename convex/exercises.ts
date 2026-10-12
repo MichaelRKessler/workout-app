@@ -157,6 +157,36 @@ export const restForName = authedQuery({
   },
 });
 
+const REST_OVERRIDE_LIMIT = 100;
+
+/**
+ * Exercises with their own rest. Each one wins over the device default, so
+ * Settings lists them with a way to clear them.
+ */
+export const restOverrides = authedQuery({
+  args: {},
+  returns: v.object({
+    rests: v.array(
+      v.object({ _id: v.id("exercises"), name: v.string(), restSeconds: v.number() }),
+    ),
+    truncated: v.boolean(),
+  }),
+  handler: async (ctx) => {
+    // Absent rests sort before every number, so this range skips them.
+    const rows = await ctx.db
+      .query("exercises")
+      .withIndex("by_user_and_rest", (q) => q.eq("userId", ctx.userId).gte("restSeconds", 0))
+      .take(REST_OVERRIDE_LIMIT + 1);
+    const rests = rows.slice(0, REST_OVERRIDE_LIMIT).flatMap((exercise) =>
+      exercise.restSeconds === undefined
+        ? []
+        : [{ _id: exercise._id, name: exercise.name, restSeconds: exercise.restSeconds }],
+    );
+    rests.sort((left, right) => left.name.localeCompare(right.name));
+    return { rests, truncated: rows.length > REST_OVERRIDE_LIMIT };
+  },
+});
+
 /**
  * Saves the primary muscle, or clears it so the name's suggestion is used.
  * The weekly summary counts working sets toward this group.

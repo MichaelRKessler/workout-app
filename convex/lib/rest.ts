@@ -6,7 +6,8 @@ import { userError } from "./errors";
 export const DEFAULT_REST_SECONDS = 90;
 export const MIN_REST_SECONDS = 15;
 export const MAX_REST_SECONDS = 300;
-export const REST_STEP_SECONDS = 15;
+/** One step everywhere rest is set: the rest bar, Settings and routines. */
+export const REST_STEP_SECONDS = 30;
 
 export function clampRestSeconds(value: number): number {
   if (!Number.isFinite(value)) {

@@ -28,17 +28,10 @@ export function adjustRestSeconds(current: number, direction: -1 | 1): number {
   return clampRestSeconds(current + direction * REST_STEP_SECONDS);
 }
 
-/** The rest bar steps by 30 seconds. Settings still uses the 15 second step. */
-export const REST_BUMP_SECONDS = 30;
-
-export function bumpRestSeconds(current: number, direction: -1 | 1): number {
-  return clampRestSeconds(current + direction * REST_BUMP_SECONDS);
-}
-
 /**
- * A ±30 s tap after a set. A running rest moves its end. Once rest is done or
- * skipped, + starts 30 more seconds and − only shortens the next rest. With no
- * rest yet, either starts one at the new length.
+ * A ± tap after a set. A running rest moves its end. Once rest is done or
+ * skipped, + starts one more step of rest and − only shortens the next rest.
+ * With no rest yet, either starts one at the new length.
  */
 export function bumpRest(input: {
   endsAt: number | null;
@@ -49,11 +42,11 @@ export function bumpRest(input: {
   const { endsAt, now, seconds, direction } = input;
   if (endsAt !== null && endsAt <= now) {
     if (direction === 1) {
-      return { endsAt: now + REST_BUMP_SECONDS * 1000, seconds, restarted: true };
+      return { endsAt: now + REST_STEP_SECONDS * 1000, seconds, restarted: true };
     }
-    return { endsAt, seconds: bumpRestSeconds(seconds, -1), restarted: false };
+    return { endsAt, seconds: adjustRestSeconds(seconds, -1), restarted: false };
   }
-  const next = bumpRestSeconds(seconds, direction);
+  const next = adjustRestSeconds(seconds, direction);
   if (endsAt === null) {
     return { endsAt: restEndFrom(now, next), seconds: next, restarted: true };
   }

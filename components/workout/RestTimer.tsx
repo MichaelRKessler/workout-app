@@ -9,12 +9,13 @@ import {
   unlockRestAudio,
 } from "@/lib/restChime";
 import {
+  adjustRestSeconds,
   bumpRest,
-  bumpRestSeconds,
   DEFAULT_REST_SECONDS,
   readRestSeconds,
   readSavedRest,
   REST_RUN_KEY,
+  REST_STEP_SECONDS,
   REST_STORAGE_KEY,
   restEndFrom,
   restIntervalActive,
@@ -246,13 +247,13 @@ export function RestTimer({
   function adjust(direction: -1 | 1) {
     const at = Date.now();
     const previous = displayRef.current;
-    const next = bumpRestSeconds(previous, direction);
+    const next = adjustRestSeconds(previous, direction);
     setSavedFlash(false);
     const beforeAnySet = setCountRef.current === 0;
     if (beforeAnySet) {
       setGlobalSeconds(next);
       setDisplaySeconds(next);
-      setAnnouncement(`Rest ${formatElapsed(next * 1000)}`);
+      setAnnouncement(`Default rest ${formatElapsed(next * 1000)}`);
       return;
     }
     adjusted.current = true;
@@ -310,15 +311,15 @@ export function RestTimer({
       <div className="mx-auto flex max-w-lg flex-wrap items-center gap-2">
         <p className="mr-auto min-w-0" title={restLabel ? `Rest follows ${restLabel}` : undefined}>
           <span className="block text-xs font-medium tracking-[0.06em] text-subtle uppercase">
-            Rest{restLabel && !hold ? ` · ${restLabel}` : ""}
+            Rest{restLabel && !hold ? ` · ${restLabel}` : setCount === 0 ? " · default" : ""}
           </span>
           <span className="font-mono text-2xl leading-none font-medium tabular-nums">{readout}</span>
         </p>
         <button type="button" onClick={() => adjust(-1)} className={buttonClass}>
-          −30s
+          −{REST_STEP_SECONDS}s
         </button>
         <button type="button" onClick={() => adjust(1)} className={buttonClass}>
-          +30s
+          +{REST_STEP_SECONDS}s
         </button>
         {running ? (
           <button type="button" onClick={skip} className={buttonClass}>

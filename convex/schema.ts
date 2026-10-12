@@ -47,7 +47,10 @@ export default defineSchema({
         v.literal("other"),
       ),
     ),
-  }).index("by_user_and_normalized_name", ["userId", "normalizedName"]),
+  })
+    .index("by_user_and_normalized_name", ["userId", "normalizedName"])
+    // Exercises with their own rest, listed in Settings so they can be reset.
+    .index("by_user_and_rest", ["userId", "restSeconds"]),
   sessions: defineTable({
     userId: v.id("users"),
     status: v.union(v.literal("open"), v.literal("completed")),
