@@ -714,6 +714,7 @@ export function DayDetail({ dayKey }: { dayKey: string }) {
         cancelLabel={deleteTarget?.kind === "session" ? "Keep workout" : "Keep day"}
         pending={deleting}
         error={deleteError}
+        offline={log.offline}
         onCancel={() => setDeleteTarget(null)}
         onConfirm={() => void confirmDelete()}
       />

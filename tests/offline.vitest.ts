@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 import { convexTest } from "convex-test";
 import { describe, expect, test } from "vitest";
-import { api } from "../convex/_generated/api";
+import { api, internal } from "../convex/_generated/api";
 import schema from "../convex/schema";
 
 const modules = import.meta.glob("../convex/**/*.ts");
@@ -387,6 +387,37 @@ describe("offline sync", () => {
     const created = await asUser.query(api.sessions.get, { sessionId: saved.sets[0]!.sessionId! });
     expect(created?.sets).toHaveLength(1);
     expect((await asUser.query(api.sessions.get, { sessionId: openId }))?.sets).toHaveLength(0);
+    // The recreated workout comes back finished, so there is one open workout.
+    const sessions = await t.run(async (ctx) => await ctx.db.query("sessions").collect());
+    expect(sessions.filter((session) => session.status === "open").map((s) => s._id)).toEqual([openId]);
+
+    // A later set for the same deleted workout joins the recreated one.
+    const later = await asUser.mutation(api.offline.accept, {
+      sets: [
+        queuedSet("client0002", {
+          sessionId: goneId,
+          sessionClientId: "recovered0001",
+          loggedAt: NOW + 60_000,
+        }),
+      ],
+      edits: [],
+      deletes: [],
+      actions: [],
+    });
+    expect(later.sets[0]?.sessionId).toBe(saved.sets[0]?.sessionId);
+  });
+
+  test("removed client ids are forgotten after 30 days", async () => {
+    const t = testBackend();
+    const { userId } = await signIn(t, "Michael");
+    const now = Date.now();
+    await t.run(async (ctx) => {
+      await ctx.db.insert("removedClientIds", { userId, clientId: "old0000001", removedAt: now - 31 * 86_400_000 });
+      await ctx.db.insert("removedClientIds", { userId, clientId: "new0000001", removedAt: now - 86_400_000 });
+    });
+    expect(await t.mutation(internal.offline.expireRemovals, {})).toBe(1);
+    const left = await t.run(async (ctx) => await ctx.db.query("removedClientIds").collect());
+    expect(left.map((row) => row.clientId)).toEqual(["new0000001"]);
   });
 
   test("a removed client id cannot be brought back by a later revision", async () => {

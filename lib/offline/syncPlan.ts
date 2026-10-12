@@ -18,7 +18,9 @@ export type BatchOutcome = "ok" | "timeout" | "validation" | "error";
  * What the sync loop does after one batch attempt.
  * A timeout stops the flush; a success that arrives later is still applied.
  * A validation error splits the batch when it can, otherwise that item fails.
- * Any other error waits and retries.
+ * Any other error also splits a batch that can be split, because production
+ * may report a rejected argument only as "Server Error"; a single item that
+ * still fails that way waits and retries rather than being dropped.
  */
 export type SyncFailurePlan =
   | { action: "apply" }
@@ -47,6 +49,9 @@ export function syncFailurePlan(input: {
       return { action: "split" };
     }
     return { action: "reject", message: input.validationMessage };
+  }
+  if (input.canSplit) {
+    return { action: "split" };
   }
   return { action: "retry" };
 }

@@ -51,6 +51,9 @@ test("a timeout stops the flush and a validation error splits when it can", () =
     { action: "reject", message: "Reps must be a whole number from 1 to 999." },
   );
   assert.equal(syncFailurePlan({ depth: 0, outcome: "error", canSplit: false, validationMessage: "" }).action, "retry");
+  // Production can hide a rejected argument behind "Server Error", so a batch
+  // that can be split still is; one item on its own waits instead of failing.
+  assert.equal(syncFailurePlan({ depth: 0, outcome: "error", canSplit: true, validationMessage: "" }).action, "split");
   assert.deepEqual(
     syncFailurePlan({
       depth: SYNC_DEPTH_CAP + 1,

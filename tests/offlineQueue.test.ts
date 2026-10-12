@@ -11,7 +11,7 @@ import {
   timedClockReading,
 } from "../lib/offline/clock.ts";
 import { isPhoneClientId, resolveDocumentId } from "../lib/offline/documentId.ts";
-import { withQueueLock } from "../lib/offline/lock.ts";
+import { withQueueLock, withSendLock } from "../lib/offline/lock.ts";
 import { mergeOutboxes } from "../lib/offline/merge.ts";
 import {
   clearItemError,
@@ -397,6 +397,28 @@ test("the queue lock runs the critical section and still runs without locks", as
   ]);
   assert.equal(overlap, 1);
   assert.equal(await withQueueLock("a@example.com", async () => 7, null), 7);
+});
+
+test("a tab sending the queue does not block another tab's queue writes", async () => {
+  const held = new Set<string>();
+  const locks = {
+    async request<T>(name: string, callback: () => Promise<T>): Promise<T> {
+      assert.equal(held.has(name), false);
+      held.add(name);
+      try {
+        return await callback();
+      } finally {
+        held.delete(name);
+      }
+    },
+  };
+  let wrote = false;
+  await withSendLock("a@example.com", async () => {
+    await withQueueLock("a@example.com", async () => {
+      wrote = true;
+    }, locks);
+  }, locks);
+  assert.equal(wrote, true);
 });
 
 test("a discarded weigh-in stays discarded after the queues merge", () => {

@@ -221,7 +221,9 @@ export default defineSchema({
     userId: v.id("users"),
     clientId: v.string(),
     removedAt: v.number(),
-  }).index("by_user_and_client_id", ["userId", "clientId"]),
+  })
+    .index("by_user_and_client_id", ["userId", "clientId"])
+    .index("by_removed_at", ["removedAt"]),
   // All-time bests for one exercise. New table, so existing documents are untouched.
   // `ready` is false while a paginated rebuild is walking history.
   exerciseStats: defineTable({

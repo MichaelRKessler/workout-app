@@ -184,6 +184,9 @@ async function findRemoval(
   return matches[0] ?? null;
 }
 
+/** How long a removed client id is kept so a late revision can't revive it. */
+export const REMOVAL_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
 async function rememberRemoval(
   ctx: MutationCtx,
   userId: Id<"users">,
@@ -345,6 +348,7 @@ export async function acceptOfflineBatch(
   const setResults: OfflineSetResult[] = [];
   const notes = new Map<Id<"sessions">, string[]>();
   const createdSessions = new Map<Id<"sessions">, number>();
+  const closedOnArrival = new Set<Id<"sessions">>();
   const resolvedSessions = new Map<string, Id<"sessions">>();
   const resolvedByClient = new Map<string, Id<"sessions">>();
   const supersetLabels = new Map<
@@ -409,7 +413,11 @@ export async function acceptOfflineBatch(
           return same._id;
         }
       } else {
-        const openMatch = matches.find((session) => session.status === "open");
+        // A workout recreated finished in an earlier batch is still the one
+        // these sets belong to.
+        const openMatch =
+          matches.find((session) => session.status === "open") ??
+          (missingRequested ? matches[0] : undefined);
         if (openMatch) {
           rememberSession(key, item.sessionClientId, openMatch._id);
           return openMatch._id;
@@ -430,17 +438,25 @@ export async function acceptOfflineBatch(
       }
     }
 
+    // A workout deleted elsewhere comes back finished when another workout is
+    // already open, so there is never a second open one.
+    const closeOnArrival =
+      item.placement === "open" && missingRequested && (await openSession(ctx, userId)) !== null;
+    const completed = item.placement === "completed" || closeOnArrival;
     const sessionId = await ctx.db.insert("sessions", {
       userId,
-      status: item.placement === "completed" ? "completed" : "open",
+      status: completed ? "completed" : "open",
       startedAt,
       setCount: 0,
-      ...(item.placement === "completed" ? { completedAt: startedAt } : {}),
+      ...(completed ? { completedAt: startedAt } : {}),
       ...(isClientId(item.sessionClientId)
         ? { clientId: item.sessionClientId, clientStartedAt: item.sessionStartedAt }
         : {}),
     });
     createdSessions.set(sessionId, startedAt);
+    if (closeOnArrival) {
+      closedOnArrival.add(sessionId);
+    }
     rememberSession(key, item.sessionClientId, sessionId);
     return sessionId;
   }
@@ -731,6 +747,16 @@ export async function acceptOfflineBatch(
       startedAt,
       ...(session.status === "completed" ? { completedAt: startedAt } : {}),
     });
+  }
+
+  for (const sessionId of closedOnArrival) {
+    const session = await ctx.db.get("sessions", sessionId);
+    const lastSetAt = Math.max(
+      ...freshSets.filter((set) => set.sessionId === sessionId).map((set) => set.loggedAt),
+    );
+    if (session && Number.isFinite(lastSetAt) && lastSetAt > (session.completedAt ?? 0)) {
+      await ctx.db.patch("sessions", sessionId, { completedAt: lastSetAt });
+    }
   }
 
   for (const [sessionId, pendingNotes] of notes) {
