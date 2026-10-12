@@ -1,24 +1,42 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { loadPendingRests, queueRest } from "../lib/exerciseRest.ts";
+import type { SetLine } from "../lib/groupSets.ts";
 import { holdChanges, prepareBatch, splitBatch } from "../lib/offline/batch.ts";
+import { CLOCK_READING_MAX_ROUND_TRIP_MS, clockReading } from "../lib/offline/clock.ts";
 import { isPhoneClientId, resolveDocumentId } from "../lib/offline/documentId.ts";
 import { withQueueLock } from "../lib/offline/lock.ts";
 import { mergeOutboxes } from "../lib/offline/merge.ts";
 import {
+  clearItemError,
   discardPendingItem,
   listPendingItems,
 } from "../lib/offline/pendingItems.ts";
 import { RETRY_BASE_MS, RETRY_CAP_MS, nextRetryDelay } from "../lib/offline/retry.ts";
 import {
+  applySyncResult,
+  batchHasWork,
+  dropQueued,
+  editPendingSet,
   emptyOutbox,
+  enqueueBody,
   enqueueSets,
+  mergeVisibleSets,
   nextBatch,
+  parseOutbox,
+  pendingChangeCount,
+  queueAction,
+  queueDelete,
   queueEdit,
+  reconcileOutbox,
+  recordClock,
   releaseOpenSession,
+  removePendingBody,
   repairOpenSession,
   resolveSessionClientId,
   type Outbox,
+  type PendingEdit,
+  type SyncResult,
 } from "../lib/offline/outbox.ts";
 import {
   OfflineStorageError,
@@ -33,6 +51,8 @@ import {
 } from "../lib/offline/storage.ts";
 
 const NOW = 1_700_000_000_000;
+const EMAIL = "lifter@example.com";
+const SERVER_ID = "j57abcdefghjkmnpqrstvwxyz0123456";
 
 function memoryStore(): KeyValueStore {
   const values = new Map<string, string>();
@@ -68,6 +88,82 @@ function addBench(outbox: Outbox, clientId: string, weightLb = 135) {
       },
     ],
   }).outbox;
+}
+
+/** Mirrors OfflineSync's persist: merge this tab's queue into the stored one, then save. */
+function persist(store: KeyValueStore, local: Outbox): Outbox {
+  const merged = mergeOutboxes(loadOutbox(store, EMAIL), local);
+  saveOutbox(store, EMAIL, merged);
+  return merged;
+}
+
+function savedSetEdit(editId: string, weightLb: number): Omit<PendingEdit, "syncError" | "echoed"> {
+  return {
+    editId,
+    setId: SERVER_ID,
+    reps: 5,
+    weightLb,
+    durationSec: null,
+    distanceM: null,
+    calories: null,
+    rpe: null,
+  };
+}
+
+function weighIn(clientId: string) {
+  return {
+    clientId,
+    loggedAt: NOW,
+    weightLb: 180,
+    bodyFatPct: null,
+    waistCm: null,
+    chestCm: null,
+    armCm: null,
+    hipsCm: null,
+    thighCm: null,
+    note: null,
+  };
+}
+
+function serverBench(weightLb: number, clientId: string | null = null): SetLine & { clientId: string | null } {
+  return {
+    _id: SERVER_ID,
+    exerciseId: "exercise1",
+    exerciseName: "Bench press",
+    reps: 5,
+    weightLb,
+    durationSec: null,
+    distanceM: null,
+    rpe: null,
+    loggedAt: NOW,
+    clientId,
+  };
+}
+
+function setResult(
+  clientId: string,
+  revision: number,
+  status: SyncResult["sets"][number]["status"],
+  setId: string | null,
+  message: string | null = null,
+): SyncResult {
+  return {
+    sets: [
+      {
+        clientId,
+        revision,
+        status,
+        setId,
+        sessionId: setId ? "session1" : null,
+        personalRecord: null,
+        message,
+      },
+    ],
+    edits: [],
+    deletes: [],
+    actions: [],
+    body: [],
+  };
 }
 
 test("migration copies a legacy queue and deletes it only after the new key matches", () => {
@@ -276,4 +372,173 @@ test("the queue lock runs the critical section and still runs without locks", as
   ]);
   assert.equal(overlap, 1);
   assert.equal(await withQueueLock("a@example.com", async () => 7, null), 7);
+});
+
+test("a discarded weigh-in stays discarded after the queues merge", () => {
+  const store = memoryStore();
+  let tab = persist(store, enqueueBody(emptyOutbox(), weighIn("body0000001")));
+  tab = persist(store, removePendingBody(tab, "body0000001"));
+  assert.equal(tab.body.length, 0);
+  assert.equal(nextBatch(tab).body.length, 0);
+
+  const otherTab = enqueueBody(emptyOutbox(), weighIn("body0000001"));
+  assert.equal(persist(store, otherTab).body.length, 0);
+});
+
+test("a second offline edit of a saved set replaces the first for good", () => {
+  const store = memoryStore();
+  const firstOnly = queueEdit(emptyOutbox(), savedSetEdit("edit0000001", 105));
+  let tab = persist(store, firstOnly);
+  tab = persist(store, queueEdit(tab, savedSetEdit("edit0000002", 110)));
+  assert.deepEqual(tab.edits.map((edit) => edit.editId), ["edit0000002"]);
+  assert.equal(mergeOutboxes(firstOnly, tab).edits.length, 1);
+
+  tab = applySyncResult(tab, {
+    sets: [],
+    edits: [{ editId: "edit0000002", status: "applied", personalRecord: null, message: null }],
+    deletes: [],
+    actions: [],
+    body: [],
+  }).outbox;
+  const server = [serverBench(110)];
+  tab = persist(store, reconcileOutbox(tab, server));
+  assert.equal(tab.edits.length, 0);
+  const visible = mergeVisibleSets(server, tab, { kind: "session", sessionId: "session1" });
+  assert.equal(visible[0]?.weightLb, 110);
+  assert.equal(visible[0]?.pending, false);
+});
+
+test("a delete or a newer finish replaces older queued items for good", () => {
+  const withEdit = queueEdit(emptyOutbox(), savedSetEdit("edit0000001", 105));
+  const firstDelete = queueDelete(withEdit, "delete000001", SERVER_ID);
+  const secondDelete = queueDelete(firstDelete, "delete000002", SERVER_ID);
+  const merged = mergeOutboxes(mergeOutboxes(withEdit, firstDelete), secondDelete);
+  assert.deepEqual(merged.edits, []);
+  assert.deepEqual(merged.deletes.map((item) => item.deleteId), ["delete000002"]);
+
+  const finish = {
+    actionId: "action000001",
+    sessionId: null,
+    sessionClientId: "sessionclient",
+    kind: "complete" as const,
+    note: "first",
+    requestedAt: NOW,
+  };
+  const first = queueAction(emptyOutbox(), finish);
+  const second = queueAction(first, { ...finish, actionId: "action000002", note: "second" });
+  assert.deepEqual(mergeOutboxes(first, second).actions.map((action) => action.note), ["second"]);
+});
+
+test("items dropped after a rejection do not come back as failed items", () => {
+  let tab = addBench(emptyOutbox(), "client0001");
+  tab = queueEdit(tab, savedSetEdit("edit0000001", 105));
+  tab = queueDelete(tab, "delete000001", "j57zzzzzzzzzzzzzzzzzzzzzzzzzzzzz");
+  const stored = tab;
+  const dropped = dropQueued(tab, [
+    { kind: "set", id: "client0001" },
+    { kind: "edit", id: "edit0000001" },
+    { kind: "delete", id: "delete000001" },
+  ]);
+  const merged = mergeOutboxes(stored, dropped);
+  assert.equal(merged.sets.length, 0);
+  assert.equal(merged.edits.length, 0);
+  assert.equal(merged.deletes.length, 0);
+  assert.deepEqual(listPendingItems(merged, []), []);
+});
+
+test("a set deleted on the server leaves the queue instead of staying pending", () => {
+  let tab = addBench(emptyOutbox(), "client0001");
+  tab = applySyncResult(tab, setResult("client0001", 1, "applied", SERVER_ID)).outbox;
+  tab = editPendingSet(tab, "client0001", { weightLb: 110 });
+  const beforeAnswer = tab;
+  tab = applySyncResult(tab, setResult("client0001", 2, "removed", null)).outbox;
+  assert.equal(tab.sets.length, 0);
+  assert.equal(pendingChangeCount(tab), 0);
+  assert.equal(mergeVisibleSets([], tab, { kind: "open", sessionId: "session1" }).length, 0);
+  assert.equal(mergeOutboxes(beforeAnswer, tab).sets.length, 0);
+
+  // An older server answered "applied" with no set id. That copy is cleared on the next reconcile.
+  const ghost = applySyncResult(beforeAnswer, setResult("client0001", 2, "applied", null)).outbox;
+  assert.equal(mergeVisibleSets([], ghost, { kind: "open", sessionId: "session1" }).length, 1);
+  const cleared = reconcileOutbox(ghost, []);
+  assert.equal(cleared.sets.length, 0);
+  assert.equal(mergeOutboxes(ghost, cleared).sets.length, 0);
+});
+
+test("with two tabs, a rejection in one survives the other's merge, and a later retry wins", () => {
+  const store = memoryStore();
+  saveOutbox(store, EMAIL, addBench(emptyOutbox(), "client0001"));
+  let tabA = loadOutbox(store, EMAIL);
+  let tabB = loadOutbox(store, EMAIL);
+  tabA = applySyncResult(tabA, setResult("client0001", 1, "rejected", null, "bad"), NOW + 1_000).outbox;
+  tabA = persist(store, tabA);
+  tabB = persist(store, tabB);
+  tabA = persist(store, tabA);
+  for (const tab of [tabA, tabB]) {
+    assert.equal(tab.sets[0]?.syncError, "bad");
+    assert.equal(nextBatch(tab).sets.length, 0);
+    assert.equal(listPendingItems(tab, [])[0]?.failed, true);
+  }
+
+  tabB = persist(store, clearItemError(tabB, "set:client0001", NOW + 2_000));
+  tabA = persist(store, tabA);
+  assert.equal(tabA.sets[0]?.syncError, null);
+  assert.equal(nextBatch(tabA).sets.length, 1);
+});
+
+test("a rejected finish and weigh-in keep their errors over a stale copy", () => {
+  let outbox = queueAction(emptyOutbox(), {
+    actionId: "action000001",
+    sessionId: null,
+    sessionClientId: "sessionclient",
+    kind: "complete",
+    note: null,
+    requestedAt: NOW,
+  });
+  outbox = enqueueBody(outbox, weighIn("body0000001"));
+  const stale = outbox;
+  const rejected = applySyncResult(
+    outbox,
+    {
+      sets: [],
+      edits: [],
+      deletes: [],
+      actions: [
+        { actionId: "action000001", status: "rejected", sessionId: null, message: "Log a set first" },
+      ],
+      body: [{ clientId: "body0000001", status: "rejected", entryId: null, message: "Bad date" }],
+    },
+    NOW,
+  ).outbox;
+  const merged = mergeOutboxes(rejected, stale);
+  assert.equal(merged.actions[0]?.syncError, "Log a set first");
+  assert.equal(merged.body[0]?.syncError, "Bad date");
+  assert.equal(batchHasWork(nextBatch(merged)), false);
+});
+
+test("an error saved before errors were timed is kept over a copy without one", () => {
+  const fresh = addBench(emptyOutbox(), "client0001");
+  const legacy = parseOutbox(JSON.parse(JSON.stringify({ ...fresh, sets: [{ ...fresh.sets[0], syncError: "bad" }] })));
+  assert.equal(legacy.sets[0]?.errorChangedAt, undefined);
+  assert.equal(mergeOutboxes(legacy, fresh).sets[0]?.syncError, "bad");
+  assert.equal(mergeOutboxes(fresh, legacy).sets[0]?.syncError, "bad");
+});
+
+test("a clock reading uses the middle of a quick round trip and is kept with the queue", () => {
+  assert.deepEqual(clockReading(1_000, 1_400, 5_200), { offsetMs: 4_000, measuredAt: 1_400 });
+  assert.equal(clockReading(1_000, 1_001 + CLOCK_READING_MAX_ROUND_TRIP_MS, 5_000), null);
+  assert.equal(clockReading(1_000, 900, 5_000), null);
+  assert.equal(clockReading(1_000, 1_100, undefined), null);
+
+  const store = memoryStore();
+  const fast = { offsetMs: -3_600_000, measuredAt: NOW };
+  const stored = recordClock(addBench(emptyOutbox(), "client0001"), fast);
+  saveOutbox(store, EMAIL, stored);
+  assert.deepEqual(loadOutbox(store, EMAIL).clock, fast);
+  assert.equal(parseOutbox({ sets: [] }).clock, null);
+
+  const later = recordClock(emptyOutbox(), { offsetMs: 5, measuredAt: NOW + 1 });
+  assert.equal(mergeOutboxes(later, stored).clock?.offsetMs, 5);
+  assert.equal(mergeOutboxes(stored, later).clock?.offsetMs, 5);
+  assert.equal(recordClock(later, fast).clock?.offsetMs, 5);
 });

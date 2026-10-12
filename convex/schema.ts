@@ -61,6 +61,9 @@ export default defineSchema({
     // Set when a phone logs a workout before the server has seen it.
     // Older sessions omit it, which is valid.
     clientId: v.optional(v.string()),
+    // The phone's own start time for that client id, before clock correction.
+    // Later batches of a past workout match on it. Older sessions omit it, which is valid.
+    clientStartedAt: v.optional(v.number()),
     // Present when this workout was started from a routine or a repeat.
     // Older sessions omit these, which is valid.
     planName: v.optional(v.string()),

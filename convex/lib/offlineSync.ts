@@ -1,7 +1,7 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { insertBodyEntry, type BodyWrite } from "./bodyEntries";
-import { clampToWindow, clockOffsetMs, correctClientTime } from "./clockSkew";
+import { clampToWindow, correctClientTime, requestOffsetMs } from "./clockSkew";
 import { isClientId } from "./clientIds";
 import { formatExerciseName } from "./exerciseName";
 import { combineNotes, normalizeNote, type NormalizedSet } from "./measures";
@@ -79,7 +79,7 @@ export type OfflineActionInput = {
 export type OfflineSetResult = {
   clientId: string;
   revision: number;
-  status: "applied" | "rejected";
+  status: "applied" | "rejected" | "removed";
   setId: Id<"sets"> | null;
   sessionId: Id<"sessions"> | null;
   personalRecord: PersonalRecord | null;
@@ -119,6 +119,7 @@ export type AcceptOfflineResult = {
   deletes: OfflineDeleteResult[];
   actions: OfflineActionResult[];
   body: OfflineBodyResult[];
+  serverNow: number;
 };
 
 function acceptedTime(value: number, offsetMs: number, now: number): number | null {
@@ -196,6 +197,26 @@ async function rememberRemoval(
     clientId,
     removedAt: now,
   });
+}
+
+/**
+ * Whether a finished workout already saved under this client id is the one
+ * being sent. The phone's own start time does not change between batches, so
+ * it is compared when the session kept it. Older sessions compare the
+ * corrected start, which moves with each batch's clock reading.
+ */
+function samePastWorkout(
+  session: Doc<"sessions">,
+  clientStartedAt: number,
+  startedAt: number,
+): boolean {
+  if (session.status !== "completed") {
+    return false;
+  }
+  if (session.clientStartedAt !== undefined) {
+    return Math.abs(session.clientStartedAt - clientStartedAt) <= SAME_START_MS;
+  }
+  return Math.abs(session.startedAt - startedAt) <= SAME_START_MS;
 }
 
 async function openSession(
@@ -301,10 +322,11 @@ export async function acceptOfflineBatch(
     actions: OfflineActionInput[];
     body?: OfflineBodyInput[];
     clientNow?: number;
+    clockOffsetMs?: number;
   },
   now = Date.now(),
 ): Promise<AcceptOfflineResult> {
-  const offsetMs = clockOffsetMs(args.clientNow, now);
+  const offsetMs = requestOffsetMs(args, now);
   const body = args.body ?? [];
   const total =
     args.sets.length + args.edits.length + args.deletes.length + args.actions.length + body.length;
@@ -374,10 +396,8 @@ export async function acceptOfflineBatch(
     if (isClientId(item.sessionClientId)) {
       const matches = await sessionsForClientId(ctx, userId, item.sessionClientId);
       if (item.placement === "completed") {
-        const same = matches.find(
-          (session) =>
-            session.status === "completed" &&
-            Math.abs(session.startedAt - startedAt) <= SAME_START_MS,
+        const same = matches.find((session) =>
+          samePastWorkout(session, item.sessionStartedAt, startedAt),
         );
         if (same) {
           rememberSession(key, item.sessionClientId, same._id);
@@ -411,7 +431,9 @@ export async function acceptOfflineBatch(
       startedAt,
       setCount: 0,
       ...(item.placement === "completed" ? { completedAt: startedAt } : {}),
-      ...(isClientId(item.sessionClientId) ? { clientId: item.sessionClientId } : {}),
+      ...(isClientId(item.sessionClientId)
+        ? { clientId: item.sessionClientId, clientStartedAt: item.sessionStartedAt }
+        : {}),
     });
     createdSessions.set(sessionId, startedAt);
     rememberSession(key, item.sessionClientId, sessionId);
@@ -464,7 +486,7 @@ export async function acceptOfflineBatch(
         setResults.push({
           clientId: item.clientId,
           revision: item.revision,
-          status: "applied",
+          status: "removed",
           setId: null,
           sessionId: null,
           personalRecord: null,
@@ -951,5 +973,6 @@ export async function acceptOfflineBatch(
     deletes: deleteResults,
     actions: actionResults,
     body: bodyResults,
+    serverNow: now,
   };
 }

@@ -1,6 +1,8 @@
+import { newerClock } from "./clock.ts";
 import {
   repairOpenSession,
   type DroppedItem,
+  type ErrorState,
   type KnownSetId,
   type Outbox,
   type PendingAction,
@@ -14,6 +16,7 @@ import {
  * Unions two copies of the queue. The same item keeps the higher revision.
  * A drop recorded by either tab hides that revision and anything older, so a
  * stale tab cannot restore a set the other tab already finished or discarded.
+ * Between copies at the same point, the one whose error changed last wins.
  */
 export function mergeOutboxes(left: Outbox, right: Outbox): Outbox {
   const dropped = mergeDrops(left.dropped, right.dropped);
@@ -33,6 +36,7 @@ export function mergeOutboxes(left: Outbox, right: Outbox): Outbox {
     deletes: mergeDeletes(left.deletes, right.deletes, hidden),
     actions: mergeActions(left.actions, right.actions, hidden),
     body: mergeBody(left.body, right.body, hidden),
+    clock: newerClock(left.clock, right.clock),
   });
 }
 
@@ -89,13 +93,27 @@ function preferSet(left: PendingSet, right: PendingSet): PendingSet {
   if (leftEcho !== rightEcho) {
     return leftEcho > rightEcho ? left : right;
   }
-  if (left.syncError && !right.syncError) {
-    return right;
+  return newerErrorState(left, right) ?? right;
+}
+
+/**
+ * The copy whose error was set or cleared last. A copy without a time is
+ * older. On a tie the copy with an error wins, so a rejection stays visible
+ * instead of being resent forever.
+ */
+function newerErrorState<T extends ErrorState>(left: T, right: T): T | null {
+  const leftAt = left.errorChangedAt ?? 0;
+  const rightAt = right.errorChangedAt ?? 0;
+  if (leftAt !== rightAt) {
+    return leftAt > rightAt ? left : right;
   }
-  if (right.syncError && !left.syncError) {
+  if (left.syncError && !right.syncError) {
     return left;
   }
-  return right;
+  if (right.syncError && !left.syncError) {
+    return right;
+  }
+  return null;
 }
 
 function mergeEdits(
@@ -133,6 +151,10 @@ function preferAction(left: PendingAction, right: PendingAction): PendingAction 
   if (left.echoed !== right.echoed) {
     return left.echoed ? left : right;
   }
+  const newer = newerErrorState(left, right);
+  if (newer) {
+    return newer;
+  }
   return right.requestedAt >= left.requestedAt ? right : left;
 }
 
@@ -144,7 +166,7 @@ function mergeBody(
   return mergeRows(left, right, (item) => item.clientId, preferAcked, hidden, "body", 1);
 }
 
-function mergeRows<T extends { echoed: boolean; syncError: string | null }>(
+function mergeRows<T extends ErrorState & { echoed: boolean }>(
   left: T[],
   right: T[],
   idOf: (item: T) => string,
@@ -162,17 +184,11 @@ function mergeRows<T extends { echoed: boolean; syncError: string | null }>(
   return [...byId.values()].filter((item) => !isHidden(hidden, kind, idOf(item), revision));
 }
 
-function preferAcked<T extends { echoed: boolean; syncError: string | null }>(left: T, right: T): T {
+function preferAcked<T extends ErrorState & { echoed: boolean }>(left: T, right: T): T {
   if (left.echoed !== right.echoed) {
     return left.echoed ? left : right;
   }
-  if (left.syncError && !right.syncError) {
-    return right;
-  }
-  if (right.syncError && !left.syncError) {
-    return left;
-  }
-  return right;
+  return newerErrorState(left, right) ?? right;
 }
 
 function mergeKnown(left: KnownSetId[], right: KnownSetId[]): KnownSetId[] {

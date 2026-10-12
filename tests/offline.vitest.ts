@@ -417,14 +417,39 @@ describe("offline sync", () => {
       actions: [],
     });
     expect(removed.sets[0]?.status).toBe("applied");
-    expect(resurrected.sets[0]?.status).toBe("applied");
+    // A distinct answer, so the phone drops its copy instead of keeping a pending ghost.
+    expect(resurrected.sets[0]?.status).toBe("removed");
     expect(resurrected.sets[0]?.setId).toBeNull();
     expect(
       await asUser.query(api.sets.listForSession, { sessionId: created.sets[0]!.sessionId! }),
     ).toHaveLength(0);
   });
 
-  test("the phone clock is shifted onto server time", async () => {
+  test("an edit of a set deleted on another device is answered removed", async () => {
+    const t = testBackend();
+    const { asUser } = await signIn(t, "Michael");
+    const created = await asUser.mutation(api.offline.accept, {
+      sets: [queuedSet("client0001")],
+      edits: [],
+      deletes: [],
+      actions: [],
+    });
+    await asUser.mutation(api.offline.accept, {
+      sets: [],
+      edits: [],
+      deletes: [{ deleteId: "delete0001", setId: created.sets[0]!.setId! }],
+      actions: [],
+    });
+    const edited = await asUser.mutation(api.offline.accept, {
+      sets: [queuedSet("client0001", { revision: 2, weightLb: 185 })],
+      edits: [],
+      deletes: [],
+      actions: [],
+    });
+    expect(edited.sets[0]).toMatchObject({ status: "removed", setId: null, sessionId: null });
+  });
+
+  test("an older phone that sends its clock is still shifted onto server time", async () => {
     const t = testBackend();
     const { asUser } = await signIn(t, "Michael");
     const fastNow = Date.now() + 60 * 60 * 1000;
@@ -470,6 +495,171 @@ describe("offline sync", () => {
     )[0];
     expect(slowSet?.loggedAt).toBeLessThanOrEqual(Date.now());
     expect(slowSet?.loggedAt ?? 0).toBeGreaterThan(Date.now() - 2 * 60 * 1000);
+  });
+
+  test("a measured clock offset does not count a late delivery as clock error", async () => {
+    const t = testBackend();
+    const { asUser } = await signIn(t, "Michael");
+    // Built 20 minutes ago on a correct clock, delivered now.
+    const logged = Date.now() - 21 * 60_000;
+    const late = await asUser.mutation(api.offline.accept, {
+      clockOffsetMs: 0,
+      sets: [
+        queuedSet("clientlate01", {
+          sessionClientId: "latesession01",
+          sessionStartedAt: logged - 60_000,
+          loggedAt: logged,
+        }),
+      ],
+      edits: [],
+      deletes: [],
+      actions: [],
+    });
+    expect(late.serverNow).toBeGreaterThanOrEqual(logged);
+    const rows = await asUser.query(api.sets.listForSession, { sessionId: late.sets[0]!.sessionId! });
+    expect(rows[0]?.loggedAt).toBe(logged);
+  });
+
+  test("a measured clock offset corrects a fast or slow phone", async () => {
+    const t = testBackend();
+    const hour = 60 * 60 * 1000;
+    const day = 24 * hour;
+    const fastUser = await signIn(t, "Fast");
+    const fastLogged = Date.now() + hour - 30_000;
+    const fast = await fastUser.asUser.mutation(api.offline.accept, {
+      clockOffsetMs: -hour,
+      sets: [
+        queuedSet("clientfast01", {
+          sessionClientId: "fastsession01",
+          sessionStartedAt: fastLogged,
+          loggedAt: fastLogged,
+        }),
+      ],
+      edits: [],
+      deletes: [],
+      actions: [],
+    });
+    const fastRows = await fastUser.asUser.query(api.sets.listForSession, {
+      sessionId: fast.sets[0]!.sessionId!,
+    });
+    expect(fastRows[0]?.loggedAt).toBe(fastLogged - hour);
+
+    const slowUser = await signIn(t, "Slow");
+    const slowLogged = Date.now() - 3 * day - 30_000;
+    const slow = await slowUser.asUser.mutation(api.offline.accept, {
+      clockOffsetMs: 3 * day,
+      sets: [
+        queuedSet("clientslow01", {
+          sessionClientId: "slowsession01",
+          sessionStartedAt: slowLogged,
+          loggedAt: slowLogged,
+        }),
+      ],
+      edits: [],
+      deletes: [],
+      actions: [],
+    });
+    const slowRows = await slowUser.asUser.query(api.sets.listForSession, {
+      sessionId: slow.sets[0]!.sessionId!,
+    });
+    expect(slowRows[0]?.loggedAt).toBe(slowLogged + 3 * day);
+  });
+
+  test("an offset past a year is ignored, and no reading leaves times unshifted but not in the future", async () => {
+    const t = testBackend();
+    const day = 24 * 60 * 60 * 1000;
+    const wildUser = await signIn(t, "Wild");
+    const logged = Date.now() - 5 * 60_000;
+    const wild = await wildUser.asUser.mutation(api.offline.accept, {
+      clockOffsetMs: 400 * day,
+      sets: [
+        queuedSet("clientwild01", {
+          sessionClientId: "wildsession01",
+          sessionStartedAt: logged,
+          loggedAt: logged,
+        }),
+      ],
+      edits: [],
+      deletes: [],
+      actions: [],
+    });
+    const wildRows = await wildUser.asUser.query(api.sets.listForSession, {
+      sessionId: wild.sets[0]!.sessionId!,
+    });
+    expect(wildRows[0]?.loggedAt).toBe(logged);
+
+    const bareUser = await signIn(t, "Bare");
+    const ahead = Date.now() + 60 * 60 * 1000;
+    const bare = await bareUser.asUser.mutation(api.offline.accept, {
+      sets: [
+        queuedSet("clientbare01", {
+          sessionClientId: "baresession01",
+          sessionStartedAt: ahead,
+          loggedAt: ahead,
+        }),
+      ],
+      edits: [],
+      deletes: [],
+      actions: [],
+    });
+    expect(bare.sets[0]?.status).toBe("applied");
+    const bareRows = await bareUser.asUser.query(api.sets.listForSession, {
+      sessionId: bare.sets[0]!.sessionId!,
+    });
+    expect(bareRows[0]?.loggedAt).toBeLessThanOrEqual(Date.now());
+    expect(bareRows[0]?.loggedAt ?? 0).toBeGreaterThan(Date.now() - 2 * 60 * 1000);
+  });
+
+  test("the server clock can be read for a first reading", async () => {
+    const t = testBackend();
+    const { asUser } = await signIn(t, "Michael");
+    const before = Date.now();
+    const serverNow = await asUser.mutation(api.offline.serverTime, {});
+    expect(serverNow).toBeGreaterThanOrEqual(before);
+    expect(serverNow).toBeLessThanOrEqual(Date.now());
+    await expect(t.mutation(api.offline.serverTime, {})).rejects.toThrow("Not authenticated");
+  });
+
+  test("a past workout sent in two batches with different clock readings stays one workout", async () => {
+    const t = testBackend();
+    const { asUser, userId } = await signIn(t, "Michael");
+    const startedAt = Date.now() - 3 * 24 * 60 * 60 * 1000;
+    const past = {
+      placement: "completed" as const,
+      sessionClientId: "pastsession01",
+      sessionStartedAt: startedAt,
+    };
+    const first = await asUser.mutation(api.offline.accept, {
+      clockOffsetMs: 0,
+      sets: [queuedSet("clientpast01", { ...past, loggedAt: startedAt })],
+      edits: [],
+      deletes: [],
+      actions: [],
+    });
+    const second = await asUser.mutation(api.offline.accept, {
+      clockOffsetMs: 5 * 60_000,
+      sets: [queuedSet("clientpast02", { ...past, loggedAt: startedAt + 1000 })],
+      edits: [],
+      deletes: [],
+      actions: [],
+    });
+    // An older phone's clock at send time moves with delivery delay too.
+    const third = await asUser.mutation(api.offline.accept, {
+      clientNow: Date.now() - 5 * 60_000,
+      sets: [queuedSet("clientpast03", { ...past, loggedAt: startedAt + 2000 })],
+      edits: [],
+      deletes: [],
+      actions: [],
+    });
+    const sessionId = first.sets[0]!.sessionId!;
+    expect(second.sets[0]?.sessionId).toBe(sessionId);
+    expect(third.sets[0]?.sessionId).toBe(sessionId);
+    const sessions = await t.run(async (ctx) =>
+      (await ctx.db.query("sessions").collect()).filter((session) => session.userId === userId),
+    );
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0]?.clientStartedAt).toBe(startedAt);
+    expect((await asUser.query(api.sessions.get, { sessionId }))?.sets).toHaveLength(3);
   });
 
   test("a finish for a workout the cron already closed still saves the note and end time", async () => {

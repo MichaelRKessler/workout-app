@@ -7,7 +7,9 @@ import { setTypeValidator } from "./lib/setTypeValidator";
 const setResult = v.object({
   clientId: v.string(),
   revision: v.number(),
-  status: v.union(v.literal("applied"), v.literal("rejected")),
+  // "removed" means the set was deleted, here or on another device, and this
+  // client id will not be saved again. An older phone treats it as applied.
+  status: v.union(v.literal("applied"), v.literal("rejected"), v.literal("removed")),
   setId: v.union(v.id("sets"), v.null()),
   sessionId: v.union(v.id("sessions"), v.null()),
   personalRecord: v.union(personalRecordValidator, v.null()),
@@ -112,9 +114,12 @@ export const accept = authedMutation({
     ),
     // Optional so a phone that queued only sets before body entries existed still syncs.
     body: v.optional(v.array(v.object(bodyInput))),
-    // The phone's clock at send time. Optional so a queue saved before clock
-    // correction still syncs. The server shifts item times by the difference.
+    // The phone's clock at send time, sent by the older client. The server
+    // shifts item times by the difference, which also counts delivery delay.
     clientNow: v.optional(v.number()),
+    // Server time minus phone time, measured by the phone on a quick round
+    // trip. Used instead of clientNow because a late delivery does not change it.
+    clockOffsetMs: v.optional(v.number()),
   },
   returns: v.object({
     sets: v.array(setResult),
@@ -122,8 +127,19 @@ export const accept = authedMutation({
     deletes: v.array(deleteResult),
     actions: v.array(actionResult),
     body: v.array(bodyResult),
+    // Lets the phone measure its clock from a quick reply.
+    serverNow: v.number(),
   }),
   handler: async (ctx, args) => {
     return await acceptOfflineBatch(ctx, ctx.userId, args);
+  },
+});
+
+/** Server time, so a phone with no clock reading can take one before it sends queued times. */
+export const serverTime = authedMutation({
+  args: {},
+  returns: v.number(),
+  handler: async () => {
+    return Date.now();
   },
 });

@@ -1,6 +1,9 @@
 /** Earliest logged time the server will store. */
 export const EARLIEST_CLIENT_AT = Date.UTC(2000, 0, 1);
 
+/** Largest clock error a phone's own reading may correct. A larger one is treated as a bad reading. */
+export const MAX_CLOCK_OFFSET_MS = 366 * 24 * 60 * 60 * 1000;
+
 /**
  * How far the phone's clock is behind the server.
  * A positive offset means the phone is slow and its timestamps need to move forward.
@@ -12,6 +15,24 @@ export function clockOffsetMs(clientNow: number | undefined, serverNow: number):
   }
   const offset = serverNow - clientNow;
   return Number.isFinite(offset) ? offset : 0;
+}
+
+/**
+ * The shift for one request. A phone that measured its clock on a quick
+ * round trip sends that offset, which stays right however late the request
+ * is delivered. A phone on the older client sends only its clock at send
+ * time, so any delivery delay counts as clock error; it keeps that behavior
+ * until it updates. A request with neither is not shifted.
+ */
+export function requestOffsetMs(
+  input: { clockOffsetMs?: number; clientNow?: number },
+  serverNow: number,
+): number {
+  if (input.clockOffsetMs !== undefined) {
+    const offset = input.clockOffsetMs;
+    return Number.isFinite(offset) && Math.abs(offset) <= MAX_CLOCK_OFFSET_MS ? offset : 0;
+  }
+  return clockOffsetMs(input.clientNow, serverNow);
 }
 
 /**
