@@ -122,10 +122,18 @@ export function WorkoutPlanList({
     </div>
   );
   if (guided && nextRow) {
-    const index = rows.indexOf(nextRow);
+    // Start from the first member of the next exercise's superset, so a partner
+    // that comes earlier in the plan still shows as up next.
+    const group = cleanSupersetId(nextRow.supersetId);
+    const start = group
+      ? rows.findIndex((row) => cleanSupersetId(row.supersetId) === group)
+      : rows.indexOf(nextRow);
     const upNext = rows
-      .slice(index + 1)
-      .filter((row) => !planProgress(row.sets.length, row.targetSets, row.skipped).done)
+      .slice(start)
+      .filter(
+        (row) =>
+          row !== nextRow && !planProgress(row.sets.length, row.targetSets, row.skipped).done,
+      )
       .map((row) => row.name);
     return (
       <section aria-label={name ? `${name} plan` : "Workout plan"} className="mt-2">

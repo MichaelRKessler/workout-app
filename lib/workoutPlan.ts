@@ -94,6 +94,14 @@ export function guidedNextId(
       if (next) {
         return next;
       }
+      // Without set targets the rotation has no "behind" member once counts
+      // match, so start with any member that has no sets yet.
+      const open = block.items.find(
+        (row) => !planProgress(row.sets.length, row.targetSets, row.skipped).done,
+      );
+      if (open) {
+        return open.exerciseId;
+      }
       continue;
     }
     for (const row of block.items) {

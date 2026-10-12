@@ -469,4 +469,20 @@ test("the guided view's next exercise is the first with sets left, rotating insi
     "push",
   );
   assert.equal(guidedNextId([item("a", 3), item("b", 3)]), null);
+  assert.equal(
+    guidedNextId([
+      item("curl", 0, { targetSets: null, supersetId: "s" }),
+      item("push", 0, { targetSets: null, supersetId: "s" }),
+      item("c", 0),
+    ]),
+    "curl",
+  );
+  assert.equal(
+    guidedNextId([
+      item("curl", 1, { targetSets: null, supersetId: "s" }),
+      item("push", 1, { targetSets: null, supersetId: "s" }),
+      item("c", 0),
+    ]),
+    "c",
+  );
 });

@@ -151,3 +151,24 @@ test("editing the plan always shows the full list", () => {
   expect(screen.queryByRole("progressbar")).toBeNull();
   expect(screen.getByRole("button", { name: "Move Bench press up" })).toBeTruthy();
 });
+
+test("up next includes a superset partner that comes earlier in the plan", () => {
+  const curl = [set("c1", "curl", "Curl")];
+  render(
+    <WorkoutPlanList
+      name={null}
+      rows={[
+        row("curl", "Curl", curl, { supersetId: "s" }),
+        row("push", "Pushdown", [], { supersetId: "s" }),
+        row("dip", "Dip"),
+      ]}
+      loggingId={null}
+      offline={false}
+      sessionSets={curl}
+      repeatingId={null}
+      {...handlers()}
+    />,
+  );
+  expect(screen.getByRole("link", { name: "Pushdown" })).toBeTruthy();
+  expect(screen.getByText("Up next ·").parentElement?.textContent).toBe("Up next · Curl · Dip");
+});
