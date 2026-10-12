@@ -195,11 +195,11 @@ export function ExerciseLibrary() {
             </li>
           ))}
         </ul>
-        {muscle && filtered?.truncated ? (
-          <p className="mt-4 text-sm text-muted">Only your first 200 exercises are checked for this filter.</p>
-        ) : null}
         </>
       )}
+      {muscle && filtered?.truncated ? (
+        <p className="mt-4 text-sm text-muted">Only your first 200 exercises are checked for this filter.</p>
+      ) : null}
 
       {status === "CanLoadMore" ? (
         <Button variant="secondary" className="mt-6 w-full" onClick={() => loadMore(40)}>
