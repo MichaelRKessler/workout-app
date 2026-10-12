@@ -20,7 +20,6 @@ import {
   resizeSetGroup,
   withDraftSetIds,
 } from "@/lib/confirmGroups";
-import Link from "next/link";
 import { useState } from "react";
 
 const fieldClass =
@@ -38,7 +37,6 @@ export function ConfirmSheet({
   onDiscard,
   onConfirm,
   onRecordAgain,
-  exerciseHref,
 }: {
   open: boolean;
   draft: VoiceDraft | null;
@@ -50,8 +48,6 @@ export function ConfirmSheet({
   onDiscard: () => void;
   onConfirm: () => void;
   onRecordAgain: () => void;
-  /** Progress page for an exercise name, when this account already has it. */
-  exerciseHref?: (name: string) => string | null;
 }) {
   const unit = useWeightUnit();
   if (!draft) {
@@ -171,7 +167,6 @@ export function ConfirmSheet({
                       excludeSessionId={excludeSessionId}
                       onChange={(nextExercise) => updateExercise(at, nextExercise)}
                       onRemove={() => removeExercise(at)}
-                      exerciseHref={exerciseHref?.(exercise.exerciseName) ?? null}
                     />
                     {at < draft.exercises.length - 1 && !linked ? (
                       <button
@@ -237,7 +232,6 @@ function ExerciseConfirmBlock({
   excludeSessionId,
   onChange,
   onRemove,
-  exerciseHref,
 }: {
   exercise: VoiceDraft["exercises"][number];
   index: number;
@@ -248,7 +242,6 @@ function ExerciseConfirmBlock({
   excludeSessionId?: Id<"sessions">;
   onChange: (exercise: VoiceDraft["exercises"][number]) => void;
   onRemove: () => void;
-  exerciseHref?: string | null;
 }) {
   const history = usePreviousExercise(exercise.exerciseName, excludeSessionId);
   // The open row is remembered by its sets' ids, not its position, so editing
@@ -347,16 +340,8 @@ function ExerciseConfirmBlock({
           </button>
         ) : null}
       </div>
-      {history.label || exerciseHref ? (
-        <p className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-base text-muted">
-          {history.label ? <span>{history.label}</span> : null}
-          {exerciseHref ? (
-            <Link href={exerciseHref} className="min-h-11 font-medium text-foreground underline">
-              Progress
-            </Link>
-          ) : null}
-        </p>
-      ) : null}
+      {/* No progress link here: leaving the page would drop the unsaved parse. */}
+      {history.label ? <p className="mt-2 text-base text-muted">{history.label}</p> : null}
 
       <div className="mt-3 flex flex-col gap-2">
         {groups.map((group) => {
