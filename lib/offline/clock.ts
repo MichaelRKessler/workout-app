@@ -6,6 +6,13 @@
 export const CLOCK_READING_MAX_ROUND_TRIP_MS = 5_000;
 
 /**
+ * How long a reading taken in this page load is trusted before a batch asks
+ * again. A stored reading from an earlier load is not trusted at all, since
+ * the phone's clock may have been corrected since.
+ */
+export const CLOCK_READING_FRESH_MS = 10 * 60 * 1000;
+
+/**
  * The phone's clock measured against the server. Sent with each batch so a
  * request delivered late is not mistaken for a wrong clock.
  */
@@ -43,7 +50,39 @@ export function clockReading(
   };
 }
 
-/** Keeps the later reading. Both come from this phone's clock. */
+/**
+ * A reading timed with the browser's monotonic clock, so a phone clock change
+ * in the middle of the request cannot make the round trip look negative or long.
+ */
+export function timedClockReading(
+  roundTripMs: number,
+  receivedAt: number,
+  serverNow: unknown,
+): ClockReading | null {
+  return clockReading(receivedAt - roundTripMs, receivedAt, serverNow);
+}
+
+/** Milliseconds from a clock that a phone time change does not move. */
+export function monotonicNow(): number {
+  return typeof performance !== "undefined" && typeof performance.now === "function"
+    ? performance.now()
+    : Date.now();
+}
+
+/** Whether a batch should ask the server for a new reading before it sends. */
+export function needsClockReading(
+  clock: ClockReading | null,
+  freshAt: number | null,
+  now: number,
+): boolean {
+  return clock === null || freshAt === null || now - freshAt >= CLOCK_READING_FRESH_MS;
+}
+
+/**
+ * Keeps the later reading, ordered by the server's time when it was taken.
+ * Phone time is not used: after a fast clock is corrected, a newer reading
+ * has an earlier phone time and would otherwise lose to the stale one.
+ */
 export function newerClock(
   left: ClockReading | null,
   right: ClockReading | null,
@@ -54,7 +93,7 @@ export function newerClock(
   if (!right) {
     return left;
   }
-  return right.measuredAt >= left.measuredAt ? right : left;
+  return right.measuredAt + right.offsetMs >= left.measuredAt + left.offsetMs ? right : left;
 }
 
 export function parseClock(value: unknown): ClockReading | null {

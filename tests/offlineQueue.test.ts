@@ -3,7 +3,13 @@ import test from "node:test";
 import { loadPendingRests, queueRest } from "../lib/exerciseRest.ts";
 import type { SetLine } from "../lib/groupSets.ts";
 import { holdChanges, prepareBatch, splitBatch } from "../lib/offline/batch.ts";
-import { CLOCK_READING_MAX_ROUND_TRIP_MS, clockReading } from "../lib/offline/clock.ts";
+import {
+  CLOCK_READING_FRESH_MS,
+  CLOCK_READING_MAX_ROUND_TRIP_MS,
+  clockReading,
+  needsClockReading,
+  timedClockReading,
+} from "../lib/offline/clock.ts";
 import { isPhoneClientId, resolveDocumentId } from "../lib/offline/documentId.ts";
 import { withQueueLock } from "../lib/offline/lock.ts";
 import { mergeOutboxes } from "../lib/offline/merge.ts";
@@ -560,4 +566,29 @@ test("a clock reading uses the middle of a quick round trip and is kept with the
   assert.equal(mergeOutboxes(later, stored).clock?.offsetMs, 5);
   assert.equal(mergeOutboxes(stored, later).clock?.offsetMs, 5);
   assert.equal(recordClock(later, fast).clock?.offsetMs, 5);
+});
+
+test("a reading after a fast clock is corrected replaces the stale one", () => {
+  const hour = 3_600_000;
+  // Taken while the phone ran an hour fast: phone time NOW + 1 h, server time NOW.
+  const stale = { offsetMs: -hour, measuredAt: NOW + hour };
+  // A minute later, after the phone's clock was fixed.
+  const fresh = { offsetMs: 0, measuredAt: NOW + 60_000 };
+  const queued = recordClock(emptyOutbox(), stale);
+  assert.deepEqual(recordClock(queued, fresh).clock, fresh);
+  assert.deepEqual(mergeOutboxes(queued, recordClock(emptyOutbox(), fresh)).clock, fresh);
+  assert.deepEqual(mergeOutboxes(recordClock(emptyOutbox(), fresh), queued).clock, fresh);
+});
+
+test("a batch asks again unless this page load has a recent reading", () => {
+  const reading = { offsetMs: 0, measuredAt: NOW };
+  assert.equal(needsClockReading(null, 1_000, 2_000), true);
+  assert.equal(needsClockReading(reading, null, 2_000), true);
+  assert.equal(needsClockReading(reading, 1_000, 1_000 + CLOCK_READING_FRESH_MS - 1), false);
+  assert.equal(needsClockReading(reading, 1_000, 1_000 + CLOCK_READING_FRESH_MS), true);
+});
+
+test("a reading timed by the monotonic clock ignores a wall-clock jump mid-request", () => {
+  assert.deepEqual(timedClockReading(400, 1_400, 5_200), { offsetMs: 4_000, measuredAt: 1_400 });
+  assert.equal(timedClockReading(CLOCK_READING_MAX_ROUND_TRIP_MS + 1, 10_000, 5_000), null);
 });
