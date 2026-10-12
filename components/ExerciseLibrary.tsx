@@ -7,12 +7,23 @@ import { PageHeader } from "@/components/PageHeader";
 import { Sheet } from "@/components/Sheet";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import { exerciseLink } from "@/lib/exerciseLink";
+import { exerciseLink, muscleFilterHref } from "@/lib/exerciseLink";
 import { readableError } from "@/lib/errors";
 import { pluralize } from "@/lib/format";
-import { useMutation, usePaginatedQuery } from "convex/react";
+import { isMuscleGroup, MUSCLE_GROUPS, MUSCLE_LABELS, type MuscleGroup } from "@/convex/lib/muscleGroup";
+import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { FormEvent, useState } from "react";
+
+type LibraryItem = {
+  _id: Id<"exercises">;
+  name: string;
+  setCount: number;
+  setCountCapped: boolean;
+  muscleGroup: MuscleGroup;
+  muscleSource: "saved" | "suggested";
+};
 
 type Conflict = {
   fromId: Id<"exercises">;
@@ -24,11 +35,18 @@ type Conflict = {
 };
 
 export function ExerciseLibrary() {
-  const { results, status, loadMore } = usePaginatedQuery(
+  const params = useSearchParams();
+  const muscleParam = params.get("muscle");
+  const muscle = isMuscleGroup(muscleParam) ? muscleParam : null;
+  const fromHome = params.get("from") === "home";
+  const { results: allResults, status: pageStatus, loadMore } = usePaginatedQuery(
     api.exercises.browse,
-    {},
+    muscle ? "skip" : {},
     { initialNumItems: 40 },
   );
+  const filtered = useQuery(api.exercises.byMuscle, muscle ? { muscleGroup: muscle } : "skip");
+  const results: LibraryItem[] = muscle ? (filtered?.exercises ?? []) : allResults;
+  const status = muscle ? (filtered === undefined ? "LoadingFirstPage" : "Exhausted") : pageStatus;
   const renameExercise = useMutation(api.exercises.rename);
   const mergeExercises = useMutation(api.exercises.merge);
   const { offline } = useOfflineLog();
@@ -91,7 +109,11 @@ export function ExerciseLibrary() {
 
   return (
     <div className="px-5 pt-3 pb-[calc(32px+env(safe-area-inset-bottom))]">
-      <PageHeader backHref="/settings" backLabel="Back to settings" title="Exercises">
+      <PageHeader
+        backHref={fromHome ? "/" : "/settings"}
+        backLabel={fromHome ? "Back to home" : "Back to settings"}
+        title="Exercises"
+      >
         <p className="mt-1.5 text-base leading-normal text-muted">
           Rename a duplicate, or merge it into the exercise you want to keep. Merging moves every
           set. History and personal records follow those sets. The muscle group is a suggestion
@@ -105,10 +127,33 @@ export function ExerciseLibrary() {
         </p>
       ) : null}
 
+      <nav aria-label="Filter by muscle" className="-mx-5 mt-5 flex gap-2 overflow-x-auto px-5 pb-1 [scrollbar-width:none]">
+        {[null, ...MUSCLE_GROUPS].map((group) => {
+          const active = group === muscle;
+          return (
+            <Link
+              key={group ?? "all"}
+              href={muscleFilterHref(group, fromHome)}
+              replace
+              aria-current={active ? "page" : undefined}
+              className={`inline-flex min-h-11 shrink-0 items-center rounded-full border px-4 text-base font-medium ${
+                active ? "border-inverse bg-inverse text-inverse-ink" : "border-line bg-surface hover:bg-fill-2"
+              }`}
+            >
+              {group ? MUSCLE_LABELS[group] : "All"}
+            </Link>
+          );
+        })}
+      </nav>
+
       {status === "LoadingFirstPage" ? (
         <p className="mt-8 text-base text-muted">Loading exercises…</p>
       ) : results.length === 0 ? (
-        <p className="mt-8 text-base text-muted">Exercises appear after you log a set.</p>
+        <p className="mt-8 text-base text-muted">
+          {muscle
+            ? `No ${MUSCLE_LABELS[muscle].toLowerCase()} exercises yet. Log one, or change an exercise's muscle group under All.`
+            : "Exercises appear after you log a set."}
+        </p>
       ) : (
         <>
         {offline ? (
@@ -120,7 +165,7 @@ export function ExerciseLibrary() {
               <span className="flex min-h-11 items-center justify-between gap-3">
                 <span className="min-w-0">
                   <Link
-                    href={exerciseLink(exercise._id, "/exercises") ?? `/exercises/${exercise._id}`}
+                    href={exerciseLink(exercise._id, muscleFilterHref(muscle, fromHome)) ?? `/exercises/${exercise._id}`}
                     className="block truncate text-base font-medium hover:underline"
                   >
                     {exercise.name}
@@ -152,6 +197,9 @@ export function ExerciseLibrary() {
         </ul>
         </>
       )}
+      {muscle && filtered?.truncated ? (
+        <p className="mt-4 text-sm text-muted">Only your first 200 exercises are checked for this filter.</p>
+      ) : null}
 
       {status === "CanLoadMore" ? (
         <Button variant="secondary" className="mt-6 w-full" onClick={() => loadMore(40)}>
