@@ -5,15 +5,15 @@ import { clampToWindow, clockOffsetMs, correctClientTime } from "./clockSkew";
 import { isClientId } from "./clientIds";
 import { formatExerciseName } from "./exerciseName";
 import { combineNotes, normalizeNote, type NormalizedSet } from "./measures";
-import { announcedRecords, type PersonalRecord } from "./records";
+import { announcedRecords, recordAfterEdit, type PersonalRecord } from "./records";
 import { plannedCompletedAt } from "./sessionTiming";
 import { resolvedSetType, type SetType } from "./setType";
 import { cleanSupersetId, mergeSupersetMembers, withStoredSuperset } from "./superset";
+import { userError } from "./errors";
 import {
-  EXERCISE_RECORD_SCAN,
   MAX_SETS_PER_BATCH,
   getOrCreateExercise,
-  loadRecentSetsForExercise,
+  loadSetsBefore,
   normalizeSetInput,
   recordPoint,
   storedSetFields,
@@ -231,20 +231,20 @@ async function personalRecordForSet(
   userId: Id<"users">,
   exerciseId: Id<"exercises">,
   exerciseName: string,
-  setId: Id<"sets">,
+  loggedAt: number,
   normalized: NormalizedSet,
   sessionId: Id<"sessions">,
+  before: ReturnType<typeof recordPoint> | null,
 ): Promise<PersonalRecord | null> {
-  const recent = await loadRecentSetsForExercise(ctx, userId, exerciseId);
-  const previous = recent
-    .filter((set) => set._id !== setId)
-    .slice(0, EXERCISE_RECORD_SCAN)
+  const earlierRows = await loadSetsBefore(ctx, userId, exerciseId, loggedAt);
+  const earlier = earlierRows
+    .filter((set) => set.userId === userId && set.exerciseId === exerciseId)
     .map((set) => recordPoint(set));
-  return announcedRecords(
-    exerciseName,
-    [recordPoint({ ...normalized, sessionId })],
-    previous,
-  ).headline;
+  const next = recordPoint({ ...normalized, sessionId });
+  if (before) {
+    return recordAfterEdit(exerciseName, before, next, earlier);
+  }
+  return announcedRecords(exerciseName, [next], earlier).headline;
 }
 
 function setDocument(
@@ -323,10 +323,10 @@ export async function acceptOfflineBatch(
   const total =
     args.sets.length + args.edits.length + args.deletes.length + args.actions.length + body.length;
   if (total === 0) {
-    throw new Error("Nothing to sync");
+    throw userError("Nothing to sync");
   }
   if (total > MAX_SETS_PER_BATCH) {
-    throw new Error(`Log up to ${MAX_SETS_PER_BATCH} changes at a time`);
+    throw userError(`Log up to ${MAX_SETS_PER_BATCH} changes at a time`);
   }
 
   const setResults: OfflineSetResult[] = [];
@@ -375,14 +375,14 @@ export async function acceptOfflineBatch(
         return row._id;
       }
       if (row && row.userId !== userId) {
-        throw new Error("Workout not found");
+        throw userError("Workout not found");
       }
       missingRequested = true;
     }
 
     const startedAt = acceptedTime(item.sessionStartedAt, offsetMs, now);
     if (startedAt === null) {
-      throw new Error("That set's time is invalid");
+      throw userError("That set's time is invalid");
     }
 
     if (isClientId(item.sessionClientId)) {
@@ -405,7 +405,7 @@ export async function acceptOfflineBatch(
         }
       }
     } else if (!item.sessionId) {
-      throw new Error("That set could not be saved");
+      throw userError("That set could not be saved");
     }
 
     if (item.placement === "open" && !missingRequested) {
@@ -434,7 +434,7 @@ export async function acceptOfflineBatch(
   for (const item of args.sets) {
     try {
       if (!isClientId(item.clientId) || !acceptedRevision(item.revision)) {
-        throw new Error("That set could not be saved");
+        throw userError("That set could not be saved");
       }
       const existing = await findByClientId(ctx, userId, item.clientId);
       if (item.removed) {
@@ -468,12 +468,12 @@ export async function acceptOfflineBatch(
       }
       const correctedLoggedAt = acceptedTime(item.loggedAt, offsetMs, now);
       if (correctedLoggedAt === null) {
-        throw new Error("That set's time is invalid");
+        throw userError("That set's time is invalid");
       }
       const normalized = normalizeSetInput(item);
       const formatted = formatExerciseName(item.exerciseName);
       if (!formatted) {
-        throw new Error("Exercise name must be 1 to 80 characters");
+        throw userError("Exercise name must be 1 to 80 characters");
       }
 
       if (existing && (existing.clientRevision ?? 0) >= item.revision) {
@@ -508,7 +508,7 @@ export async function acceptOfflineBatch(
           .withIndex("by_session_and_exercise", (q) => q.eq("sessionId", sessionId))
           .take(500);
         if (count.length >= 500) {
-          throw new Error("This workout already has 500 sets");
+          throw userError("This workout already has 500 sets");
         }
         const setId = await ctx.db.insert("sets", {
           userId,
@@ -528,9 +528,10 @@ export async function acceptOfflineBatch(
           userId,
           exerciseId,
           exercise?.name ?? formatted.name,
-          setId,
+          loggedAt,
           normalized,
           sessionId,
+          null,
         );
         if (item.note) {
           const list = notes.get(sessionId) ?? [];
@@ -561,9 +562,10 @@ export async function acceptOfflineBatch(
         userId,
         exerciseId,
         exercise?.name ?? formatted.name,
-        existing._id,
+        existing.loggedAt,
         normalized,
         existing.sessionId,
+        existing.exerciseId === exerciseId ? recordPoint(existing) : null,
       );
       setResults.push({
         clientId: item.clientId,
@@ -646,11 +648,11 @@ export async function acceptOfflineBatch(
   for (const item of args.edits) {
     try {
       if (!isClientId(item.editId)) {
-        throw new Error("That edit could not be saved");
+        throw userError("That edit could not be saved");
       }
       const set = await ctx.db.get("sets", item.setId);
       if (!set || set.userId !== userId) {
-        throw new Error("Set not found");
+        throw userError("Set not found");
       }
       const normalized = normalizeSetInput({
         ...item,
@@ -667,9 +669,10 @@ export async function acceptOfflineBatch(
         userId,
         set.exerciseId,
         exercise?.name ?? "Exercise",
-        set._id,
+        set.loggedAt,
         normalized,
         set.sessionId,
+        recordPoint(set),
       );
       editResults.push({
         editId: item.editId,
@@ -691,7 +694,7 @@ export async function acceptOfflineBatch(
   for (const item of args.deletes) {
     try {
       if (!isClientId(item.deleteId)) {
-        throw new Error("That set could not be removed");
+        throw userError("That set could not be removed");
       }
       const set = await ctx.db.get("sets", item.setId);
       if (!set || set.userId !== userId) {
@@ -724,13 +727,13 @@ export async function acceptOfflineBatch(
   for (const item of args.actions) {
     try {
       if (!isClientId(item.actionId) || !isClientId(item.sessionClientId)) {
-        throw new Error("That workout could not be saved");
+        throw userError("That workout could not be saved");
       }
       let session: Doc<"sessions"> | null = null;
       if (item.sessionId) {
         const row = await ctx.db.get("sessions", item.sessionId);
         if (row && row.userId !== userId) {
-          throw new Error("Workout not found");
+          throw userError("Workout not found");
         }
         if (row && row.userId === userId) {
           session = row;
@@ -788,7 +791,7 @@ export async function acceptOfflineBatch(
           .withIndex("by_session_and_exercise", (q) => q.eq("sessionId", session._id))
           .take(1);
         if (existing.length > 0) {
-          throw new Error("This workout has sets. Finish it instead");
+          throw userError("This workout has sets. Finish it instead");
         }
         await ctx.db.delete("sessions", session._id);
         actionResults.push({
@@ -812,7 +815,7 @@ export async function acceptOfflineBatch(
       }
       const lastSetAt = await newestLoggedAt(ctx, session._id);
       if (lastSetAt === null) {
-        throw new Error("Log at least one set before finishing");
+        throw userError("Log at least one set before finishing");
       }
       const requested = acceptedTime(item.requestedAt, offsetMs, now);
       const explicit =

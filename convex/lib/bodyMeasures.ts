@@ -1,4 +1,5 @@
 import { roundWeight, type WeightUnit } from "./units";
+import { userError } from "./errors";
 
 export const CM_PER_IN = 2.54;
 
@@ -73,7 +74,7 @@ function optionalNumber(
     return undefined;
   }
   if (!Number.isFinite(value) || value < min || value > max) {
-    throw new Error(`${label} must be between ${min} and ${max}`);
+    throw userError(`${label} must be between ${min} and ${max}`);
   }
   return roundLength(value);
 }
@@ -98,7 +99,7 @@ export function normalizeBodyMeasures(input: BodyMeasureInput): StoredBodyMeasur
   if (input.weightLb !== undefined && input.weightLb !== null) {
     weightLb = roundWeight(input.weightLb);
     if (weightLb < MIN_BODY_WEIGHT_LB || weightLb > MAX_BODY_WEIGHT_LB) {
-      throw new Error(
+      throw userError(
         `Weight must be between ${MIN_BODY_WEIGHT_LB} and ${MAX_BODY_WEIGHT_LB} lb`,
       );
     }
@@ -135,7 +136,7 @@ export function normalizeBodyMeasures(input: BodyMeasureInput): StoredBodyMeasur
     optionalNumber(input.thighCm, MIN_CIRCUMFERENCE_CM, MAX_CIRCUMFERENCE_CM, "Thigh"),
   );
   if (Object.keys(stored).length === 0) {
-    throw new Error("Add a weight or a measurement");
+    throw userError("Add a weight or a measurement");
   }
   return stored;
 }

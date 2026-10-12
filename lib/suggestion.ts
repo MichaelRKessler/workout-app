@@ -1,7 +1,7 @@
 import { setKind } from "../convex/lib/measures";
 import { clampIncrementLb } from "../convex/lib/progression";
 import { countsTowardRecord, type SetType } from "../convex/lib/setType";
-import { formatWeightAmount, roundWeight, type WeightUnit } from "../convex/lib/units";
+import { formatWeightAmount, fromPounds, roundWeight, toPounds, type WeightUnit } from "../convex/lib/units";
 
 const MAX_WEIGHT_LB = 2000;
 const MAX_REPS = 999;
@@ -33,6 +33,7 @@ export function suggestNext(
   options: {
     enabled: boolean;
     incrementLb: number;
+    unit?: WeightUnit;
     routine?: SuggestionTarget | null;
   },
 ): Suggestion | null {
@@ -78,12 +79,32 @@ export function suggestNext(
   if (first === undefined || first <= 0 || weights.some((weight) => weight !== first)) {
     return null;
   }
-  const increment = clampIncrementLb(options.incrementLb);
-  const next = Math.min(MAX_WEIGHT_LB, roundWeight(first + increment));
-  if (next <= first) {
+  const next = nextWeightLb(first, options.incrementLb, options.unit ?? "lb");
+  if (next === null) {
     return null;
   }
   return { kind: "weight", weightLb: next };
+}
+
+/**
+ * Add the increment in the unit on screen, snap to that step, then store pounds
+ * once. Adding a rounded pound increment to kilograms drifts off the plate.
+ */
+function nextWeightLb(weightLb: number, incrementLb: number, unit: WeightUnit): number | null {
+  const step = fromPounds(clampIncrementLb(incrementLb), unit);
+  const current = fromPounds(weightLb, unit);
+  if (!(step > 0) || !(current > 0)) {
+    return null;
+  }
+  const snapped = roundWeight(Math.round((current + step) / step) * step);
+  if (!(snapped > current)) {
+    return null;
+  }
+  const pounds = Math.min(MAX_WEIGHT_LB, toPounds(snapped, unit));
+  if (pounds <= roundWeight(weightLb)) {
+    return null;
+  }
+  return pounds;
 }
 
 export function formatSuggestion(suggestion: Suggestion, unit: WeightUnit): string {

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { toPounds } from "../convex/lib/units";
+import { fromPounds, toPounds } from "../convex/lib/units";
 import { formatSuggestion, suggestNext } from "../lib/suggestion";
 
 const options = { enabled: true, incrementLb: 5 };
@@ -77,7 +77,25 @@ describe("suggested next weight", () => {
     const next = suggestNext([{ reps: 8, weightLb: toPounds(60, "kg") }], {
       enabled: true,
       incrementLb: toPounds(2.5, "kg"),
+      unit: "kg",
     });
     expect(next).toEqual({ kind: "weight", weightLb: toPounds(62.5, "kg") });
+  });
+
+  test("repeated kilogram steps stay on the plate", () => {
+    let weightLb = toPounds(60, "kg");
+    for (let step = 0; step < 9; step += 1) {
+      const next = suggestNext([{ reps: 8, weightLb }], {
+        enabled: true,
+        incrementLb: toPounds(2.5, "kg"),
+        unit: "kg",
+      });
+      expect(next?.kind).toBe("weight");
+      if (next?.kind === "weight") {
+        weightLb = next.weightLb;
+      }
+    }
+    expect(fromPounds(weightLb, "kg")).toBe(82.5);
+    expect(formatSuggestion({ kind: "weight", weightLb }, "kg")).toBe("Try 82.5 kg today");
   });
 });

@@ -6,6 +6,7 @@ import {
   epleyOneRepMax,
   personalRecordForBatch,
   personalRecordForSet,
+  recordAfterEdit,
   summarizeEfforts,
   trendFromSets,
   volumeLb,
@@ -61,6 +62,37 @@ describe("personal records", () => {
       [{ reps: 5, weightLb: 135 }],
     );
     expect(record).toMatchObject({ kind: "both", weightLb: 205 });
+  });
+
+  test("an edit announces a record only when the announced line changes", () => {
+    // RPE is not part of the announced record, so the same load stays quiet.
+    expect(
+      recordAfterEdit("bench press", { reps: 5, weightLb: 200 }, { reps: 5, weightLb: 200 }, []),
+    ).toBeNull();
+    expect(
+      recordAfterEdit(
+        "bench press",
+        { reps: 5, weightLb: 135 },
+        { reps: 5, weightLb: 185 },
+        [],
+      ),
+    ).toMatchObject({ kind: "both", weightLb: 185 });
+    expect(
+      recordAfterEdit(
+        "bench press",
+        { reps: 5, weightLb: 185 },
+        { reps: 5, weightLb: 225 },
+        [{ reps: 5, weightLb: 135 }],
+      ),
+    ).toMatchObject({ weightLb: 225 });
+    expect(
+      recordAfterEdit(
+        "bench press",
+        { reps: 5, weightLb: 200 },
+        { reps: 5, weightLb: 100 },
+        [{ reps: 5, weightLb: 150 }],
+      ),
+    ).toBeNull();
   });
 });
 

@@ -1,5 +1,6 @@
 import { resolvedSetType, type SetType } from "./setType";
 import { roundWeight } from "./units";
+import { userError } from "./errors";
 
 export const MAX_DURATION_SEC = 24 * 60 * 60;
 export const MAX_DISTANCE_M = 200_000;
@@ -56,7 +57,7 @@ export function normalizeStoredSet(input: MeasureInput): NormalizedSet {
   const weightLb = optionalWeight(input.weightLb);
 
   if (reps === undefined && durationSec === undefined && distanceM === undefined) {
-    throw new Error("Enter reps, a time, or a distance");
+    throw userError("Enter reps, a time, or a distance");
   }
 
   return {
@@ -79,7 +80,7 @@ export function normalizeNote(raw: string | null | undefined): string | undefine
     return undefined;
   }
   if (note.length > MAX_NOTE_LENGTH) {
-    throw new Error(`Notes must be ${MAX_NOTE_LENGTH} characters or less`);
+    throw userError(`Notes must be ${MAX_NOTE_LENGTH} characters or less`);
   }
   return note;
 }
@@ -97,7 +98,7 @@ export function combineNotes(existing: string | undefined, next: string | undefi
   }
   const combined = `${existing}\n${next}`;
   if (combined.length > MAX_NOTE_LENGTH) {
-    throw new Error(`Notes must be ${MAX_NOTE_LENGTH} characters or less`);
+    throw userError(`Notes must be ${MAX_NOTE_LENGTH} characters or less`);
   }
   return combined;
 }
@@ -203,7 +204,7 @@ function optionalReps(value: number | null | undefined): number | undefined {
     return undefined;
   }
   if (!Number.isInteger(value) || value < 1 || value > 999) {
-    throw new Error("Reps must be a whole number from 1 to 999");
+    throw userError("Reps must be a whole number from 1 to 999");
   }
   return value;
 }
@@ -213,7 +214,7 @@ function optionalDuration(value: number | null | undefined): number | undefined 
     return undefined;
   }
   if (!Number.isInteger(value) || value < 1 || value > MAX_DURATION_SEC) {
-    throw new Error("Time must be from 1 second to 24 hours");
+    throw userError("Time must be from 1 second to 24 hours");
   }
   return value;
 }
@@ -223,7 +224,7 @@ function optionalCalories(value: number | null | undefined): number | undefined 
     return undefined;
   }
   if (!Number.isInteger(value) || value < 1 || value > MAX_CALORIES) {
-    throw new Error("Calories must be a whole number from 1 to 20000");
+    throw userError("Calories must be a whole number from 1 to 20000");
   }
   return value;
 }
@@ -233,7 +234,7 @@ function optionalDistance(value: number | null | undefined): number | undefined 
     return undefined;
   }
   if (!Number.isFinite(value) || value < 1 || value > MAX_DISTANCE_M) {
-    throw new Error("Distance must be from 1 meter to 200 kilometers");
+    throw userError("Distance must be from 1 meter to 200 kilometers");
   }
   return roundWeight(value);
 }
@@ -243,7 +244,7 @@ function optionalRpe(value: number | null | undefined): number | undefined {
     return undefined;
   }
   if (!Number.isInteger(value) || value < 1 || value > 10) {
-    throw new Error("RPE must be a whole number from 1 to 10");
+    throw userError("RPE must be a whole number from 1 to 10");
   }
   return value;
 }
@@ -253,7 +254,7 @@ function optionalWeight(value: number | null | undefined): number {
     return 0;
   }
   if (!Number.isFinite(value) || value < 0 || value > 2000) {
-    throw new Error("Weight must be between 0 and 2000 lb");
+    throw userError("Weight must be between 0 and 2000 lb");
   }
   return roundWeight(value);
 }

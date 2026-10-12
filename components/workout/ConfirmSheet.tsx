@@ -84,7 +84,13 @@ export function ConfirmSheet({
   }
 
   return (
-    <Sheet open={open} onClose={onDiscard} labelledBy="confirm-title" dismissible={!saving}>
+    <Sheet
+      open={open}
+      onClose={onDiscard}
+      labelledBy="confirm-title"
+      dismissible={!saving}
+      closeOnScrim={false}
+    >
       <div className="flex items-center justify-between">
         <h2
           id="confirm-title"
@@ -142,7 +148,7 @@ export function ConfirmSheet({
                   cleanSupersetId(exercise.supersetId) !== undefined &&
                   cleanSupersetId(exercise.supersetId) === cleanSupersetId(next?.supersetId);
                 return (
-                  <div key={`${exercise.exerciseName}-${at}`}>
+                  <div key={exercise.draftId ?? `index-${at}`}>
                     <ExerciseConfirmBlock
                       exercise={exercise}
                       index={at}

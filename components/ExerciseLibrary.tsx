@@ -36,6 +36,7 @@ export function ExerciseLibrary() {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [conflict, setConflict] = useState<Conflict | null>(null);
+  const [mergeNotice, setMergeNotice] = useState<string | null>(null);
 
   function openRename(id: Id<"exercises">, name: string) {
     setEditing({ id, name });
@@ -72,9 +73,14 @@ export function ExerciseLibrary() {
     setPending(true);
     setError(null);
     try {
-      await mergeExercises({ fromId: conflict.fromId, intoId: conflict.intoId });
+      const result = await mergeExercises({ fromId: conflict.fromId, intoId: conflict.intoId });
       setConflict(null);
       setEditing(null);
+      setMergeNotice(
+        result.continuing
+          ? `Moving the rest of the sets onto ${result.name}. This list updates when they finish.`
+          : null,
+      );
     } catch (caught) {
       setError(readableError(caught));
     } finally {
@@ -91,6 +97,12 @@ export function ExerciseLibrary() {
           until you change it.
         </p>
       </PageHeader>
+
+      {mergeNotice ? (
+        <p role="status" className="mt-4 text-base leading-normal text-muted">
+          {mergeNotice}
+        </p>
+      ) : null}
 
       {status === "LoadingFirstPage" ? (
         <p className="mt-8 text-base text-muted">Loading exercises…</p>

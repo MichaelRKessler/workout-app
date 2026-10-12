@@ -11,6 +11,7 @@ import { formatExerciseName } from "./lib/exerciseName";
 import { normalizeNote } from "./lib/measures";
 import { muscleCounts, muscleGroupValidator, resolveMuscleGroup, type MuscleGroup } from "./lib/muscleGroup";
 import { countsTowardVolume } from "./lib/setType";
+import { userError } from "./lib/errors";
 import {
   announcedRecords,
   personalRecordValidator,
@@ -33,11 +34,10 @@ import {
 import { MAX_ROUTINE_NAME_LENGTH } from "./lib/routinePlan";
 import { normalizeSupersetItems } from "./lib/superset";
 import {
-  EXERCISE_RECORD_SCAN,
   MAX_SETS_PER_SESSION,
   getOrCreateExercise,
   getOwnedSession,
-  loadRecentSetsForExercise,
+  loadSetsBefore,
   normalizeSetInput,
   presentSet,
   recordPoint,
@@ -353,7 +353,7 @@ export const setPlan = authedMutation({
     if (args.routineId) {
       const routine = await ctx.db.get("routines", args.routineId);
       if (!routine || routine.userId !== ctx.userId) {
-        throw new Error("Routine not found");
+        throw userError("Routine not found");
       }
       routineId = routine._id;
     }
@@ -384,7 +384,7 @@ export const complete = authedMutation({
     const session = await requireOpenSession(ctx, ctx.userId, args.sessionId);
     const lastSetAt = await newestLoggedAt(ctx, session._id);
     if (lastSetAt === null) {
-      throw new Error("Log at least one set before finishing");
+      throw userError("Log at least one set before finishing");
     }
 
     const completedAt = plannedCompletedAt({
@@ -447,7 +447,7 @@ export const discard = authedMutation({
       )
       .take(1);
     if (sets.length > 0) {
-      throw new Error("This workout has sets. Finish it instead");
+      throw userError("This workout has sets. Finish it instead");
     }
 
     await ctx.db.delete("sessions", session._id);
@@ -524,20 +524,20 @@ export const logPast = authedMutation({
   }),
   handler: async (ctx, args) => {
     if (!Number.isFinite(args.startedAt)) {
-      throw new Error("Pick a date and time");
+      throw userError("Pick a date and time");
     }
     const now = Date.now();
     if (args.startedAt > now + FUTURE_SKEW_MS) {
-      throw new Error("Pick a time that has already happened");
+      throw userError("Pick a time that has already happened");
     }
     if (args.startedAt < EARLIEST_WORKOUT_AT) {
-      throw new Error("Pick a date after 1999");
+      throw userError("Pick a date after 1999");
     }
     if (args.exercises.length === 0) {
-      throw new Error("Add at least one exercise");
+      throw userError("Add at least one exercise");
     }
     if (args.exercises.length > MAX_PAST_EXERCISES) {
-      throw new Error(`Log up to ${MAX_PAST_EXERCISES} exercises at a time`);
+      throw userError(`Log up to ${MAX_PAST_EXERCISES} exercises at a time`);
     }
 
     const note = normalizeNote(args.note);
@@ -549,14 +549,14 @@ export const logPast = authedMutation({
     for (const exercise of args.exercises) {
       const formatted = formatExerciseName(exercise.name);
       if (!formatted) {
-        throw new Error("Exercise name must be 1 to 80 characters");
+        throw userError("Exercise name must be 1 to 80 characters");
       }
       if (exercise.sets.length === 0) {
-        throw new Error("Add at least one set");
+        throw userError("Add at least one set");
       }
       totalSets += exercise.sets.length;
       if (totalSets > MAX_PAST_SETS) {
-        throw new Error(`Log up to ${MAX_PAST_SETS} sets at a time`);
+        throw userError(`Log up to ${MAX_PAST_SETS} sets at a time`);
       }
       validated.push({
         name: formatted.name,
@@ -595,10 +595,9 @@ export const logPast = authedMutation({
         offset += 1;
         created.push(recordPoint({ ...set, sessionId }));
       }
-      const recent = await loadRecentSetsForExercise(ctx, ctx.userId, exerciseId);
-      const previous = recent
-        .filter((set) => set.sessionId !== sessionId)
-        .slice(0, EXERCISE_RECORD_SCAN)
+      const earlier = await loadSetsBefore(ctx, ctx.userId, exerciseId, startedAt);
+      const previous = earlier
+        .filter((set) => set.userId === ctx.userId && set.exerciseId === exerciseId)
         .map((set) => recordPoint(set));
       personalRecords.push(
         ...announcedRecords(stored?.name ?? exercise.name, created, previous).records,
@@ -616,10 +615,10 @@ export const remove = authedMutation({
   handler: async (ctx, args) => {
     const session = await getOwnedSession(ctx, ctx.userId, args.sessionId);
     if (!session) {
-      throw new Error("Workout not found");
+      throw userError("Workout not found");
     }
     if (session.status !== "completed") {
-      throw new Error(
+      throw userError(
         "An open workout can't be deleted. Discard it if it's empty, or finish it first",
       );
     }
@@ -767,16 +766,16 @@ export const removeDay = authedMutation({
       args.startedUntil,
     );
     if (truncated) {
-      throw new Error("This day has too many workouts to delete");
+      throw userError("This day has too many workouts to delete");
     }
     if (sessions.length === 0) {
-      throw new Error("No finished workouts on this day");
+      throw userError("No finished workouts on this day");
     }
 
     const plans: Array<{ sessionId: Id<"sessions">; setIds: Array<Id<"sets">> }> = [];
     for (const session of sessions) {
       if (session.userId !== ctx.userId || session.status !== "completed") {
-        throw new Error("Workout not found");
+        throw userError("Workout not found");
       }
       plans.push({
         sessionId: session._id,
@@ -847,12 +846,12 @@ async function collectOwnedSetIds(
     .withIndex("by_session_and_exercise", (q) => q.eq("sessionId", session._id))
     .take(2001);
   if (sets.length > 2000) {
-    throw new Error("This workout has too many sets to delete");
+    throw userError("This workout has too many sets to delete");
   }
   const ids: Array<Id<"sets">> = [];
   for (const set of sets) {
     if (set.userId !== session.userId) {
-      throw new Error("Workout not found");
+      throw userError("Workout not found");
     }
     ids.push(set._id);
   }
@@ -894,7 +893,7 @@ export const weeklySummary = authedQuery({
     assertWeekRange(args.weekStarts, args.weekEndsAt);
     const first = args.weekStarts[0];
     if (first === undefined) {
-      throw new Error("Week range must cover at least two weeks");
+      throw userError("Week range must cover at least two weeks");
     }
     const sessions = await ctx.db
       .query("sessions")

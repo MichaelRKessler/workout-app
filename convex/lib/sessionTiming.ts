@@ -1,3 +1,5 @@
+import { userError } from "./errors";
+
 /**
  * Pure timing rules shared by the client and Convex mutations.
  * Do not import Convex server code from this file.
@@ -81,16 +83,16 @@ export function plannedCompletedAt(input: {
 }): number {
   if (input.explicit !== undefined) {
     if (!Number.isFinite(input.explicit)) {
-      throw new Error("End time must be a time");
+      throw userError("End time must be a time");
     }
     if (input.explicit < input.startedAt) {
-      throw new Error("End time can't be before the workout started");
+      throw userError("End time can't be before the workout started");
     }
     if (input.explicit < input.lastSetAt) {
-      throw new Error("End time can't be before the last set");
+      throw userError("End time can't be before the last set");
     }
     if (input.explicit > input.now) {
-      throw new Error("End time can't be in the future");
+      throw userError("End time can't be in the future");
     }
     return input.explicit;
   }

@@ -360,6 +360,47 @@ export function announcedRecords(
   };
 }
 
+export function samePersonalRecord(
+  left: PersonalRecord | null,
+  right: PersonalRecord | null,
+): boolean {
+  if (left === right) {
+    return true;
+  }
+  if (!left || !right) {
+    return false;
+  }
+  return (
+    left.exerciseName === right.exerciseName &&
+    left.kind === right.kind &&
+    left.reps === right.reps &&
+    left.weightLb === right.weightLb &&
+    left.epleyLb === right.epleyLb &&
+    left.durationSec === right.durationSec &&
+    left.distanceM === right.distanceM &&
+    left.calories === right.calories
+  );
+}
+
+/**
+ * The record to announce after an edit. Null when this set was already that
+ * record, so fixing RPE on a best set does not toast the same PR again.
+ * `earlier` is every countable comparison set logged before this one.
+ */
+export function recordAfterEdit(
+  exerciseName: string,
+  before: SetPoint,
+  after: SetPoint,
+  earlier: SetPoint[],
+): PersonalRecord | null {
+  const previous = announcedRecords(exerciseName, [before], earlier).headline;
+  const next = announcedRecords(exerciseName, [after], earlier).headline;
+  if (!next || samePersonalRecord(previous, next)) {
+    return null;
+  }
+  return next;
+}
+
 function sessionKey(set: SetPoint, fallback: string): string {
   return set.sessionId && set.sessionId.length > 0 ? set.sessionId : fallback;
 }

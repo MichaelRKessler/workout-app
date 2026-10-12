@@ -36,11 +36,20 @@ export type DraftSet = {
 export type VoiceDraft = {
   note: string;
   exercises: Array<{
+    /** Stable while the name is edited, so the field does not remount and close the keyboard. */
+    draftId?: string;
     exerciseName: string;
     sets: DraftSet[];
     supersetId?: string | null;
   }>;
 };
+
+function newDraftId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `draft-${Date.now().toString(36)}-${Math.random().toString(16).slice(2)}`;
+}
 
 export type VoiceLogState =
   | { status: "idle" }
@@ -136,6 +145,7 @@ export function proposalToDraft(proposal: VoiceProposal, unit: WeightUnit = "lb"
   return {
     note: proposal.note ?? "",
     exercises: proposal.exercises.map((exercise) => ({
+      draftId: newDraftId(),
       exerciseName: exercise.exerciseName,
       ...(exercise.supersetId ? { supersetId: exercise.supersetId } : {}),
       sets: exercise.sets.map((set) => ({

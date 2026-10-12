@@ -1,6 +1,7 @@
 import type { Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { requireUserId } from "./auth";
+import { userError } from "./errors";
 
 /**
  * The only admin, and always allowed. Compared after trim and lowercase.
@@ -19,7 +20,7 @@ export function normalizeEmail(email: string): string {
 export function parseEmail(raw: string): string {
   const email = normalizeEmail(raw);
   if (email.length === 0 || email.length > 320 || !EMAIL_PATTERN.test(email)) {
-    throw new Error("Enter a valid email address");
+    throw userError("Enter a valid email address");
   }
   return email;
 }
@@ -33,7 +34,7 @@ export function parseNote(raw: string | undefined): string | undefined {
     return undefined;
   }
   if (note.length > NOTE_LIMIT) {
-    throw new Error("Note must be 280 characters or less");
+    throw userError("Note must be 280 characters or less");
   }
   return note;
 }
@@ -71,7 +72,7 @@ export async function requireAllowedUser(ctx: Reader): Promise<{
   const user = await ctx.db.get("users", userId);
   const email = user?.email ? normalizeEmail(user.email) : null;
   if (!email || !(await isEmailAllowed(ctx, email))) {
-    throw new Error("You don't have access yet");
+    throw userError("You don't have access yet");
   }
   return {
     userId,
@@ -87,7 +88,7 @@ export async function requireAdmin(ctx: Reader): Promise<{
 }> {
   const access = await requireAllowedUser(ctx);
   if (!access.isAdmin) {
-    throw new Error("Admin access required");
+    throw userError("Admin access required");
   }
   return { userId: access.userId, email: access.email, isAdmin: true };
 }
@@ -133,14 +134,14 @@ export async function grantEmail(ctx: MutationCtx, email: string): Promise<void>
 export async function removeAllowedEmail(ctx: MutationCtx, rawEmail: string): Promise<void> {
   const email = parseEmail(rawEmail);
   if (email === ADMIN_EMAIL) {
-    throw new Error("The admin email cannot be removed");
+    throw userError("The admin email cannot be removed");
   }
   const row = await ctx.db
     .query("allowedEmails")
     .withIndex("by_email", (q) => q.eq("email", email))
     .unique();
   if (!row) {
-    throw new Error("That email is not on the allow list");
+    throw userError("That email is not on the allow list");
   }
   await ctx.db.delete("allowedEmails", row._id);
 }
@@ -198,11 +199,11 @@ export async function createAccessRequest(
   rawNote: string | undefined,
 ): Promise<{ status: "pending"; alreadyRequested: boolean }> {
   if (!email) {
-    throw new Error("Your Google account has no email address");
+    throw userError("Your Google account has no email address");
   }
   const normalized = normalizeEmail(email);
   if (await isEmailAllowed(ctx, normalized)) {
-    throw new Error("You already have access");
+    throw userError("You already have access");
   }
   const note = parseNote(rawNote);
   const pending = await pendingForEmail(ctx, normalized);
@@ -224,7 +225,7 @@ export async function approveRequest(
 ): Promise<void> {
   const request = await ctx.db.get("accessRequests", requestId);
   if (!request || request.status !== "pending") {
-    throw new Error("This request is no longer pending");
+    throw userError("This request is no longer pending");
   }
   await grantEmail(ctx, request.email);
 }
@@ -235,7 +236,7 @@ export async function denyRequest(
 ): Promise<void> {
   const request = await ctx.db.get("accessRequests", requestId);
   if (!request || request.status !== "pending") {
-    throw new Error("This request is no longer pending");
+    throw userError("This request is no longer pending");
   }
   await ctx.db.patch("accessRequests", request._id, {
     status: "denied",
