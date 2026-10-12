@@ -276,4 +276,102 @@ describe("merging exercises", () => {
     });
     expect(blockedStill).toEqual({ name: "Curls", sets: 1 });
   });
+
+  test("a running merge shows in the library, blocks chained merges, and survives a lost target", async () => {
+    const t = testBackend();
+    const owner = await signIn(t, "Michael");
+    const seeded = await t.run(async (ctx) => {
+      const make = async (name: string, createdAt: number) =>
+        await ctx.db.insert("exercises", {
+          userId: owner.userId,
+          name,
+          normalizedName: name.toLowerCase(),
+          createdAt,
+        });
+      const fromId = await make("Curls", 1);
+      const intoId = await make("Curl", 2);
+      const otherId = await make("Hammer curl", 3);
+      const sessionId = await ctx.db.insert("sessions", {
+        userId: owner.userId,
+        status: "completed",
+        startedAt: 1_000,
+        completedAt: 2_000,
+      });
+      for (let index = 0; index < MERGE_BATCH + 1; index += 1) {
+        await ctx.db.insert("sets", {
+          userId: owner.userId,
+          sessionId,
+          exerciseId: fromId,
+          reps: 10,
+          weightLb: 30,
+          loggedAt: 1_000 + index,
+        });
+      }
+      // Planned Curls but logged none of it.
+      const planOnly = await ctx.db.insert("sessions", {
+        userId: owner.userId,
+        status: "completed",
+        startedAt: 3_000,
+        completedAt: 4_000,
+        plan: [{ exerciseId: fromId }],
+      });
+      return { fromId, intoId, otherId, planOnly };
+    });
+
+    vi.useFakeTimers();
+    try {
+      const first = await owner.asUser.mutation(api.exercises.merge, {
+        fromId: seeded.fromId,
+        intoId: seeded.intoId,
+      });
+      expect(first.continuing).toBe(true);
+
+      const library = await owner.asUser.query(api.exercises.browse, {
+        paginationOpts: { numItems: 10, cursor: null },
+      });
+      const curls = library.page.find((item) => item._id === seeded.fromId);
+      expect(curls?.mergingInto).toBe("Curl");
+
+      // The kept exercise can't be merged away, and nothing can merge into the
+      // one being emptied, until this merge finishes.
+      await expect(
+        owner.asUser.mutation(api.exercises.merge, { fromId: seeded.intoId, intoId: seeded.otherId }),
+      ).rejects.toThrow(/still moving onto Curl/);
+      await expect(
+        owner.asUser.mutation(api.exercises.merge, { fromId: seeded.otherId, intoId: seeded.fromId }),
+      ).rejects.toThrow(/Curls is still being merged/);
+
+      await t.finishAllScheduledFunctions(() => {
+        vi.runAllTimers();
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+
+    const planOnly = await t.run(async (ctx) => await ctx.db.get("sessions", seeded.planOnly));
+    expect(planOnly?.plan?.[0]?.exerciseId).toBe(seeded.intoId);
+
+    // A merge started before this check whose target is gone stops cleanly.
+    const lost = await t.run(async (ctx) => {
+      const fromId = await ctx.db.insert("exercises", {
+        userId: owner.userId,
+        name: "Rows",
+        normalizedName: "rows",
+        createdAt: 5,
+      });
+      const intoId = await ctx.db.insert("exercises", {
+        userId: owner.userId,
+        name: "Row",
+        normalizedName: "row",
+        createdAt: 6,
+      });
+      await ctx.db.patch("exercises", fromId, { mergingInto: intoId });
+      await ctx.db.delete("exercises", intoId);
+      return { fromId, intoId };
+    });
+    await t.mutation(internal.exercises.continueMerge, { userId: owner.userId, ...lost });
+    const rows = await t.run(async (ctx) => await ctx.db.get("exercises", lost.fromId));
+    expect(rows?.name).toBe("Rows");
+    expect(rows?.mergingInto).toBeUndefined();
+  });
 });

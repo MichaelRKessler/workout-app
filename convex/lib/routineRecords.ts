@@ -302,10 +302,10 @@ export async function planFromOwnedSessions(
   return { plan, planName: null };
 }
 
-const OPEN_SESSION_PAGE = 25;
-const OPEN_SESSION_PAGES = 20;
+/** Open workouts repointed in one merge batch. There is normally one. */
+const OPEN_SESSION_LIMIT = 500;
 
-async function repointSessionPlan(
+export async function repointSessionPlan(
   ctx: MutationCtx,
   userId: Id<"users">,
   session: Doc<"sessions">,
@@ -363,27 +363,23 @@ export async function repointExerciseReferences(
     await repointSessionPlan(ctx, userId, session, fromId, intoId);
   }
 
-  let cursor: string | null = null;
-  for (let page = 0; page < OPEN_SESSION_PAGES; page += 1) {
-    const result = await ctx.db
-      .query("sessions")
-      .withIndex("by_user_status_and_started", (q) =>
-        q.eq("userId", userId).eq("status", "open"),
-      )
-      .paginate({ numItems: OPEN_SESSION_PAGE, cursor });
-    for (const session of result.page) {
-      if (seen.has(session._id)) {
-        continue;
-      }
-      seen.add(session._id);
-      await repointSessionPlan(ctx, userId, session, fromId, intoId);
-    }
-    if (result.isDone) {
-      return;
-    }
-    cursor = result.continueCursor;
+  // One indexed read: Convex allows a single paginated query per function.
+  const open = await ctx.db
+    .query("sessions")
+    .withIndex("by_user_status_and_started", (q) =>
+      q.eq("userId", userId).eq("status", "open"),
+    )
+    .take(OPEN_SESSION_LIMIT + 1);
+  if (open.length > OPEN_SESSION_LIMIT) {
+    throw userError("Too many open workouts to update");
   }
-  throw userError("Too many open workouts to update");
+  for (const session of open) {
+    if (seen.has(session._id)) {
+      continue;
+    }
+    seen.add(session._id);
+    await repointSessionPlan(ctx, userId, session, fromId, intoId);
+  }
 }
 
 export function routineNameOrThrow(raw: string): string {

@@ -47,8 +47,12 @@ export default defineSchema({
         v.literal("other"),
       ),
     ),
+    // Set on the source while a merge that didn't fit in one transaction is
+    // still moving its sets. Absent once the merge finishes or stops.
+    mergingInto: v.optional(v.id("exercises")),
   })
     .index("by_user_and_normalized_name", ["userId", "normalizedName"])
+    .index("by_merging_into", ["mergingInto"])
     // Exercises with their own rest, listed in Settings so they can be reset.
     .index("by_user_and_rest", ["userId", "restSeconds"]),
   sessions: defineTable({
