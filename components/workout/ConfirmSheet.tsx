@@ -5,11 +5,10 @@ import { KeyboardIcon, MicIcon, PlusIcon, RetryIcon } from "@/components/icons";
 import { Sheet } from "@/components/Sheet";
 import { useWeightUnit } from "@/components/WeightUnit";
 import { ExerciseTile } from "@/components/workout/ExerciseRow";
+import { KindSwitch, SetExtraFields, SetMeasureFields } from "@/components/workout/SetFields";
 import { usePreviousExercise } from "@/components/workout/usePreviousExercise";
 import type { Id } from "@/convex/_generated/dataModel";
-import type { SetKind } from "@/convex/lib/measures";
 import { pluralize } from "@/lib/format";
-import { SetTypePicker } from "@/components/SetTypePicker";
 import { newDraftSetId, type DraftSet, type VoiceDraft } from "@/lib/voice/confirm";
 import { MAX_VOICE_SETS } from "@/lib/voice/proposal";
 import { cleanSupersetId, linkWithNext, supersetBlocks, unlinkSuperset } from "@/convex/lib/superset";
@@ -21,9 +20,6 @@ import {
   withDraftSetIds,
 } from "@/lib/confirmGroups";
 import { useState } from "react";
-
-const fieldClass =
-  "h-12 w-full min-w-0 rounded-xl border border-input bg-background text-center font-mono text-lg font-medium text-foreground outline-none focus:border-foreground disabled:opacity-60";
 
 /** The parsed exercises, each editable, before anything is written. */
 export function ConfirmSheet({
@@ -366,48 +362,19 @@ function ExerciseConfirmBlock({
               </button>
               {open ? (
                 <div className="mt-2 flex flex-col gap-3">
-                  <div className="grid grid-cols-2 gap-2">
-                    {sample.kind === "strength" ? (
-                      <Field
-                        label="Reps"
-                        value={sample.reps}
-                        inputMode="numeric"
-                        disabled={saving}
-                        onChange={(reps) => patchGroup(group.start, group.count, { reps })}
-                      />
-                    ) : null}
-                    {sample.kind !== "strength" ? (
-                      <Field
-                        label={sample.kind === "distance" ? "Distance" : "Time"}
-                        value={sample.kind === "distance" ? sample.distance : sample.duration}
-                        inputMode="text"
-                        disabled={saving}
-                        onChange={(value) =>
-                          patchGroup(
-                            group.start,
-                            group.count,
-                            sample.kind === "distance" ? { distance: value } : { duration: value },
-                          )
-                        }
-                      />
-                    ) : null}
-                    <Field
-                      label={`Weight · ${unit}`}
-                      value={sample.weight}
-                      inputMode="decimal"
-                      disabled={saving}
-                      onChange={(weight) => patchGroup(group.start, group.count, { weight, weightLb: null })}
-                    />
-                    {sample.kind === "distance" ? (
-                      <Field
-                        label="Time"
-                        value={sample.duration}
-                        inputMode="text"
-                        disabled={saving}
-                        onChange={(duration) => patchGroup(group.start, group.count, { duration })}
-                      />
-                    ) : null}
-                  </div>
+                  <SetMeasureFields
+                    kind={sample.kind}
+                    values={sample}
+                    unit={unit}
+                    disabled={saving}
+                    onChange={(patch) =>
+                      patchGroup(
+                        group.start,
+                        group.count,
+                        patch.weight !== undefined ? { ...patch, weightLb: null } : patch,
+                      )
+                    }
+                  />
                   <div className="flex flex-wrap items-center gap-2">
                     <button
                       type="button"
@@ -466,27 +433,11 @@ function ExerciseConfirmBlock({
                         disabled={saving}
                         onChange={(kind) => patchGroup(group.start, group.count, { kind })}
                       />
-                      <SetTypePicker
-                        value={sample.setType}
+                      <SetExtraFields
+                        values={sample}
                         disabled={saving}
-                        onChange={(setType) => patchGroup(group.start, group.count, { setType })}
+                        onChange={(patch) => patchGroup(group.start, group.count, patch)}
                       />
-                      <div className="grid grid-cols-2 gap-2">
-                        <Field
-                          label="RPE"
-                          value={sample.rpe}
-                          inputMode="numeric"
-                          disabled={saving}
-                          onChange={(rpe) => patchGroup(group.start, group.count, { rpe })}
-                        />
-                        <Field
-                          label="Calories"
-                          value={sample.calories}
-                          inputMode="numeric"
-                          disabled={saving}
-                          onChange={(calories) => patchGroup(group.start, group.count, { calories })}
-                        />
-                      </div>
                     </div>
                   ) : null}
                 </div>
@@ -506,71 +457,6 @@ function ExerciseConfirmBlock({
         Add a set
       </button>
     </section>
-  );
-}
-
-function KindSwitch({
-  kind,
-  disabled,
-  onChange,
-}: {
-  kind: SetKind;
-  disabled: boolean;
-  onChange: (kind: SetKind) => void;
-}) {
-  const options: Array<{ id: SetKind; label: string }> = [
-    { id: "strength", label: "Reps" },
-    { id: "timed", label: "Time" },
-    { id: "distance", label: "Distance" },
-  ];
-  return (
-    <div role="group" aria-label="How this set is measured" className="flex rounded-full border border-input p-0.5">
-      {options.map((option) => (
-        <button
-          key={option.id}
-          type="button"
-          aria-pressed={kind === option.id}
-          disabled={disabled}
-          onClick={() => onChange(option.id)}
-          className={`min-h-11 flex-1 rounded-full px-1.5 text-sm font-medium whitespace-nowrap disabled:opacity-50 ${
-            kind === option.id ? "bg-inverse text-inverse-ink" : "text-muted"
-          }`}
-        >
-          {option.label}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function Field({
-  label,
-  value,
-  inputMode,
-  disabled,
-  wide = false,
-  onChange,
-}: {
-  label: string;
-  value: string;
-  inputMode: "numeric" | "decimal" | "text";
-  disabled: boolean;
-  wide?: boolean;
-  onChange: (value: string) => void;
-}) {
-  return (
-    <label className={`flex flex-col gap-1 ${wide ? "col-span-2" : ""}`}>
-      <span className="text-xs font-medium tracking-[0.06em] text-subtle uppercase">{label}</span>
-      <input
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        inputMode={inputMode}
-        autoComplete="off"
-        disabled={disabled}
-        aria-label={label}
-        className={fieldClass}
-      />
-    </label>
   );
 }
 

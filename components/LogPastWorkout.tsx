@@ -5,22 +5,12 @@ import { useOfflineLog } from "@/components/OfflineSync";
 import { CloseIcon, PlusIcon } from "@/components/icons";
 import { PageHeader } from "@/components/PageHeader";
 import { useWeightUnit } from "@/components/WeightUnit";
-import { SetTypePicker } from "@/components/SetTypePicker";
+import { KindSwitch, SetExtraFields, SetMeasureFields } from "@/components/workout/SetFields";
 import { formatExerciseName } from "@/convex/lib/exerciseName";
 import type { SetType } from "@/convex/lib/setType";
-import { parseCaloriesInput, parseClock, parseDistanceInput, type SetKind } from "@/convex/lib/measures";
-import {
-  CALORIES_MESSAGE,
-  MAX_RPE,
-  MIN_RPE,
-  REPS_MESSAGE,
-  RPE_BLANK_MESSAGE,
-  timeMessage,
-  wholeInRange,
-} from "@/convex/lib/setLimits";
-import { maxDisplayWeight, parseDisplayWeight, toPounds } from "@/convex/lib/units";
+import type { SetKind } from "@/convex/lib/measures";
+import { parseSetInput } from "@/convex/lib/setInput";
 import { formatPersonalRecords } from "@/lib/format";
-import { parseReps } from "@/lib/numbers";
 import { calendarDayKey } from "@/lib/historyDays";
 import { defaultPastWorkoutTime, fromDatetimeLocalValue, toDatetimeLocalValue } from "@/lib/pastWorkout";
 import { QUEUED_SAVE_MESSAGE } from "@/lib/offline/messages";
@@ -42,8 +32,6 @@ type DraftExercise = { key: string; name: string; kind: SetKind; sets: DraftSet[
 
 const fieldClass =
   "h-12 w-full min-w-0 rounded-xl border border-input bg-background px-3 text-base text-foreground outline-none focus:border-foreground";
-const setFieldClass =
-  "h-12 min-w-0 rounded-xl border border-input bg-surface text-center font-mono text-lg font-medium outline-none focus:border-foreground";
 
 function nextKey(): string {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -132,64 +120,21 @@ export function LogPastWorkout() {
       }
       const sets: (typeof payload)[number]["sets"] = [];
       for (const set of exercise.sets) {
-        const weightText = set.weight.trim();
-        const display = weightText.length === 0 ? 0 : parseDisplayWeight(weightText, unit);
-        if (display === null) {
-          setError(
-            `Weight must be 0 to ${maxDisplayWeight(unit)} ${unit}, with up to two decimal places.`,
-          );
+        const parsed = parseSetInput({ ...set, kind: exercise.kind }, unit, { blankWeightIsZero: true });
+        if (!parsed.ok) {
+          setError(parsed.message);
           return;
         }
-        const weightLb = toPounds(display, unit);
-        const rpeText = set.rpe.trim();
-        const rpe = rpeText.length === 0 ? undefined : Number(rpeText);
-        if (rpe !== undefined && !wholeInRange(rpe, MIN_RPE, MAX_RPE)) {
-          setError(RPE_BLANK_MESSAGE);
-          return;
-        }
-        const caloriesText = set.calories.trim();
-        const calories = caloriesText.length === 0 ? undefined : parseCaloriesInput(caloriesText);
-        if (caloriesText.length > 0 && calories === null) {
-          setError(CALORIES_MESSAGE);
-          return;
-        }
-        const calorieFields = calories ? { calories } : {};
-        if (exercise.kind === "timed") {
-          const durationSec = parseClock(set.duration);
-          if (durationSec === null) {
-            setError(timeMessage("90 or 1:30"));
-            return;
-          }
-          sets.push({ weightLb, durationSec, setType: set.setType, ...calorieFields, ...(rpe ? { rpe } : {}) });
-          continue;
-        }
-        if (exercise.kind === "distance") {
-          const distanceM = parseDistanceInput(set.distance);
-          if (distanceM === null) {
-            setError("Distance must be from 1 meter to 200 kilometers, like 400, 2 km, or 3 mi.");
-            return;
-          }
-          const durationSec = set.duration.trim().length === 0 ? undefined : parseClock(set.duration);
-          if (set.duration.trim().length > 0 && durationSec === null) {
-            setError(timeMessage("90 or 7:30"));
-            return;
-          }
-          sets.push({
-            weightLb,
-            distanceM,
-            ...(durationSec ? { durationSec } : {}),
-            setType: set.setType,
-            ...calorieFields,
-            ...(rpe ? { rpe } : {}),
-          });
-          continue;
-        }
-        const reps = parseReps(set.reps);
-        if (reps === null) {
-          setError(REPS_MESSAGE);
-          return;
-        }
-        sets.push({ weightLb, reps, setType: set.setType, ...calorieFields, ...(rpe ? { rpe } : {}) });
+        const { reps, weightLb, durationSec, distanceM, calories, rpe, setType } = parsed.set;
+        sets.push({
+          weightLb,
+          setType,
+          ...(reps !== null ? { reps } : {}),
+          ...(durationSec !== null ? { durationSec } : {}),
+          ...(distanceM !== null ? { distanceM } : {}),
+          ...(calories ? { calories } : {}),
+          ...(rpe ? { rpe } : {}),
+        });
       }
       payload.push({ name: formatted.name, sets });
     }
@@ -299,27 +244,12 @@ export function LogPastWorkout() {
               maxLength={80}
               className={`mt-2 ${fieldClass}`}
             />
-            <div role="group" aria-label="How this exercise is measured" className="mt-3 flex rounded-full border border-line p-0.5">
-              {(
-                [
-                  ["strength", "Reps"],
-                  ["timed", "Time"],
-                  ["distance", "Distance"],
-                ] as const
-              ).map(([kind, label]) => (
-                <button
-                  key={kind}
-                  type="button"
-                  aria-pressed={exercise.kind === kind}
-                  onClick={() => updateExercise(exercise.key, { kind })}
-                  className={`min-h-11 flex-1 rounded-full px-1 text-sm font-medium whitespace-nowrap ${
-                    exercise.kind === kind ? "bg-inverse text-inverse-ink" : "text-muted"
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
+            <KindSwitch
+              kind={exercise.kind}
+              label="How this exercise is measured"
+              className="mt-3"
+              onChange={(kind) => updateExercise(exercise.key, { kind })}
+            />
             <div className="mt-3 flex flex-col gap-2">
               {exercise.sets.map((set, setIndex) => (
                 <div key={set.key} className="rounded-xl border border-line bg-background p-2.5">
@@ -342,84 +272,18 @@ export function LogPastWorkout() {
                       <CloseIcon className="size-5" strokeWidth={1.8} />
                     </button>
                   </div>
-                  <div
-                    className={`mt-1 grid gap-2 ${exercise.kind === "distance" ? "grid-cols-2" : "grid-cols-3"}`}
-                  >
-                    {exercise.kind === "strength" ? (
-                      <input
-                        value={set.reps}
-                        onChange={(event) => updateSet(exercise.key, set.key, { reps: event.target.value })}
-                        inputMode="numeric"
-                        placeholder="Reps"
-                        aria-label={`Set ${setIndex + 1} reps`}
-                        className={setFieldClass}
-                      />
-                    ) : null}
-                    {exercise.kind === "timed" || exercise.kind === "distance" ? (
-                      <input
-                        value={exercise.kind === "timed" ? set.duration : set.distance}
-                        onChange={(event) =>
-                          updateSet(
-                            exercise.key,
-                            set.key,
-                            exercise.kind === "timed"
-                              ? { duration: event.target.value }
-                              : { distance: event.target.value },
-                          )
-                        }
-                        placeholder={exercise.kind === "timed" ? "1:30" : "2 km"}
-                        aria-label={
-                          exercise.kind === "timed"
-                            ? `Set ${setIndex + 1} time`
-                            : `Set ${setIndex + 1} distance`
-                        }
-                        className={setFieldClass}
-                      />
-                    ) : null}
-                    {exercise.kind === "distance" ? (
-                      <input
-                        value={set.duration}
-                        onChange={(event) =>
-                          updateSet(exercise.key, set.key, { duration: event.target.value })
-                        }
-                        placeholder="Time"
-                        aria-label={`Set ${setIndex + 1} time`}
-                        className={setFieldClass}
-                      />
-                    ) : null}
-                    <input
-                      value={set.weight}
-                      onChange={(event) => updateSet(exercise.key, set.key, { weight: event.target.value })}
-                      inputMode="decimal"
-                      placeholder={unit}
-                      aria-label={`Set ${setIndex + 1} weight in ${unit}`}
-                      className={setFieldClass}
+                  <div className="mt-1 flex flex-col gap-3">
+                    <SetMeasureFields
+                      kind={exercise.kind}
+                      values={set}
+                      unit={unit}
+                      labelPrefix={`Set ${setIndex + 1}`}
+                      onChange={(patch) => updateSet(exercise.key, set.key, patch)}
                     />
-                    <input
-                      value={set.rpe}
-                      onChange={(event) => updateSet(exercise.key, set.key, { rpe: event.target.value })}
-                      inputMode="numeric"
-                      placeholder="RPE"
-                      aria-label={`Set ${setIndex + 1} RPE`}
-                      className={setFieldClass}
-                    />
-                  </div>
-                  {exercise.kind === "timed" || exercise.kind === "distance" ? (
-                    <input
-                      value={set.calories}
-                      onChange={(event) =>
-                        updateSet(exercise.key, set.key, { calories: event.target.value })
-                      }
-                      inputMode="numeric"
-                      placeholder="Calories"
-                      aria-label={`Set ${setIndex + 1} calories`}
-                      className={`${setFieldClass} mt-2 w-full`}
-                    />
-                  ) : null}
-                  <div className="mt-2">
-                    <SetTypePicker
-                      value={set.setType}
-                      onChange={(setType) => updateSet(exercise.key, set.key, { setType })}
+                    <SetExtraFields
+                      values={set}
+                      labelPrefix={`Set ${setIndex + 1}`}
+                      onChange={(patch) => updateSet(exercise.key, set.key, patch)}
                     />
                   </div>
                 </div>

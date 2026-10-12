@@ -6,14 +6,12 @@ import { SetTypePicker } from "@/components/SetTypePicker";
 import { Sheet } from "@/components/Sheet";
 import { useProgression } from "@/components/useProgression";
 import { useWeightUnit } from "@/components/WeightUnit";
+import { KindSwitch } from "@/components/workout/SetFields";
 import { usePreviousExercise } from "@/components/workout/usePreviousExercise";
 import type { Id } from "@/convex/_generated/dataModel";
 import { formatExerciseName } from "@/convex/lib/exerciseName";
 import {
   formatClock,
-  parseCaloriesInput,
-  parseClock,
-  parseDistanceInput,
   setKind,
   type SetKind,
 } from "@/convex/lib/measures";
@@ -22,19 +20,10 @@ import {
   maxDisplayWeight,
   parseDisplayWeight,
   WEIGHT_STEP,
-  weightLbFromDisplay,
   type WeightUnit,
 } from "@/convex/lib/units";
 import { resolvedSetType, type SetType } from "@/convex/lib/setType";
-import {
-  CALORIES_MESSAGE,
-  MAX_RPE,
-  MIN_RPE,
-  REPS_MESSAGE,
-  RPE_BLANK_MESSAGE,
-  timeMessage,
-  wholeInRange,
-} from "@/convex/lib/setLimits";
+import { parseSetInput } from "@/convex/lib/setInput";
 import type { SetLine } from "@/lib/groupSets";
 import { parseReps } from "@/lib/numbers";
 import { prefillValues, type PrefillSource } from "@/lib/prefill";
@@ -261,68 +250,22 @@ export function ManualEntrySheet({
       setError("Enter an exercise name up to 80 characters.");
       return;
     }
-    const weightLb = weightLbFromDisplay(values.weight, unit, values.weightLb);
-    if (weightLb === null) {
-      setError(
-        `Weight must be 0 to ${maxDisplayWeight(unit)} ${unit}, with up to two decimal places.`,
-      );
+    const parsed = parseSetInput(values, unit);
+    if (!parsed.ok) {
+      setError(parsed.message);
       return;
     }
-    const caloriesText = values.calories.trim();
-    let calories: number | undefined;
-    if (caloriesText.length > 0) {
-      const parsed = parseCaloriesInput(caloriesText);
-      if (parsed === null) {
-        setError(CALORIES_MESSAGE);
-        return;
-      }
-      calories = parsed;
-    }
-
-    const rpeText = values.rpe.trim();
-    const rpe = rpeText.length === 0 ? undefined : Number(rpeText);
-    if (rpe !== undefined && !wholeInRange(rpe, MIN_RPE, MAX_RPE)) {
-      setError(RPE_BLANK_MESSAGE);
-      return;
-    }
-
+    const { set } = parsed;
     const logged: LoggedSet = {
       exerciseName: formatted.name,
-      weightLb,
-      setType: values.setType,
-      ...(calories ? { calories } : {}),
-      ...(rpe ? { rpe } : {}),
+      weightLb: set.weightLb,
+      setType: set.setType,
+      ...(set.reps !== null ? { reps: set.reps } : {}),
+      ...(set.durationSec !== null ? { durationSec: set.durationSec } : {}),
+      ...(set.distanceM !== null ? { distanceM: set.distanceM } : {}),
+      ...(set.calories ? { calories: set.calories } : {}),
+      ...(set.rpe ? { rpe: set.rpe } : {}),
     };
-    if (values.kind === "timed") {
-      const durationSec = parseClock(values.duration);
-      if (durationSec === null) {
-        setError(timeMessage("90 or 1:30"));
-        return;
-      }
-      logged.durationSec = durationSec;
-    } else if (values.kind === "distance") {
-      const distanceM = parseDistanceInput(values.distance);
-      if (distanceM === null) {
-        setError("Distance must be from 1 meter to 200 kilometers, like 400, 2 km, or 3 mi.");
-        return;
-      }
-      logged.distanceM = distanceM;
-      if (values.duration.trim().length > 0) {
-        const durationSec = parseClock(values.duration);
-        if (durationSec === null) {
-          setError(timeMessage("90 or 7:30"));
-          return;
-        }
-        logged.durationSec = durationSec;
-      }
-    } else {
-      const reps = parseReps(values.reps);
-      if (reps === null) {
-        setError(REPS_MESSAGE);
-        return;
-      }
-      logged.reps = reps;
-    }
 
     setError(null);
     const failure = await onAdd(logged);
@@ -405,30 +348,14 @@ export function ManualEntrySheet({
           </p>
         ) : null}
 
-        <div role="group" aria-label="How this set is measured" className="mt-4 flex rounded-full border border-line p-0.5">
-          {(
-            [
-              ["strength", "Reps"],
-              ["timed", "Time"],
-              ["distance", "Distance"],
-            ] as const
-          ).map(([kind, label]) => (
-            <button
-              key={kind}
-              type="button"
-              aria-pressed={values.kind === kind}
-              onClick={() => {
-                setDirty(true);
-                setValues({ ...values, kind });
-              }}
-              className={`min-h-11 flex-1 rounded-full px-1 text-sm font-medium whitespace-nowrap ${
-                values.kind === kind ? "bg-inverse text-inverse-ink" : "text-muted"
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+        <KindSwitch
+          kind={values.kind}
+          className="mt-4"
+          onChange={(kind) => {
+            setDirty(true);
+            setValues({ ...values, kind });
+          }}
+        />
 
         <div className="mt-3">
           <SetTypePicker
