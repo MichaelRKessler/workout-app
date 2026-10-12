@@ -176,7 +176,10 @@ export async function recordInsertedSets(
   if (created.length === 0) {
     return { headline: null, records: [], perSet: [] };
   }
-  const sorted = [...created].sort((left, right) => left.loggedAt - right.loggedAt || (left._id < right._id ? -1 : 1));
+  // Callers pass sets in the order they inserted them, and the sort is stable,
+  // so sets at the same time keep that order. It is the order a rebuild walks
+  // them by creation time. Convex ids are not in creation order.
+  const sorted = [...created].sort((left, right) => left.loggedAt - right.loggedAt);
   await noteAddedSessions(ctx, sorted);
   const stats = await settledStats(ctx, userId, exerciseId);
   const earliest = sorted[0]?.loggedAt ?? 0;
