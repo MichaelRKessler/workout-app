@@ -320,6 +320,7 @@ function PlanLogButton({
       ? suggestNext(previous.sets, {
           enabled: progression.enabled,
           incrementLb: progression.incrementLb,
+          unit,
           routine: { targetSets: row.targetSets, targetReps: row.targetReps },
         })
       : null;

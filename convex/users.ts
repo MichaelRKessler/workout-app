@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { defaultLengthUnit } from "./lib/bodyMeasures";
 import { authedMutation, authedQuery } from "./lib/customFunctions";
 import { clampIncrementLb } from "./lib/progression";
+import { userError } from "./lib/errors";
 
 const weightUnit = v.union(v.literal("lb"), v.literal("kg"));
 const lengthUnit = v.union(v.literal("in"), v.literal("cm"));
@@ -61,7 +62,7 @@ export const setWeightUnit = authedMutation({
       .unique();
     if (existing) {
       if (existing.userId !== ctx.userId) {
-        throw new Error("Not authenticated");
+        throw userError("Not authenticated");
       }
       await ctx.db.patch("preferences", existing._id, { weightUnit: args.weightUnit });
     } else {
@@ -95,7 +96,7 @@ export const setProgression = authedMutation({
         : clampIncrementLb(args.progressionIncrementLb);
     if (existing) {
       if (existing.userId !== ctx.userId) {
-        throw new Error("Not authenticated");
+        throw userError("Not authenticated");
       }
       await ctx.db.replace("preferences", existing._id, {
         userId: existing.userId,
@@ -127,7 +128,7 @@ export const setLengthUnit = authedMutation({
       .unique();
     if (existing) {
       if (existing.userId !== ctx.userId) {
-        throw new Error("Not authenticated");
+        throw userError("Not authenticated");
       }
       await ctx.db.patch("preferences", existing._id, { lengthUnit: args.lengthUnit });
     } else {

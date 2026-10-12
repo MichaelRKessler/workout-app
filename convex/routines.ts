@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { authedMutation, authedQuery } from "./lib/customFunctions";
+import { userError } from "./lib/errors";
 import {
   MAX_ROUTINES,
   MAX_ROUTINE_EXERCISES,
@@ -128,7 +129,7 @@ export const create = authedMutation({
   handler: async (ctx, args) => {
     const existing = await listOwnedRoutines(ctx, ctx.userId);
     if (existing.length >= MAX_ROUTINES) {
-      throw new Error(`You can save up to ${MAX_ROUTINES} routines`);
+      throw userError(`You can save up to ${MAX_ROUTINES} routines`);
     }
     const name = routineNameOrThrow(args.name);
     const exercises = await resolveRoutineExercises(ctx, ctx.userId, args.exercises);
@@ -154,7 +155,7 @@ export const createFromSessions = authedMutation({
   handler: async (ctx, args) => {
     const existing = await listOwnedRoutines(ctx, ctx.userId);
     if (existing.length >= MAX_ROUTINES) {
-      throw new Error(`You can save up to ${MAX_ROUTINES} routines`);
+      throw userError(`You can save up to ${MAX_ROUTINES} routines`);
     }
     const name = routineNameOrThrow(args.name);
     const { plan } = await planFromOwnedSessions(ctx, ctx.userId, args.sessionIds);
@@ -195,19 +196,19 @@ export const reorder = authedMutation({
   returns: v.null(),
   handler: async (ctx, args) => {
     if (args.routineIds.length > MAX_ROUTINES) {
-      throw new Error(`You can save up to ${MAX_ROUTINES} routines`);
+      throw userError(`You can save up to ${MAX_ROUTINES} routines`);
     }
     const routines = await listOwnedRoutines(ctx, ctx.userId);
     const owned = routines.filter((routine) => routine.userId === ctx.userId);
     if (owned.length !== args.routineIds.length) {
-      throw new Error("Refresh and try that order again");
+      throw userError("Refresh and try that order again");
     }
     const byId = new Map(owned.map((routine) => [routine._id, routine]));
     const seen = new Set<string>();
     for (let index = 0; index < args.routineIds.length; index += 1) {
       const routineId = args.routineIds[index];
       if (!routineId || seen.has(routineId) || !byId.has(routineId)) {
-        throw new Error("Routine not found");
+        throw userError("Routine not found");
       }
       seen.add(routineId);
       const routine = byId.get(routineId);
@@ -252,10 +253,10 @@ export const begin = authedMutation({
     }
     const plan = withStoredSuperset(owned);
     if (plan.length === 0) {
-      throw new Error("Add an exercise before starting this routine");
+      throw userError("Add an exercise before starting this routine");
     }
     if (plan.length > MAX_ROUTINE_EXERCISES) {
-      throw new Error(`A routine can have up to ${MAX_ROUTINE_EXERCISES} exercises`);
+      throw userError(`A routine can have up to ${MAX_ROUTINE_EXERCISES} exercises`);
     }
     const sessionId = await ctx.db.insert("sessions", {
       userId: ctx.userId,

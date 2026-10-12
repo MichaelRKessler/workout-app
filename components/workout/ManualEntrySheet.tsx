@@ -189,11 +189,12 @@ export function ManualEntrySheet({
     return suggestNext(history.sets, {
       enabled: progression.enabled,
       incrementLb: progression.incrementLb,
+      unit,
       routine: planTarget
         ? { targetSets: planTarget.targetSets, targetReps: planTarget.targetReps }
         : null,
     });
-  }, [editing, history.sets, planTarget, progression.enabled, progression.incrementLb]);
+  }, [editing, history.sets, planTarget, progression.enabled, progression.incrementLb, unit]);
   const suggestionLabel =
     suggestion &&
     !suggestionAlreadyShown(suggestion, {

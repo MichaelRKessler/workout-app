@@ -5,7 +5,7 @@ import { useConnectivity } from "@/components/useConnectivity";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import type { PersonalRecord } from "@/convex/lib/records";
-import { readableError } from "@/lib/errors";
+import { isArgumentValidationError, readableError } from "@/lib/errors";
 import {
   clearPendingRest,
   loadPendingRests,
@@ -1293,8 +1293,7 @@ function queueStorageKey(key: string | null, email: string | null): boolean {
 }
 
 function isValidationError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : "";
-  return message.includes("ArgumentValidationError");
+  return isArgumentValidationError(error);
 }
 
 async function directAction(

@@ -1,6 +1,7 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { isClientId } from "./clientIds";
+import { userError } from "./errors";
 import {
   acceptedLoggedAt,
   normalizeBodyMeasures,
@@ -74,20 +75,20 @@ export async function insertBodyEntry(
   let clientId: string | undefined;
   if (input.clientId !== undefined) {
     if (!isClientId(input.clientId)) {
-      throw new Error("That entry could not be saved");
+      throw userError("That entry could not be saved");
     }
     clientId = input.clientId;
     const existing = await findByClientId(ctx, userId, clientId);
     if (existing) {
       if (existing.userId !== userId) {
-        throw new Error("Entry not found");
+        throw userError("Entry not found");
       }
       return existing._id;
     }
   }
   const loggedAt = acceptedLoggedAt(input.loggedAt, now);
   if (loggedAt === null) {
-    throw new Error("That date is invalid");
+    throw userError("That date is invalid");
   }
   const measures = normalizeBodyMeasures(input);
   const note = normalizeNote(input.note);
@@ -106,11 +107,11 @@ export async function updateBodyEntry(
 ): Promise<void> {
   const entry = await ctx.db.get("bodyEntries", entryId);
   if (!entry || entry.userId !== userId) {
-    throw new Error("Entry not found");
+    throw userError("Entry not found");
   }
   const loggedAt = acceptedLoggedAt(input.loggedAt, now);
   if (loggedAt === null) {
-    throw new Error("That date is invalid");
+    throw userError("That date is invalid");
   }
   const measures = normalizeBodyMeasures(input);
   const note = normalizeNote(input.note);
@@ -128,7 +129,7 @@ export async function removeBodyEntry(
 ): Promise<void> {
   const entry = await ctx.db.get("bodyEntries", entryId);
   if (!entry || entry.userId !== userId) {
-    throw new Error("Entry not found");
+    throw userError("Entry not found");
   }
   await ctx.db.delete("bodyEntries", entry._id);
 }

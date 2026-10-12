@@ -1,3 +1,5 @@
+import { userError } from "./errors";
+
 /** How many weeks the home-screen streak looks back, including this week. */
 export const STREAK_WEEKS = 104;
 
@@ -47,32 +49,32 @@ export function weekRange(now: number, firstDay: number, weeks = STREAK_WEEKS) {
 
 export function assertWeekRange(weekStarts: number[], weekEndsAt: number): void {
   if (weekStarts.length < 2 || weekStarts.length > STREAK_WEEKS) {
-    throw new Error("Week range must cover at least two weeks");
+    throw userError("Week range must cover at least two weeks");
   }
   for (let index = 0; index < weekStarts.length; index += 1) {
     const start = weekStarts[index];
     if (start === undefined || !Number.isFinite(start)) {
-      throw new Error("Week start must be a time");
+      throw userError("Week start must be a time");
     }
     if (index === 0) {
       continue;
     }
     const previous = weekStarts[index - 1];
     if (previous === undefined) {
-      throw new Error("Week start must be a time");
+      throw userError("Week start must be a time");
     }
     const gap = start - previous;
     if (gap < MIN_WEEK_MS || gap > MAX_WEEK_MS) {
-      throw new Error("Weeks must be about seven days apart");
+      throw userError("Weeks must be about seven days apart");
     }
   }
   const last = weekStarts[weekStarts.length - 1];
   if (last === undefined || !Number.isFinite(weekEndsAt) || weekEndsAt <= last) {
-    throw new Error("Week end must be after the current week starts");
+    throw userError("Week end must be after the current week starts");
   }
   const endGap = weekEndsAt - last;
   if (endGap < MIN_WEEK_MS || endGap > MAX_WEEK_MS) {
-    throw new Error("The current week must be about seven days");
+    throw userError("The current week must be about seven days");
   }
 }
 

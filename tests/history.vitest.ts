@@ -855,7 +855,9 @@ describe("calories", () => {
         },
       ],
     });
-    expect(later.personalRecords.map((record) => record.kind)).toEqual(["calories"]);
+    // Judged by when the set happened, not by when it was saved. Nothing was
+    // logged before this ride, so the distance is a record as well as the calories.
+    expect(later.personalRecords.map((record) => record.kind)).toEqual(["distance", "calories"]);
 
     const range = weeksAround(Date.now());
     const summary = await asUser.query(api.sessions.weeklySummary, {

@@ -1,6 +1,7 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { exerciseRecord } from "./exerciseFields";
+import { userError } from "./errors";
 
 export const DEFAULT_REST_SECONDS = 90;
 export const MIN_REST_SECONDS = 15;
@@ -29,7 +30,7 @@ export async function setExerciseRest(
   restSeconds: number | null,
 ): Promise<void> {
   if (exercise.userId !== userId) {
-    throw new Error("Exercise not found");
+    throw userError("Exercise not found");
   }
   const stored = restSeconds === null ? undefined : clampRestSeconds(restSeconds);
   if ((exercise.restSeconds ?? undefined) === stored) {

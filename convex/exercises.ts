@@ -1,19 +1,19 @@
 import { paginationOptsValidator, paginationResultValidator } from "convex/server";
 import { v } from "convex/values";
+import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
+import { internalMutation } from "./_generated/server";
+import { isEmailAllowed, normalizeEmail } from "./lib/accessControl";
 import { authedMutation, authedQuery } from "./lib/customFunctions";
+import { applyMergeBatch } from "./lib/exerciseMerge";
 import { exerciseRecord } from "./lib/exerciseFields";
 import { formatExerciseName, MAX_KNOWN_EXERCISE_NAMES } from "./lib/exerciseName";
-import {
-  muscleGroupToCopy,
-  muscleGroupValidator,
-  presentMuscle,
-} from "./lib/muscleGroup";
+import { muscleGroupValidator, presentMuscle } from "./lib/muscleGroup";
 import { summarizeEfforts, trendFromSets, type TrendPoint } from "./lib/records";
-import { repointExerciseReferences } from "./lib/routineRecords";
 import { setExerciseRest } from "./lib/rest";
 import { setTypeValidator } from "./lib/setTypeValidator";
+import { userError } from "./lib/errors";
 import {
   EXERCISE_RECORD_SCAN,
   getOrCreateExercise,
@@ -169,7 +169,7 @@ export const setMuscle = authedMutation({
   handler: async (ctx, args) => {
     const exercise = await ctx.db.get("exercises", args.exerciseId);
     if (!exercise || exercise.userId !== ctx.userId) {
-      throw new Error("Exercise not found");
+      throw userError("Exercise not found");
     }
     const next = args.muscleGroup ?? undefined;
     if ((exercise.muscleGroup ?? undefined) === next) {
@@ -195,7 +195,7 @@ export const setRest = authedMutation({
     const exerciseId = await getOrCreateExercise(ctx, ctx.userId, args.name);
     const exercise = await ctx.db.get("exercises", exerciseId);
     if (!exercise || exercise.userId !== ctx.userId) {
-      throw new Error("Exercise not found");
+      throw userError("Exercise not found");
     }
     await setExerciseRest(ctx, ctx.userId, exercise, args.restSeconds);
     return null;
@@ -397,8 +397,6 @@ export const namesForVoice = authedQuery({
 });
 
 const SET_COUNT_CAP = 100;
-/** One mutation moves every set. Above this, it fails without writing. */
-const MERGE_SET_LIMIT = 2000;
 
 const libraryItemValidator = v.object({
   _id: v.id("exercises"),
@@ -476,11 +474,11 @@ export const rename = authedMutation({
   handler: async (ctx, args) => {
     const exercise = await ctx.db.get("exercises", args.exerciseId);
     if (!exercise || exercise.userId !== ctx.userId) {
-      throw new Error("Exercise not found");
+      throw userError("Exercise not found");
     }
     const formatted = formatExerciseName(args.name);
     if (!formatted) {
-      throw new Error("Exercise name must be 1 to 80 characters");
+      throw userError("Exercise name must be 1 to 80 characters");
     }
     const existing = await ctx.db
       .query("exercises")
@@ -490,7 +488,7 @@ export const rename = authedMutation({
       .unique();
     if (existing && existing._id !== exercise._id) {
       if (existing.userId !== ctx.userId) {
-        throw new Error("Exercise not found");
+        throw userError("Exercise not found");
       }
       const counts = await countSets(ctx, ctx.userId, exercise._id);
       return {
@@ -518,53 +516,53 @@ export const merge = authedMutation({
   returns: v.object({
     moved: v.number(),
     name: v.string(),
+    continuing: v.boolean(),
   }),
   handler: async (ctx, args) => {
-    if (args.fromId === args.intoId) {
-      throw new Error("Choose two different exercises");
+    const result = await applyMergeBatch(ctx, ctx.userId, args.fromId, args.intoId);
+    if (!result.done) {
+      await ctx.scheduler.runAfter(0, internal.exercises.continueMerge, {
+        userId: ctx.userId,
+        fromId: args.fromId,
+        intoId: args.intoId,
+      });
     }
-    const from = await ctx.db.get("exercises", args.fromId);
-    const into = await ctx.db.get("exercises", args.intoId);
-    if (!from || from.userId !== ctx.userId || !into || into.userId !== ctx.userId) {
-      throw new Error("Exercise not found");
-    }
+    return {
+      moved: result.moved,
+      name: result.name,
+      continuing: !result.done,
+    };
+  },
+});
 
-    let moved = 0;
-    const seen = new Set<string>();
-    while (moved <= MERGE_SET_LIMIT) {
-      const page = await ctx.db
-        .query("sets")
-        .withIndex("by_user_exercise_and_logged", (q) =>
-          q.eq("userId", ctx.userId).eq("exerciseId", from._id),
-        )
-        .take(50);
-      if (page.length === 0) {
-        break;
-      }
-      if (moved + page.length > MERGE_SET_LIMIT) {
-        throw new Error(`This exercise has more than ${MERGE_SET_LIMIT} sets to merge`);
-      }
-      for (const set of page) {
-        if (set.userId !== ctx.userId) {
-          throw new Error("Exercise not found");
-        }
-        if (seen.has(set._id)) {
-          throw new Error("Could not move every set. Nothing was merged");
-        }
-        seen.add(set._id);
-        await ctx.db.patch("sets", set._id, { exerciseId: into._id });
-        moved += 1;
-      }
+/**
+ * Finishes a merge that did not fit in the first transaction. There is no
+ * signed-in caller: the public merge already checked auth and the allow list,
+ * and passed that user id. Each run checks the user is still allowed and that
+ * both exercises still belong to them. A user who lost access stops here
+ * without deleting anything; running it again later continues the same merge.
+ */
+export const continueMerge = internalMutation({
+  args: {
+    userId: v.id("users"),
+    fromId: v.id("exercises"),
+    intoId: v.id("exercises"),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const user = await ctx.db.get("users", args.userId);
+    const email = user?.email ? normalizeEmail(user.email) : null;
+    if (!email || !(await isEmailAllowed(ctx, email))) {
+      return null;
     }
-    await repointExerciseReferences(ctx, ctx.userId, from._id, into._id);
-    if (into.restSeconds === undefined && from.restSeconds !== undefined) {
-      await ctx.db.patch("exercises", into._id, { restSeconds: from.restSeconds });
+    const result = await applyMergeBatch(ctx, args.userId, args.fromId, args.intoId);
+    if (!result.done) {
+      await ctx.scheduler.runAfter(0, internal.exercises.continueMerge, {
+        userId: args.userId,
+        fromId: args.fromId,
+        intoId: args.intoId,
+      });
     }
-    const copiedMuscle = muscleGroupToCopy(into, from);
-    if (copiedMuscle) {
-      await ctx.db.patch("exercises", into._id, { muscleGroup: copiedMuscle });
-    }
-    await ctx.db.delete("exercises", from._id);
-    return { moved, name: into.name };
+    return null;
   },
 });

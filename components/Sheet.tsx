@@ -7,19 +7,23 @@ const FOCUSABLE =
 
 /**
  * Bottom sheet dialog. Focus moves to the panel (not into a field, so the phone
- * keyboard stays down), Tab stays inside, Escape and the scrim close it.
+ * keyboard stays down), Tab stays inside, and Escape closes it. The dimmed area
+ * closes it too, unless closeOnScrim is false.
  */
 export function Sheet({
   open,
   onClose,
   labelledBy,
   dismissible = true,
+  closeOnScrim = true,
   children,
 }: {
   open: boolean;
   onClose: () => void;
   labelledBy: string;
   dismissible?: boolean;
+  /** When false, tapping the dimmed area leaves the sheet open. Escape still closes it. */
+  closeOnScrim?: boolean;
   children: ReactNode;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
@@ -81,7 +85,7 @@ export function Sheet({
       <div
         aria-hidden="true"
         onClick={() => {
-          if (dismissible) {
+          if (dismissible && closeOnScrim) {
             onClose();
           }
         }}

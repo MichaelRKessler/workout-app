@@ -3,6 +3,7 @@ import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { formatExerciseName, MAX_KNOWN_EXERCISE_NAMES } from "./exerciseName";
 import { normalizeStoredSet, type NormalizedSet } from "./measures";
 import { persistedSetType, resolvedSetType, type SetType } from "./setType";
+import { userError } from "./errors";
 
 export const MAX_SETS_PER_SESSION = 500;
 
@@ -28,7 +29,7 @@ export async function getOrCreateExercise(
 ): Promise<Id<"exercises">> {
   const formatted = formatExerciseName(rawName);
   if (!formatted) {
-    throw new Error("Exercise name must be 1 to 80 characters");
+    throw userError("Exercise name must be 1 to 80 characters");
   }
 
   const existing = await ctx.db
@@ -52,14 +53,14 @@ export async function getOrCreateExercise(
 
 export function assertReps(reps: number): number {
   if (!Number.isInteger(reps) || reps < 1 || reps > 999) {
-    throw new Error("Reps must be a whole number from 1 to 999");
+    throw userError("Reps must be a whole number from 1 to 999");
   }
   return reps;
 }
 
 export function assertWeightLb(weightLb: number): number {
   if (!Number.isFinite(weightLb) || weightLb < 0 || weightLb > 2000) {
-    throw new Error("Weight must be between 0 and 2000 lb");
+    throw userError("Weight must be between 0 and 2000 lb");
   }
   return Math.round(weightLb * 100) / 100;
 }
@@ -136,10 +137,10 @@ export async function requireOpenSession(
 ) {
   const session = await getOwnedSession(ctx, userId, sessionId);
   if (!session) {
-    throw new Error("Workout not found");
+    throw userError("Workout not found");
   }
   if (session.status !== "open") {
-    throw new Error("This workout is already finished");
+    throw userError("This workout is already finished");
   }
   return session;
 }
@@ -152,7 +153,7 @@ export async function requireWritableSession(
 ) {
   const session = await getOwnedSession(ctx, userId, sessionId);
   if (!session) {
-    throw new Error("Workout not found");
+    throw userError("Workout not found");
   }
   return session;
 }
@@ -174,20 +175,36 @@ export async function loadRecentSetsForExercise(
     .take(EXERCISE_RECORD_SCAN + 1);
 }
 
+/** Sets performed strictly before this moment, newest first. Later workouts are left out. */
+export async function loadSetsBefore(
+  ctx: QueryCtx | MutationCtx,
+  userId: Id<"users">,
+  exerciseId: Id<"exercises">,
+  loggedBefore: number,
+) {
+  return await ctx.db
+    .query("sets")
+    .withIndex("by_user_exercise_and_logged", (q) =>
+      q.eq("userId", userId).eq("exerciseId", exerciseId).lt("loggedAt", loggedBefore),
+    )
+    .order("desc")
+    .take(EXERCISE_RECORD_SCAN);
+}
+
 export async function assertSessionCanAcceptSets(
   ctx: MutationCtx,
   sessionId: Id<"sessions">,
   adding: number,
 ): Promise<void> {
   if (adding < 1) {
-    throw new Error("Add at least one set");
+    throw userError("Add at least one set");
   }
   const existing = await ctx.db
     .query("sets")
     .withIndex("by_session_and_exercise", (q) => q.eq("sessionId", sessionId))
     .take(MAX_SETS_PER_SESSION);
   if (existing.length + adding > MAX_SETS_PER_SESSION) {
-    throw new Error("This workout already has 500 sets");
+    throw userError("This workout already has 500 sets");
   }
 }
 

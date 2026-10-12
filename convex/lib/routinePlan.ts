@@ -1,4 +1,5 @@
 import { MAX_CALORIES, setKind } from "./measures";
+import { userError } from "./errors";
 
 export const MAX_ROUTINE_NAME_LENGTH = 40;
 export const MAX_ROUTINE_EXERCISES = 20;
@@ -55,7 +56,7 @@ const TARGET_FIELDS = [
 export function normalizeRoutineName(raw: string): string {
   const name = raw.trim().replace(/\s+/g, " ");
   if (name.length < 1 || name.length > MAX_ROUTINE_NAME_LENGTH) {
-    throw new Error(
+    throw userError(
       `Routine name must be 1 to ${MAX_ROUTINE_NAME_LENGTH} characters`,
     );
   }
@@ -81,10 +82,10 @@ export function normalizeTargets(input: {
     targetReps !== undefined &&
     (targetDurationSec !== undefined || targetDistanceM !== undefined)
   ) {
-    throw new Error("A target is reps, a time, or a distance");
+    throw userError("A target is reps, a time, or a distance");
   }
   if (targetDistanceM !== undefined && targetReps !== undefined) {
-    throw new Error("A target is reps, a time, or a distance");
+    throw userError("A target is reps, a time, or a distance");
   }
 
   return {
@@ -285,7 +286,7 @@ function optionalTargetSets(value: number | null | undefined): number | undefine
     return undefined;
   }
   if (!Number.isInteger(value) || value < 1 || value > MAX_TARGET_SETS) {
-    throw new Error(`Sets must be a whole number from 1 to ${MAX_TARGET_SETS}`);
+    throw userError(`Sets must be a whole number from 1 to ${MAX_TARGET_SETS}`);
   }
   return value;
 }
@@ -295,7 +296,7 @@ function optionalTargetReps(value: number | null | undefined): number | undefine
     return undefined;
   }
   if (!Number.isInteger(value) || value < 1 || value > 999) {
-    throw new Error("Reps must be a whole number from 1 to 999");
+    throw userError("Reps must be a whole number from 1 to 999");
   }
   return value;
 }
@@ -305,7 +306,7 @@ function optionalTargetWeight(value: number | null | undefined): number | undefi
     return undefined;
   }
   if (!Number.isFinite(value) || value < 0 || value > 2000) {
-    throw new Error("Weight must be between 0 and 2000 lb");
+    throw userError("Weight must be between 0 and 2000 lb");
   }
   return Math.round(value * 100) / 100;
 }
@@ -315,7 +316,7 @@ function optionalTargetDuration(value: number | null | undefined): number | unde
     return undefined;
   }
   if (!Number.isInteger(value) || value < 1 || value > 24 * 60 * 60) {
-    throw new Error("Time must be from 1 second to 24 hours");
+    throw userError("Time must be from 1 second to 24 hours");
   }
   return value;
 }
@@ -325,7 +326,7 @@ function optionalTargetCalories(value: number | null | undefined): number | unde
     return undefined;
   }
   if (!Number.isInteger(value) || value < 1 || value > MAX_CALORIES) {
-    throw new Error("Calories must be a whole number from 1 to 20000");
+    throw userError("Calories must be a whole number from 1 to 20000");
   }
   return value;
 }
@@ -335,7 +336,7 @@ function optionalTargetDistance(value: number | null | undefined): number | unde
     return undefined;
   }
   if (!Number.isFinite(value) || value < 1 || value > 200_000) {
-    throw new Error("Distance must be from 1 meter to 200 kilometers");
+    throw userError("Distance must be from 1 meter to 200 kilometers");
   }
   return Math.round(value * 100) / 100;
 }

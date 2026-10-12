@@ -13,6 +13,7 @@ import {
   type RoutineExercise,
   type RoutineTargets,
 } from "./routinePlan";
+import { userError } from "./errors";
 import { setExerciseRest } from "./rest";
 import { carrySupersetIds, cleanSupersetId, withStoredSuperset } from "./superset";
 import { getOrCreateExercise, getOwnedSession } from "./workouts";
@@ -43,7 +44,7 @@ export async function requireOwnedRoutine(
 ) {
   const routine = await ctx.db.get("routines", routineId);
   if (!routine || routine.userId !== userId) {
-    throw new Error("Routine not found");
+    throw userError("Routine not found");
   }
   return routine;
 }
@@ -65,10 +66,10 @@ export async function resolveRoutineExercises(
   }>,
 ): Promise<Array<RoutineTargets & { exerciseId: Id<"exercises">; supersetId?: string }>> {
   if (exercises.length < 1) {
-    throw new Error("Add at least one exercise");
+    throw userError("Add at least one exercise");
   }
   if (exercises.length > MAX_ROUTINE_EXERCISES) {
-    throw new Error(`A routine can have up to ${MAX_ROUTINE_EXERCISES} exercises`);
+    throw userError(`A routine can have up to ${MAX_ROUTINE_EXERCISES} exercises`);
   }
 
   const resolved: Array<RoutineTargets & { exerciseId: Id<"exercises">; supersetId?: string }> = [];
@@ -76,13 +77,13 @@ export async function resolveRoutineExercises(
   for (const exercise of exercises) {
     const exerciseId = await resolveExerciseId(ctx, userId, exercise);
     if (seen.has(exerciseId)) {
-      throw new Error("Each exercise can be in a routine once");
+      throw userError("Each exercise can be in a routine once");
     }
     seen.add(exerciseId);
     if (exercise.restSeconds !== undefined) {
       const stored = await ctx.db.get("exercises", exerciseId);
       if (!stored || stored.userId !== userId) {
-        throw new Error("Exercise not found");
+        throw userError("Exercise not found");
       }
       await setExerciseRest(ctx, userId, stored, exercise.restSeconds);
     }
@@ -104,12 +105,12 @@ async function resolveExerciseId(
   if (exercise.exerciseId) {
     const stored = await ctx.db.get("exercises", exercise.exerciseId);
     if (!stored || stored.userId !== userId) {
-      throw new Error("Exercise not found");
+      throw userError("Exercise not found");
     }
     return stored._id;
   }
   if (!exercise.name) {
-    throw new Error("Name each exercise");
+    throw userError("Name each exercise");
   }
   return await getOrCreateExercise(ctx, userId, exercise.name);
 }
@@ -189,12 +190,12 @@ export function normalizePlanInput(
   exercises: Array<RoutineTargets & { exerciseId: string; skipped?: boolean; supersetId?: string }>,
 ): PlanExercise[] {
   if (exercises.length > MAX_ROUTINE_EXERCISES) {
-    throw new Error(`A plan can have up to ${MAX_ROUTINE_EXERCISES} exercises`);
+    throw userError(`A plan can have up to ${MAX_ROUTINE_EXERCISES} exercises`);
   }
   const seen = new Set<string>();
   const mapped = exercises.map((exercise) => {
     if (seen.has(exercise.exerciseId)) {
-      throw new Error("Each exercise can be in the plan once");
+      throw userError("Each exercise can be in the plan once");
     }
     seen.add(exercise.exerciseId);
     const supersetId = cleanSupersetId(exercise.supersetId);
@@ -217,11 +218,11 @@ export async function assertOwnedPlan(
   for (const item of plan) {
     const exerciseId = ctx.db.normalizeId("exercises", item.exerciseId);
     if (!exerciseId) {
-      throw new Error("Exercise not found");
+      throw userError("Exercise not found");
     }
     const stored = await ctx.db.get("exercises", exerciseId);
     if (!stored || stored.userId !== userId) {
-      throw new Error("Exercise not found");
+      throw userError("Exercise not found");
     }
     owned.push({ ...item, exerciseId });
   }
@@ -237,22 +238,22 @@ export async function planFromOwnedSessions(
   planName: string | null;
 }> {
   if (sessionIds.length < 1) {
-    throw new Error("Pick a workout to repeat");
+    throw userError("Pick a workout to repeat");
   }
   if (sessionIds.length > MAX_REPEAT_SESSIONS) {
-    throw new Error(`Repeat up to ${MAX_REPEAT_SESSIONS} workouts at once`);
+    throw userError(`Repeat up to ${MAX_REPEAT_SESSIONS} workouts at once`);
   }
 
   const sessions: Doc<"sessions">[] = [];
   const seen = new Set<string>();
   for (const sessionId of sessionIds) {
     if (seen.has(sessionId)) {
-      throw new Error("That workout was listed twice");
+      throw userError("That workout was listed twice");
     }
     seen.add(sessionId);
     const session = await getOwnedSession(ctx, userId, sessionId);
     if (!session || session.status !== "completed") {
-      throw new Error("Workout not found");
+      throw userError("Workout not found");
     }
     sessions.push(session);
   }
@@ -266,7 +267,7 @@ export async function planFromOwnedSessions(
       .take(500);
     for (const set of sets) {
       if (set.userId !== userId) {
-        throw new Error("Workout not found");
+        throw userError("Workout not found");
       }
       performed.push({
         exerciseId: set.exerciseId,
@@ -282,10 +283,10 @@ export async function planFromOwnedSessions(
 
   const derived = planFromPerformedSets(performed);
   if (derived.length < 1) {
-    throw new Error("That workout has no exercises");
+    throw userError("That workout has no exercises");
   }
   if (derived.length > MAX_ROUTINE_EXERCISES) {
-    throw new Error(`A routine can have up to ${MAX_ROUTINE_EXERCISES} exercises`);
+    throw userError(`A routine can have up to ${MAX_ROUTINE_EXERCISES} exercises`);
   }
   const carried = carrySupersetIds(
     derived,
@@ -294,18 +295,47 @@ export async function planFromOwnedSessions(
   const plan = withStoredSuperset(carried).map((item) => {
     const exerciseId = ctx.db.normalizeId("exercises", item.exerciseId);
     if (!exerciseId) {
-      throw new Error("Exercise not found");
+      throw userError("Exercise not found");
     }
     return { ...item, exerciseId };
   });
   return { plan, planName: null };
 }
 
+const OPEN_SESSION_PAGE = 25;
+const OPEN_SESSION_PAGES = 20;
+
+async function repointSessionPlan(
+  ctx: MutationCtx,
+  userId: Id<"users">,
+  session: Doc<"sessions">,
+  fromId: Id<"exercises">,
+  intoId: Id<"exercises">,
+): Promise<void> {
+  if (session.userId !== userId || !session.plan) {
+    return;
+  }
+  const next = repointExercises(session.plan, fromId, intoId);
+  if (!next.changed) {
+    return;
+  }
+  await ctx.db.patch("sessions", session._id, {
+    plan: withStoredSuperset(next.items),
+  });
+}
+
+/**
+ * Point routines, open workouts, and the finished workouts that owned the
+ * moved sets at the exercise that won a merge. Finished workouts are passed
+ * in: their sets just changed hands, and the plan has to follow or the
+ * superset label no longer matches.
+ */
 export async function repointExerciseReferences(
   ctx: MutationCtx,
   userId: Id<"users">,
   fromId: Id<"exercises">,
   intoId: Id<"exercises">,
+  sessionIds: ReadonlyArray<Id<"sessions">> = [],
 ): Promise<void> {
   const routines = await listOwnedRoutines(ctx, userId);
   for (const routine of routines) {
@@ -320,23 +350,40 @@ export async function repointExerciseReferences(
     }
   }
 
-  const openSessions = await ctx.db
-    .query("sessions")
-    .withIndex("by_user_status_and_started", (q) =>
-      q.eq("userId", userId).eq("status", "open"),
-    )
-    .take(10);
-  for (const session of openSessions) {
-    if (!session.plan || session.userId !== userId) {
+  const seen = new Set<string>();
+  for (const sessionId of sessionIds) {
+    if (seen.has(sessionId)) {
       continue;
     }
-    const next = repointExercises(session.plan, fromId, intoId);
-    if (next.changed) {
-      await ctx.db.patch("sessions", session._id, {
-        plan: withStoredSuperset(next.items),
-      });
+    seen.add(sessionId);
+    const session = await ctx.db.get("sessions", sessionId);
+    if (!session) {
+      continue;
     }
+    await repointSessionPlan(ctx, userId, session, fromId, intoId);
   }
+
+  let cursor: string | null = null;
+  for (let page = 0; page < OPEN_SESSION_PAGES; page += 1) {
+    const result = await ctx.db
+      .query("sessions")
+      .withIndex("by_user_status_and_started", (q) =>
+        q.eq("userId", userId).eq("status", "open"),
+      )
+      .paginate({ numItems: OPEN_SESSION_PAGE, cursor });
+    for (const session of result.page) {
+      if (seen.has(session._id)) {
+        continue;
+      }
+      seen.add(session._id);
+      await repointSessionPlan(ctx, userId, session, fromId, intoId);
+    }
+    if (result.isDone) {
+      return;
+    }
+    cursor = result.continueCursor;
+  }
+  throw userError("Too many open workouts to update");
 }
 
 export function routineNameOrThrow(raw: string): string {

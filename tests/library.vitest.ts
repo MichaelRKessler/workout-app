@@ -178,7 +178,7 @@ describe("rename and merge", () => {
       fromId: extra._id,
       intoId: kept._id,
     });
-    expect(merged).toEqual({ moved: 1, name: "Bench Press" });
+    expect(merged).toEqual({ moved: 1, name: "Bench Press", continuing: false });
     const after = await asUser.query(api.exercises.list, {});
     expect(after.exercises.map((exercise) => exercise.name)).toEqual(["Bench Press"]);
 
