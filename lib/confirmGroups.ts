@@ -21,32 +21,68 @@ export function draftSetsMatch(left: DraftSet, right: DraftSet): boolean {
   );
 }
 
-function splitApart(set: DraftSet, splitIds: ReadonlySet<string>): boolean {
-  return set.draftSetId !== undefined && splitIds.has(set.draftSetId);
+function hasId(set: DraftSet, ids: ReadonlySet<string>): boolean {
+  return set.draftSetId !== undefined && ids.has(set.draftSetId);
 }
 
-/** Consecutive identical sets collapse. Split ids stay on their own row. */
+/**
+ * Consecutive identical sets collapse. Split ids stay on their own row.
+ * Held ids (the row being edited) stay one row and never absorb a neighbor,
+ * so typing a matching value does not close the editor mid-edit.
+ */
 export function groupIdenticalSets(
   sets: DraftSet[],
   splitIds: ReadonlySet<string> = new Set(),
+  heldIds: ReadonlySet<string> = new Set(),
 ): SetGroup[] {
   const groups: SetGroup[] = [];
   sets.forEach((set, index) => {
     const previous = groups[groups.length - 1];
     const previousSet = previous ? sets[previous.start] : undefined;
-    if (
-      previous &&
-      previousSet &&
-      !splitApart(set, splitIds) &&
-      !splitApart(previousSet, splitIds) &&
-      draftSetsMatch(previousSet, set)
-    ) {
-      previous.count += 1;
-      return;
+    if (previous && previousSet) {
+      const held = hasId(set, heldIds);
+      const previousHeld = hasId(previousSet, heldIds);
+      const together =
+        held && previousHeld
+          ? true
+          : !held &&
+            !previousHeld &&
+            !hasId(set, splitIds) &&
+            !hasId(previousSet, splitIds) &&
+            draftSetsMatch(previousSet, set);
+      if (together) {
+        previous.count += 1;
+        return;
+      }
     }
     groups.push({ start: index, count: 1 });
   });
   return groups;
+}
+
+/** Gives every set in a row an id, so the row can be held or split by id. */
+export function withDraftSetIds(
+  sets: DraftSet[],
+  start: number,
+  count: number,
+  newId: () => string,
+): { sets: DraftSet[]; ids: string[] } {
+  const ids: string[] = [];
+  let changed = false;
+  const next = sets.map((set, index) => {
+    if (index < start || index >= start + count) {
+      return set;
+    }
+    if (set.draftSetId !== undefined) {
+      ids.push(set.draftSetId);
+      return set;
+    }
+    const id = newId();
+    ids.push(id);
+    changed = true;
+    return { ...set, draftSetId: id };
+  });
+  return { sets: changed ? next : sets, ids };
 }
 
 /** Changes how many copies a group has. The group never drops below one set. */

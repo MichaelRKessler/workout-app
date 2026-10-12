@@ -65,3 +65,14 @@ test("warm-up and effort stay visible on the collapsed row", () => {
   const label = draftGroupLabel(2, set({ setType: "warmup", rpe: "8" }), "lb");
   assert.equal(label, "2 × 10 @ 135 lb · warmup · RPE 8");
 });
+
+test("a held row stays one row and does not absorb a matching neighbor", () => {
+  const held = new Set(["a", "b"]);
+  const sets = [set(), set({ draftSetId: "a" }), set({ draftSetId: "b" }), set()];
+  assert.deepEqual(groupIdenticalSets(sets, new Set(), held), [
+    { start: 0, count: 1 },
+    { start: 1, count: 2 },
+    { start: 3, count: 1 },
+  ]);
+  assert.deepEqual(groupIdenticalSets(sets), [{ start: 0, count: 4 }]);
+});
