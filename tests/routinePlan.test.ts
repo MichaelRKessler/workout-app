@@ -359,11 +359,11 @@ test("cached routines and older snapshots without a plan still load", () => {
     sets: [],
     plan: null,
   });
-  const raw = store.get("workout-offline:snapshot:michael@example.com");
+  const raw = store.get("workout-account:michael@example.com:snapshot");
   assert.ok(raw);
   const older = JSON.parse(raw) as { plan?: unknown };
   delete older.plan;
-  store.set("workout-offline:snapshot:michael@example.com", JSON.stringify(older));
+  store.set("workout-account:michael@example.com:snapshot", JSON.stringify(older));
   assert.equal(loadSnapshot(store, "michael@example.com")?.plan, null);
 
   savePendingPlan(store, "michael@example.com", {

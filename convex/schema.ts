@@ -184,4 +184,11 @@ export default defineSchema({
     allowed: v.boolean(),
     updatedAt: v.number(),
   }).index("by_user", ["userId"]),
+  // A set removed by client id. A later sync of an older revision must not
+  // insert it again. The table is new, so every row has all of these fields.
+  removedClientIds: defineTable({
+    userId: v.id("users"),
+    clientId: v.string(),
+    removedAt: v.number(),
+  }).index("by_user_and_client_id", ["userId", "clientId"]),
 });

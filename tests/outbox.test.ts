@@ -23,6 +23,7 @@ import {
 import {
   clearOfflineStorage,
   loadOutbox,
+  resumeOfflineWrites,
   saveOutbox,
   type KeyValueStore,
 } from "../lib/offline/storage.ts";
@@ -453,9 +454,16 @@ test("corrupt storage becomes an empty queue and a good queue round-trips", () =
   assert.equal(loaded.sets[0]?.set.reps, 10);
   assert.deepEqual(parseOutbox({ sets: [{ clientId: "x" }] }).sets.length, 0);
 
-  saveOutbox(store, "other@example.com", emptyOutbox());
-  clearOfflineStorage(store);
-  assert.deepEqual(store.keys(), []);
+  saveOutbox(store, "other@example.com", addBench(emptyOutbox(), "otherclient").outbox);
+  clearOfflineStorage(store, "lifter@example.com");
+  try {
+    assert.equal(store.get("workout-account:lifter@example.com:outbox"), null);
+    assert.equal(store.get("workout-offline:outbox:lifter@example.com"), null);
+    const kept = loadOutbox(store, "other@example.com");
+    assert.equal(kept.sets[0]?.clientId, "otherclient");
+  } finally {
+    resumeOfflineWrites();
+  }
 });
 
 test("connectivity follows the browser and a dropped Convex socket", () => {

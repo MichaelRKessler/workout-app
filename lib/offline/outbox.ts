@@ -1,7 +1,12 @@
+import { isClientId } from "../../convex/lib/clientIds.ts";
 import { formatExerciseName } from "../../convex/lib/exerciseName.ts";
 import type { PersonalRecord } from "../../convex/lib/records.ts";
 import { isSetType, resolvedSetType, type SetType } from "../../convex/lib/setType.ts";
 import type { SetLine } from "../groupSets.ts";
+
+const CLOSED_CAP = 200;
+const KNOWN_CAP = 1000;
+const DROPPED_CAP = 2000;
 
 /** Matches the server batch cap in convex/lib/workouts.ts. */
 export const OFFLINE_BATCH_LIMIT = 30;
@@ -85,8 +90,28 @@ export type PendingBody = {
   echoed: boolean;
 };
 
+/** A server set id learned from a sync ack, kept after the set leaves the queue. */
+export type KnownSetId = {
+  clientId: string;
+  setId: string;
+};
+
+/**
+ * An item this tab has finished with. A stale copy in another tab must not
+ * put it back. `revision` is the last revision that was dropped.
+ */
+export type DroppedItem = {
+  kind: "set" | "edit" | "delete" | "action" | "body";
+  id: string;
+  revision: number;
+};
+
 export type Outbox = {
   openSessionClientId: string | null;
+  /** Session client ids that were finished or discarded. Never reuse them. */
+  closedSessionClientIds: string[];
+  knownSetIds: KnownSetId[];
+  dropped: DroppedItem[];
   sets: PendingSet[];
   edits: PendingEdit[];
   deletes: PendingDelete[];
@@ -154,12 +179,113 @@ export type WorkoutView =
 export function emptyOutbox(): Outbox {
   return {
     openSessionClientId: null,
+    closedSessionClientIds: [],
+    knownSetIds: [],
+    dropped: [],
     sets: [],
     edits: [],
     deletes: [],
     actions: [],
     body: [],
   };
+}
+
+/** Forgets the open workout id so the next workout cannot reuse it. */
+export function releaseOpenSession(outbox: Outbox): Outbox {
+  const id = outbox.openSessionClientId;
+  if (!id) {
+    return outbox;
+  }
+  return {
+    ...outbox,
+    openSessionClientId: null,
+    closedSessionClientIds: rememberClosed(outbox.closedSessionClientIds, id),
+  };
+}
+
+/**
+ * A finish that went straight to the server used to leave the open id behind.
+ * If nothing is still waiting on that id, retire it.
+ */
+export function repairOpenSession(outbox: Outbox): Outbox {
+  const id = outbox.openSessionClientId;
+  if (!id) {
+    return outbox;
+  }
+  const waitingSet = outbox.sets.some(
+    (set) =>
+      !set.removed &&
+      set.placement === "open" &&
+      set.sessionClientId === id &&
+      set.echoedRevision !== set.revision,
+  );
+  const waitingClose = outbox.actions.some(
+    (action) =>
+      !action.echoed &&
+      action.sessionClientId === id &&
+      (action.kind === "complete" || action.kind === "discard"),
+  );
+  if (waitingSet || waitingClose) {
+    return outbox;
+  }
+  return releaseOpenSession(outbox);
+}
+
+/**
+ * Past workouts always get a fresh id. An open workout reuses the id it
+ * already queued, unless that id was finished or discarded.
+ */
+export function resolveSessionClientId(
+  outbox: Outbox,
+  input: {
+    sessionId: string | null;
+    explicit?: string;
+    placement: Placement;
+  },
+  createId: () => string,
+): string {
+  const closed = new Set(outbox.closedSessionClientIds);
+  const reusable = (id: string | null | undefined): id is string =>
+    typeof id === "string" && isClientId(id) && !closed.has(id);
+
+  if (input.placement === "completed") {
+    if (reusable(input.explicit) && input.explicit !== outbox.openSessionClientId) {
+      return input.explicit;
+    }
+    return createId();
+  }
+  if (reusable(input.explicit)) {
+    return input.explicit;
+  }
+  if (input.sessionId === null) {
+    if (reusable(outbox.openSessionClientId)) {
+      return outbox.openSessionClientId;
+    }
+    return createId();
+  }
+  const existing = outbox.sets.find((set) => set.sessionId === input.sessionId);
+  if (existing && reusable(existing.sessionClientId)) {
+    return existing.sessionClientId;
+  }
+  if (reusable(input.sessionId)) {
+    return input.sessionId;
+  }
+  return createId();
+}
+
+export function knownServerIds(outbox: Outbox): Map<string, string> {
+  const known = new Map<string, string>();
+  for (const item of outbox.knownSetIds) {
+    known.set(item.clientId, item.setId);
+    known.set(item.setId, item.setId);
+  }
+  for (const set of outbox.sets) {
+    if (set.ackedSetId) {
+      known.set(set.clientId, set.ackedSetId);
+      known.set(set.ackedSetId, set.ackedSetId);
+    }
+  }
+  return known;
 }
 
 export function enqueueSets(
@@ -423,6 +549,9 @@ export function applySyncResult(
   const personalRecords: PersonalRecord[] = [];
   const setResults = new Map(result.sets.map((item) => [item.clientId, item]));
   let openSessionClientId = outbox.openSessionClientId;
+  let closedSessionClientIds = outbox.closedSessionClientIds;
+  let knownSetIds = outbox.knownSetIds;
+  let dropped = outbox.dropped;
   const sessionByClient = new Map<string, string>();
 
   for (const item of result.sets) {
@@ -455,6 +584,9 @@ export function applySyncResult(
     if (item.status === "rejected") {
       return [{ ...stamped, syncError: item.message ?? "That set could not be saved" }];
     }
+    if (item.setId) {
+      knownSetIds = rememberKnown(knownSetIds, stamped.clientId, item.setId);
+    }
     if (item.personalRecord && stamped.revision === item.revision) {
       personalRecords.push(item.personalRecord);
     }
@@ -468,6 +600,7 @@ export function applySyncResult(
       ];
     }
     if (stamped.removed) {
+      dropped = rememberDrop(dropped, { kind: "set", id: stamped.clientId, revision: stamped.revision });
       return [];
     }
     return [
@@ -517,11 +650,11 @@ export function applySyncResult(
     if (item.status === "rejected") {
       return { ...action, syncError: item.message ?? "That workout could not be saved" };
     }
-    if (
-      action.kind === "complete" &&
-      action.sessionClientId === openSessionClientId
-    ) {
-      openSessionClientId = null;
+    if (action.kind === "complete" || action.kind === "discard") {
+      closedSessionClientIds = rememberClosed(closedSessionClientIds, action.sessionClientId);
+      if (action.sessionClientId === openSessionClientId) {
+        openSessionClientId = null;
+      }
     }
     return {
       ...action,
@@ -540,11 +673,22 @@ export function applySyncResult(
     if (item.status === "rejected") {
       return [{ ...entry, syncError: item.message ?? "That entry could not be saved" }];
     }
+    dropped = rememberDrop(dropped, { kind: "body", id: entry.clientId, revision: 1 });
     return [];
   });
 
   return {
-    outbox: { openSessionClientId, sets, edits, deletes, actions, body },
+    outbox: {
+      openSessionClientId,
+      closedSessionClientIds,
+      knownSetIds,
+      dropped,
+      sets,
+      edits,
+      deletes,
+      actions,
+      body,
+    },
     personalRecords,
   };
 }
@@ -561,43 +705,46 @@ export function reconcileOutbox(
     }
   }
 
+  let dropped = outbox.dropped;
   const sets = outbox.sets.filter((set) => {
-    if (set.removed) {
-      return set.echoedRevision !== set.revision;
+    const keep = keepPendingSet(set, byId, byClientId);
+    if (!keep) {
+      dropped = rememberDrop(dropped, { kind: "set", id: set.clientId, revision: set.revision });
     }
-    if (set.echoedRevision !== set.revision) {
-      return true;
+    return keep;
+  });
+
+  const edits = outbox.edits.filter((edit) => {
+    const server = byId.get(edit.setId);
+    let keep = true;
+    if (!server) {
+      keep = !edit.echoed;
+    } else if (edit.echoed) {
+      keep = !measuresMatch(server, edit);
     }
-    if (set.clientId && byClientId.has(set.clientId)) {
-      return false;
+    if (!keep) {
+      dropped = rememberDrop(dropped, { kind: "edit", id: edit.editId, revision: 1 });
     }
-    if (set.ackedSetId && byId.has(set.ackedSetId)) {
+    return keep;
+  });
+
+  const deletes = outbox.deletes.filter((deletion) => {
+    const keep = !deletion.echoed || byId.has(deletion.setId);
+    if (!keep) {
+      dropped = rememberDrop(dropped, { kind: "delete", id: deletion.deleteId, revision: 1 });
+    }
+    return keep;
+  });
+
+  const actions = outbox.actions.filter((action) => {
+    if (action.echoed) {
+      dropped = rememberDrop(dropped, { kind: "action", id: action.actionId, revision: 1 });
       return false;
     }
     return true;
   });
 
-  const edits = outbox.edits.filter((edit) => {
-    const server = byId.get(edit.setId);
-    if (!server) {
-      return !edit.echoed;
-    }
-    if (!edit.echoed) {
-      return true;
-    }
-    return !measuresMatch(server, edit);
-  });
-
-  const deletes = outbox.deletes.filter((deletion) => {
-    if (!deletion.echoed) {
-      return true;
-    }
-    return byId.has(deletion.setId);
-  });
-
-  const actions = outbox.actions.filter((action) => !action.echoed);
-
-  return { ...outbox, sets, edits, deletes, actions };
+  return { ...outbox, sets, edits, deletes, actions, dropped };
 }
 
 export function mergeVisibleSets(
@@ -831,6 +978,9 @@ export function parseOutbox(value: unknown): Outbox {
   return {
     openSessionClientId:
       typeof value.openSessionClientId === "string" ? value.openSessionClientId : null,
+    closedSessionClientIds: parseStringList(value.closedSessionClientIds).slice(-CLOSED_CAP),
+    knownSetIds: parseKnownSetIds(value.knownSetIds),
+    dropped: parseDropped(value.dropped),
     sets,
     edits: parseList(value.edits, parsePendingEdit),
     deletes: parseList(value.deletes, parsePendingDelete),
@@ -1012,4 +1162,87 @@ function parseList<T>(value: unknown, parse: (item: unknown) => T | null): T[] {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function keepPendingSet(
+  set: PendingSet,
+  byId: Map<string, SetLine & { clientId?: string | null }>,
+  byClientId: Map<string, SetLine & { clientId?: string | null }>,
+): boolean {
+  if (set.removed) {
+    return set.echoedRevision !== set.revision;
+  }
+  if (set.echoedRevision !== set.revision) {
+    return true;
+  }
+  if (set.clientId && byClientId.has(set.clientId)) {
+    return false;
+  }
+  if (set.ackedSetId && byId.has(set.ackedSetId)) {
+    return false;
+  }
+  return true;
+}
+
+function rememberClosed(ids: string[], id: string): string[] {
+  if (ids.includes(id)) {
+    return ids;
+  }
+  return [...ids, id].slice(-CLOSED_CAP);
+}
+
+function rememberKnown(known: KnownSetId[], clientId: string, setId: string): KnownSetId[] {
+  const without = known.filter((item) => item.clientId !== clientId);
+  return [...without, { clientId, setId }].slice(-KNOWN_CAP);
+}
+
+function rememberDrop(dropped: DroppedItem[], item: DroppedItem): DroppedItem[] {
+  const without = dropped.filter((entry) => !(entry.kind === item.kind && entry.id === item.id));
+  const previous = dropped.find((entry) => entry.kind === item.kind && entry.id === item.id);
+  const revision = Math.max(item.revision, previous?.revision ?? 0);
+  return [...without, { ...item, revision }].slice(-DROPPED_CAP);
+}
+
+function parseStringList(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.filter((item): item is string => typeof item === "string" && item.length > 0);
+}
+
+function parseKnownSetIds(value: unknown): KnownSetId[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const known: KnownSetId[] = [];
+  for (const item of value) {
+    if (!isRecord(item) || typeof item.clientId !== "string" || typeof item.setId !== "string") {
+      continue;
+    }
+    known.push({ clientId: item.clientId, setId: item.setId });
+  }
+  return known.slice(-KNOWN_CAP);
+}
+
+function parseDropped(value: unknown): DroppedItem[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const dropped: DroppedItem[] = [];
+  for (const item of value) {
+    if (!isRecord(item) || typeof item.id !== "string" || typeof item.revision !== "number") {
+      continue;
+    }
+    if (
+      item.kind !== "set" &&
+      item.kind !== "edit" &&
+      item.kind !== "delete" &&
+      item.kind !== "action" &&
+      item.kind !== "body"
+    ) {
+      continue;
+    }
+    dropped.push({ kind: item.kind, id: item.id, revision: item.revision });
+  }
+  return dropped.slice(-DROPPED_CAP);
 }

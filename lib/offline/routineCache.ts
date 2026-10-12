@@ -51,7 +51,7 @@ export function saveRoutineCache(
   store.set(routineKey(email), JSON.stringify(routines));
   for (const routine of routines) {
     for (const exercise of routine.exercises) {
-      rememberRest(store, exercise.name, exercise.restSeconds);
+      rememberRest(store, email, exercise.name, exercise.restSeconds);
     }
   }
 }

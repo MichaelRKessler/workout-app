@@ -33,6 +33,7 @@ function queuedSet(
     loggedAt?: number;
     placement?: "open" | "completed";
     sessionClientId?: string;
+    sessionStartedAt?: number;
     exerciseName?: string;
   },
 ) {
@@ -43,7 +44,7 @@ function queuedSet(
     placement: overrides?.placement ?? "open",
     ...(overrides?.sessionId ? { sessionId: overrides.sessionId as never } : {}),
     sessionClientId: overrides?.sessionClientId ?? "sessionclient01",
-    sessionStartedAt: NOW,
+    sessionStartedAt: overrides?.sessionStartedAt ?? NOW,
     exerciseName: overrides?.exerciseName ?? "Bench press",
     reps: 10,
     weightLb: overrides?.weightLb ?? 135,
@@ -295,5 +296,217 @@ describe("offline sync", () => {
     expect(listed).toHaveLength(1);
     expect(listed[0]?.clientId).toBeNull();
     expect(listed[0]?.weightLb).toBe(185);
+  });
+
+  test("a past workout does not reuse another day's client id", async () => {
+    const t = testBackend();
+    const { asUser } = await signIn(t, "Michael");
+    const day = 86_400_000;
+    const first = await asUser.mutation(api.offline.accept, {
+      sets: [
+        queuedSet("client0001", {
+          placement: "completed",
+          sessionClientId: "pastworkout01",
+          sessionStartedAt: NOW - 2 * day,
+          loggedAt: NOW - 2 * day,
+        }),
+      ],
+      edits: [],
+      deletes: [],
+      actions: [],
+    });
+    const otherDay = await asUser.mutation(api.offline.accept, {
+      sets: [
+        queuedSet("client0002", {
+          placement: "completed",
+          sessionClientId: "pastworkout01",
+          sessionStartedAt: NOW - 10 * day,
+          loggedAt: NOW - 10 * day,
+        }),
+      ],
+      edits: [],
+      deletes: [],
+      actions: [],
+    });
+    const sameDay = await asUser.mutation(api.offline.accept, {
+      sets: [
+        queuedSet("client0003", {
+          placement: "completed",
+          sessionClientId: "pastworkout01",
+          sessionStartedAt: NOW - 2 * day,
+          loggedAt: NOW - 2 * day + 1000,
+        }),
+      ],
+      edits: [],
+      deletes: [],
+      actions: [],
+    });
+    expect(otherDay.sets[0]?.sessionId).not.toBe(first.sets[0]?.sessionId);
+    expect(sameDay.sets[0]?.sessionId).toBe(first.sets[0]?.sessionId);
+    const firstSession = await asUser.query(api.sessions.get, {
+      sessionId: first.sets[0]!.sessionId!,
+    });
+    const otherSession = await asUser.query(api.sessions.get, {
+      sessionId: otherDay.sets[0]!.sessionId!,
+    });
+    expect(firstSession?.sets).toHaveLength(2);
+    expect(otherSession?.sets).toHaveLength(1);
+  });
+
+  test("a deleted workout id still saves the queued set on its own", async () => {
+    const t = testBackend();
+    const { asUser } = await signIn(t, "Michael");
+    const openId = await asUser.mutation(api.sessions.start, {});
+    const goneId = await t.run(async (ctx) => {
+      const open = await ctx.db.get("sessions", openId);
+      if (!open) {
+        throw new Error("Expected the open workout");
+      }
+      const id = await ctx.db.insert("sessions", {
+        userId: open.userId,
+        status: "open",
+        startedAt: NOW,
+      });
+      await ctx.db.delete("sessions", id);
+      return id;
+    });
+    const saved = await asUser.mutation(api.offline.accept, {
+      sets: [
+        queuedSet("client0001", {
+          sessionId: goneId,
+          sessionClientId: "recovered0001",
+        }),
+      ],
+      edits: [],
+      deletes: [],
+      actions: [],
+    });
+    expect(saved.sets[0]?.status).toBe("applied");
+    expect(saved.sets[0]?.sessionId).not.toBe(openId);
+    expect(saved.sets[0]?.sessionId).not.toBe(goneId);
+    const created = await asUser.query(api.sessions.get, { sessionId: saved.sets[0]!.sessionId! });
+    expect(created?.sets).toHaveLength(1);
+    expect((await asUser.query(api.sessions.get, { sessionId: openId }))?.sets).toHaveLength(0);
+  });
+
+  test("a removed client id cannot be brought back by a later revision", async () => {
+    const t = testBackend();
+    const { asUser } = await signIn(t, "Michael");
+    const created = await asUser.mutation(api.offline.accept, {
+      sets: [queuedSet("client0001")],
+      edits: [],
+      deletes: [],
+      actions: [],
+    });
+    const removed = await asUser.mutation(api.offline.accept, {
+      sets: [
+        queuedSet("client0001", {
+          removed: true,
+          revision: 2,
+          loggedAt: Date.now() + 10 * 60 * 1000,
+        }),
+      ],
+      edits: [],
+      deletes: [],
+      actions: [],
+    });
+    const resurrected = await asUser.mutation(api.offline.accept, {
+      sets: [queuedSet("client0001", { revision: 3, weightLb: 400 })],
+      edits: [],
+      deletes: [],
+      actions: [],
+    });
+    expect(removed.sets[0]?.status).toBe("applied");
+    expect(resurrected.sets[0]?.status).toBe("applied");
+    expect(resurrected.sets[0]?.setId).toBeNull();
+    expect(
+      await asUser.query(api.sets.listForSession, { sessionId: created.sets[0]!.sessionId! }),
+    ).toHaveLength(0);
+  });
+
+  test("the phone clock is shifted onto server time", async () => {
+    const t = testBackend();
+    const { asUser } = await signIn(t, "Michael");
+    const fastNow = Date.now() + 60 * 60 * 1000;
+    const fastLogged = fastNow - 30_000;
+    const fast = await asUser.mutation(api.offline.accept, {
+      clientNow: fastNow,
+      sets: [
+        queuedSet("clientfast01", {
+          sessionClientId: "fastsession01",
+          sessionStartedAt: fastLogged,
+          loggedAt: fastLogged,
+        }),
+      ],
+      edits: [],
+      deletes: [],
+      actions: [],
+    });
+    expect(fast.sets[0]?.status).toBe("applied");
+    const fastSet = (
+      await asUser.query(api.sets.listForSession, { sessionId: fast.sets[0]!.sessionId! })
+    )[0];
+    expect(fastSet?.loggedAt).toBeLessThanOrEqual(Date.now());
+    expect(fastSet?.loggedAt ?? 0).toBeGreaterThan(Date.now() - 2 * 60 * 1000);
+
+    const skew = 3 * 24 * 60 * 60 * 1000;
+    const slowNow = Date.now() - skew;
+    const slowLogged = slowNow - 30_000;
+    const slow = await asUser.mutation(api.offline.accept, {
+      clientNow: slowNow,
+      sets: [
+        queuedSet("clientslow01", {
+          sessionClientId: "slowsession01",
+          sessionStartedAt: slowLogged,
+          loggedAt: slowLogged,
+        }),
+      ],
+      edits: [],
+      deletes: [],
+      actions: [],
+    });
+    const slowSet = (
+      await asUser.query(api.sets.listForSession, { sessionId: slow.sets[0]!.sessionId! })
+    )[0];
+    expect(slowSet?.loggedAt).toBeLessThanOrEqual(Date.now());
+    expect(slowSet?.loggedAt ?? 0).toBeGreaterThan(Date.now() - 2 * 60 * 1000);
+  });
+
+  test("a finish for a workout the cron already closed still saves the note and end time", async () => {
+    const t = testBackend();
+    const { asUser } = await signIn(t, "Michael");
+    const saved = await asUser.mutation(api.offline.accept, {
+      sets: [queuedSet("client0001", { loggedAt: NOW - 60_000 })],
+      edits: [],
+      deletes: [],
+      actions: [
+        {
+          actionId: "action0001",
+          kind: "complete" as const,
+          sessionClientId: "sessionclient01",
+          requestedAt: NOW - 30_000,
+        },
+      ],
+    });
+    const sessionId = saved.sets[0]!.sessionId!;
+    const later = await asUser.mutation(api.offline.accept, {
+      sets: [],
+      edits: [],
+      deletes: [],
+      actions: [
+        {
+          actionId: "action0002",
+          kind: "complete" as const,
+          sessionId,
+          sessionClientId: "sessionclient01",
+          note: "after the cron",
+          requestedAt: NOW - 10_000,
+        },
+      ],
+    });
+    expect(later.actions[0]?.status).toBe("applied");
+    const session = await asUser.query(api.sessions.get, { sessionId });
+    expect(session?.note).toBe("after the cron");
+    expect(session?.completedAt).toBe(NOW - 10_000);
   });
 });

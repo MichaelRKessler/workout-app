@@ -524,6 +524,17 @@ describe("workouts left unfinished", () => {
       return await ctx.db.insert("sessions", {
         userId: kept.userId,
         status: "open",
+        startedAt: Date.now() - 25 * HOUR,
+      });
+    });
+    const eightHourEmptyId = await t.run(async (ctx) => {
+      const kept = await ctx.db.get("sessions", keptId);
+      if (!kept) {
+        throw new Error("Expected the kept workout");
+      }
+      return await ctx.db.insert("sessions", {
+        userId: kept.userId,
+        status: "open",
         startedAt: Date.now() - 8 * HOUR,
       });
     });
@@ -553,6 +564,9 @@ describe("workouts left unfinished", () => {
     expect(abandoned?.status).toBe("completed");
     expect(abandoned?.completedAt).toBe(abandonedLoggedAt + STALE_END_MARGIN_MS);
     expect(await asUser.query(api.sessions.get, { sessionId: emptyId })).toBeNull();
+    expect((await asUser.query(api.sessions.get, { sessionId: eightHourEmptyId }))?.status).toBe(
+      "open",
+    );
     expect((await asUser.query(api.sessions.get, { sessionId: freshEmptyId }))?.status).toBe(
       "open",
     );
@@ -655,7 +669,7 @@ describe("workouts left unfinished", () => {
 
     const result = await t.mutation(internal.sessions.closeStale, {});
     expect(result.finished).toBe(1);
-    expect(result.discarded).toBe(1);
+    expect(result.discarded).toBe(0);
 
     const recent = await asUser.query(api.sessions.get, { sessionId: recentId });
     expect(recent?.status).toBe("open");
@@ -666,7 +680,7 @@ describe("workouts left unfinished", () => {
     expect(idle?.status).toBe("completed");
     expect(idle?.completedAt).toBe(idleLoggedAt + STALE_END_MARGIN_MS);
 
-    expect(await asUser.query(api.sessions.get, { sessionId: emptyId })).toBeNull();
+    expect((await asUser.query(api.sessions.get, { sessionId: emptyId }))?.status).toBe("open");
 
     const saved = await asUser.query(api.sessions.get, { sessionId: past.sessionId });
     expect(saved?.status).toBe("completed");

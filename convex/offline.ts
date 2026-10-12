@@ -112,6 +112,9 @@ export const accept = authedMutation({
     ),
     // Optional so a phone that queued only sets before body entries existed still syncs.
     body: v.optional(v.array(v.object(bodyInput))),
+    // The phone's clock at send time. Optional so a queue saved before clock
+    // correction still syncs. The server shifts item times by the difference.
+    clientNow: v.optional(v.number()),
   },
   returns: v.object({
     sets: v.array(setResult),

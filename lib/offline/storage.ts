@@ -1,9 +1,18 @@
 import { isSetType } from "../../convex/lib/setType.ts";
 import type { SetLine } from "../groupSets.ts";
-import { emptyOutbox, parseOutbox, type Outbox } from "./outbox.ts";
+import { mergeOutboxes } from "./merge.ts";
+import { emptyOutbox, parseOutbox, repairOpenSession, type Outbox } from "./outbox.ts";
 import type { PendingPlan } from "./routineCache.ts";
 
 const PREFIX = "workout-offline:";
+const ACCOUNT_PREFIX = "workout-account:";
+
+export class OfflineStorageError extends Error {
+  constructor() {
+    super("This phone couldn't store changes");
+    this.name = "OfflineStorageError";
+  }
+}
 
 let writesSuspended = false;
 
@@ -57,7 +66,8 @@ export function accountKey(email: string | null): string {
 }
 
 export function loadOutbox(store: KeyValueStore, email: string | null): Outbox {
-  return readJson(store, outboxKey(email), parseOutbox, emptyOutbox());
+  migrateAccountStorage(store, email);
+  return repairOpenSession(readJson(store, outboxKey(email), parseOutbox, emptyOutbox()));
 }
 
 export function saveOutbox(store: KeyValueStore, email: string | null, outbox: Outbox): void {
@@ -68,6 +78,7 @@ export function saveOutbox(store: KeyValueStore, email: string | null, outbox: O
 }
 
 export function loadSnapshot(store: KeyValueStore, email: string | null): WorkoutSnapshot | null {
+  migrateAccountStorage(store, email);
   return readJson(store, snapshotKey(email), parseSnapshot, null);
 }
 
@@ -154,17 +165,86 @@ export function saveProgression(store: KeyValueStore, progression: CachedProgres
   store.set(`${PREFIX}progression`, JSON.stringify(progression));
 }
 
-export function clearOfflineStorage(store: KeyValueStore): void {
+/**
+ * Removes this account's on-device queue and session cache.
+ * Another account's queue is left in place.
+ */
+export function clearOfflineStorage(store: KeyValueStore, email: string | null): void {
   writesSuspended = true;
+  try {
+    migrateAccountStorage(store, email);
+  } catch (error) {
+    if (!(error instanceof OfflineStorageError)) {
+      throw error;
+    }
+  }
+  const account = accountKey(email);
+  const exact = new Set([
+    `${PREFIX}outbox:${account}`,
+    `${PREFIX}snapshot:${account}`,
+    `${PREFIX}routines:${account}`,
+    `${PREFIX}pending-plan:${account}`,
+    `${PREFIX}access`,
+    `${PREFIX}unit`,
+    `${PREFIX}length`,
+    `${PREFIX}progression`,
+  ]);
+  const prefix = `${ACCOUNT_PREFIX}${account}:`;
   for (const key of store.keys()) {
-    if (key.startsWith(PREFIX)) {
+    if (exact.has(key) || key.startsWith(prefix)) {
       store.remove(key);
     }
   }
 }
 
-export function browserStore(): KeyValueStore {
+/** Turns storage exceptions into OfflineStorageError so a blocked phone cannot crash the app. */
+export function guardStore(store: KeyValueStore): KeyValueStore {
   return {
+    get(key) {
+      try {
+        return store.get(key);
+      } catch (error) {
+        if (error instanceof OfflineStorageError) {
+          throw error;
+        }
+        throw new OfflineStorageError();
+      }
+    },
+    set(key, value) {
+      try {
+        store.set(key, value);
+      } catch (error) {
+        if (error instanceof OfflineStorageError) {
+          throw error;
+        }
+        throw new OfflineStorageError();
+      }
+    },
+    remove(key) {
+      try {
+        store.remove(key);
+      } catch (error) {
+        if (error instanceof OfflineStorageError) {
+          throw error;
+        }
+        throw new OfflineStorageError();
+      }
+    },
+    keys() {
+      try {
+        return store.keys();
+      } catch (error) {
+        if (error instanceof OfflineStorageError) {
+          throw error;
+        }
+        throw new OfflineStorageError();
+      }
+    },
+  };
+}
+
+export function browserStore(): KeyValueStore {
+  return guardStore({
     get(key) {
       return localStorage.getItem(key);
     },
@@ -184,15 +264,164 @@ export function browserStore(): KeyValueStore {
       }
       return names;
     },
-  };
+  });
+}
+
+/** Raw queue JSON, after the caller has migrated. Used to skip a no-op write. */
+export function peekOutboxRaw(store: KeyValueStore, email: string | null): string | null {
+  return store.get(outboxKey(email));
+}
+
+export function pendingRestKey(email: string | null): string {
+  return `${ACCOUNT_PREFIX}${accountKey(email)}:pending-rest`;
+}
+
+export function rememberedRestKey(email: string | null): string {
+  return `${ACCOUNT_PREFIX}${accountKey(email)}:exercise-rest`;
+}
+
+/**
+ * Copies the previous on-device queue into per-account keys.
+ * The old key is removed only after the new key reads back the same bytes.
+ */
+export function migrateAccountStorage(store: KeyValueStore, email: string | null): void {
+  const owner = ownerEmail(store, email);
+  moveOutbox(store, `${PREFIX}outbox`, outboxKey(owner));
+  moveOutbox(store, legacyOutboxKey(email), outboxKey(email));
+  if (accountKey(owner) !== accountKey(email)) {
+    moveOutbox(store, legacyOutboxKey(owner), outboxKey(owner));
+  }
+  moveSnapshot(store, `${PREFIX}snapshot`, snapshotKey(owner));
+  moveSnapshot(store, legacySnapshotKey(email), snapshotKey(email));
+  moveRest(store, `${PREFIX}pending-rest`, pendingRestKey(owner));
+  moveRest(store, `${PREFIX}exercise-rest`, rememberedRestKey(owner));
+}
+
+function ownerEmail(store: KeyValueStore, fallback: string | null): string | null {
+  const access = loadCachedAccess(store);
+  return access?.email ?? fallback;
 }
 
 function outboxKey(email: string | null): string {
-  return `${PREFIX}outbox:${accountKey(email)}`;
+  return `${ACCOUNT_PREFIX}${accountKey(email)}:outbox`;
 }
 
 function snapshotKey(email: string | null): string {
+  return `${ACCOUNT_PREFIX}${accountKey(email)}:snapshot`;
+}
+
+function legacyOutboxKey(email: string | null): string {
+  return `${PREFIX}outbox:${accountKey(email)}`;
+}
+
+function legacySnapshotKey(email: string | null): string {
   return `${PREFIX}snapshot:${accountKey(email)}`;
+}
+
+function moveOutbox(store: KeyValueStore, from: string, to: string): void {
+  const oldRaw = store.get(from);
+  if (!oldRaw) {
+    return;
+  }
+  const current = store.get(to);
+  let next = oldRaw;
+  if (current) {
+    try {
+      const merged = mergeOutboxes(
+        parseOutbox(JSON.parse(oldRaw) as unknown),
+        parseOutbox(JSON.parse(current) as unknown),
+      );
+      next = JSON.stringify(merged);
+    } catch {
+      return;
+    }
+  }
+  commitMove(store, from, to, next);
+}
+
+function moveSnapshot(store: KeyValueStore, from: string, to: string): void {
+  const oldRaw = store.get(from);
+  if (!oldRaw) {
+    return;
+  }
+  const current = store.get(to);
+  const next = current ? preferSnapshot(oldRaw, current) : oldRaw;
+  commitMove(store, from, to, next);
+}
+
+function moveRest(store: KeyValueStore, from: string, to: string): void {
+  const oldRaw = store.get(from);
+  if (!oldRaw) {
+    return;
+  }
+  const current = store.get(to);
+  let next = oldRaw;
+  if (current) {
+    try {
+      next = JSON.stringify(mergeRestLists(parseRestList(oldRaw), parseRestList(current)));
+    } catch {
+      return;
+    }
+  }
+  commitMove(store, from, to, next);
+}
+
+function commitMove(store: KeyValueStore, from: string, to: string, next: string): void {
+  store.set(to, next);
+  if (store.get(to) !== next) {
+    return;
+  }
+  store.remove(from);
+}
+
+function preferSnapshot(oldRaw: string, current: string): string {
+  try {
+    const oldSets = setCount(oldRaw);
+    const newSets = setCount(current);
+    return oldSets > newSets ? oldRaw : current;
+  } catch {
+    return current;
+  }
+}
+
+function setCount(raw: string): number {
+  const parsed = JSON.parse(raw) as { sets?: unknown };
+  return Array.isArray(parsed.sets) ? parsed.sets.length : 0;
+}
+
+function parseRestList(raw: string): Array<{ name: string; restSeconds: number | null }> {
+  const parsed = JSON.parse(raw) as unknown;
+  if (!Array.isArray(parsed)) {
+    return [];
+  }
+  const rests: Array<{ name: string; restSeconds: number | null }> = [];
+  for (const item of parsed) {
+    if (typeof item !== "object" || item === null) {
+      continue;
+    }
+    const row = item as { name?: unknown; restSeconds?: unknown };
+    if (typeof row.name !== "string") {
+      continue;
+    }
+    const restSeconds =
+      typeof row.restSeconds === "number" ? row.restSeconds : row.restSeconds === null ? null : undefined;
+    if (restSeconds === undefined) {
+      continue;
+    }
+    rests.push({ name: row.name, restSeconds });
+  }
+  return rests;
+}
+
+function mergeRestLists(
+  older: Array<{ name: string; restSeconds: number | null }>,
+  newer: Array<{ name: string; restSeconds: number | null }>,
+): Array<{ name: string; restSeconds: number | null }> {
+  const map = new Map<string, { name: string; restSeconds: number | null }>();
+  for (const item of [...older, ...newer]) {
+    map.set(item.name, item);
+  }
+  return [...map.values()];
 }
 
 function readJson<T>(
