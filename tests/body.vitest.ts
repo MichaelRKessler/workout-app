@@ -233,6 +233,40 @@ describe("muscle groups on exercises", () => {
     ).rejects.toThrow("You don't have access yet");
   });
 
+  test("the muscle filter lists saved and suggested groups, and only your own", async () => {
+    const t = testBackend();
+    const { userId, asUser } = await signIn(t, "Michael");
+    const other = await signIn(t, "Other");
+    const [, , pressId] = await t.run(async (ctx) => {
+      const insert = (owner: typeof userId, name: string, muscleGroup?: "glutes" | "back") =>
+        ctx.db.insert("exercises", {
+          userId: owner,
+          name,
+          normalizedName: name.toLowerCase(),
+          createdAt: 1,
+          ...(muscleGroup ? { muscleGroup } : {}),
+        });
+      return await Promise.all([
+        insert(userId, "Hip thrust"),
+        insert(userId, "Kickback", "glutes"),
+        insert(userId, "Bench press"),
+        insert(other.userId, "Glute bridge", "glutes"),
+      ]);
+    });
+    const glutes = await asUser.query(api.exercises.byMuscle, { muscleGroup: "glutes" });
+    expect(glutes.truncated).toBe(false);
+    expect(glutes.exercises.map((exercise) => [exercise.name, exercise.muscleSource])).toEqual([
+      ["Hip thrust", "suggested"],
+      ["Kickback", "saved"],
+    ]);
+    expect(glutes.exercises[0]).toMatchObject({ setCount: 0, setCountCapped: false });
+
+    await asUser.mutation(api.exercises.setMuscle, { exerciseId: pressId, muscleGroup: "back" });
+    const back = await asUser.query(api.exercises.byMuscle, { muscleGroup: "back" });
+    expect(back.exercises.map((exercise) => exercise.name)).toEqual(["Bench press"]);
+    expect((await asUser.query(api.exercises.byMuscle, { muscleGroup: "chest" })).exercises).toEqual([]);
+  });
+
   test("a merge does not retag a named exercise with a conflicting group", async () => {
     const t = testBackend();
     const { userId, asUser } = await signIn(t, "Michael");

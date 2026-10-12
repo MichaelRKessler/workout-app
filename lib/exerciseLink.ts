@@ -1,3 +1,4 @@
+import type { MuscleGroup } from "@/convex/lib/muscleGroup";
 import { safeNextPath } from "./safeNext";
 
 /** Progress page for an exercise, remembering where Back should return. */
@@ -35,4 +36,17 @@ export function exerciseBackLabel(href: string): string {
     return "Back";
   }
   return "Back";
+}
+
+/** Link for a muscle filter. `fromHome` keeps the back button pointing home. */
+export function muscleFilterHref(group: MuscleGroup | null, fromHome = false): string {
+  const params = new URLSearchParams();
+  if (group) {
+    params.set("muscle", group);
+  }
+  if (fromHome) {
+    params.set("from", "home");
+  }
+  const query = params.toString();
+  return query ? `/exercises?${query}` : "/exercises";
 }

@@ -1,10 +1,12 @@
 "use client";
 
+import { BodyMap } from "@/components/BodyMap";
 import { useWeightUnit } from "@/components/WeightUnit";
 import { BrandMark, ChevronRightIcon, KeyboardIcon, MicIcon } from "@/components/icons";
 import { TopActions } from "@/components/TopActions";
 import { formatCalories } from "@/convex/lib/measures";
-import { formatMuscleSummary, type MuscleGroup } from "@/convex/lib/muscleGroup";
+import { formatMuscleSummary, MUSCLE_LABELS, type MuscleGroup } from "@/convex/lib/muscleGroup";
+import { untrainedGroups } from "@/lib/bodyMap/regions";
 import {
   formatLongDate,
   formatShortDate,
@@ -12,10 +14,12 @@ import {
   pluralize,
   streakLabel,
 } from "@/lib/format";
+import { muscleFilterHref } from "@/lib/exerciseLink";
 import { formatHistoryDayMeta, type HistoryDay } from "@/lib/historyDays";
 import { formatSupersetNames } from "@/convex/lib/superset";
 import { OFFLINE_VOICE_MESSAGE } from "@/lib/offline/messages";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 
 export type WeekSummary = {
   workouts: number;
@@ -213,7 +217,10 @@ function LastWorkoutCard({
 
 function WeeklySummary({ summary }: { summary: WeekSummary }) {
   const unit = useWeightUnit();
+  const router = useRouter();
   const muscles = formatMuscleSummary(summary.muscles);
+  const untrained = untrainedGroups(summary.muscles);
+  const trainedAny = summary.muscles.some((item) => item.sets > 0);
   return (
     <section aria-label="This week" className="mb-3 rounded-[1.25rem] border border-line bg-surface p-4">
       <div className="flex items-baseline justify-between gap-3">
@@ -226,6 +233,24 @@ function WeeklySummary({ summary }: { summary: WeekSummary }) {
         {(summary.calories ?? 0) > 0 ? ` · ${formatCalories(summary.calories ?? 0)}` : ""}
       </p>
       {muscles ? <p className="mt-1 text-sm text-pretty text-muted">{muscles}</p> : null}
+      <BodyMap
+        muscles={summary.muscles}
+        onSelect={(group) => router.push(muscleFilterHref(group, true))}
+        className="mt-3 h-56"
+      />
+      {trainedAny && untrained.length > 0 ? (
+        <p className="mt-2 text-sm text-pretty">
+          <span className="text-muted">Not trained yet · </span>
+          {untrained.map((group, index) => (
+            <span key={group}>
+              {index > 0 ? <span className="text-muted"> · </span> : null}
+              <Link href={muscleFilterHref(group, true)} className="font-medium hover:underline">
+                {MUSCLE_LABELS[group]}
+              </Link>
+            </span>
+          ))}
+        </p>
+      ) : null}
       <p className="mt-0.5 text-sm text-pretty text-muted">
         Last week · {pluralize(summary.previousWorkouts, "workout")} ·{" "}
         {pluralize(summary.previousSets, "set")} · {formatVolumeLb(summary.previousVolumeLb, unit)}
