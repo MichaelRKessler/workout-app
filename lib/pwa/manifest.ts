@@ -12,8 +12,9 @@ export const pwaBackgroundColor = "#f7f7f5";
  * display, and PNG icons at 192 and 512. Maskable icons sit beside purpose
  * "any" so Android can crop the launcher icon. Production registers a
  * network-first service worker so the installed app can open offline. It does
- * not cache /api, Convex, Google, or authenticated responses, and a live
- * network response always replaces the cached shell.
+ * not cache /api, Convex, Google, or the OAuth return. Signed-in HTML is
+ * stored only after the login token is removed, and a live network response
+ * always replaces that shell.
  */
 export const webAppManifest: MetadataRoute.Manifest = {
   id: "/",

@@ -12,6 +12,7 @@ import {
   resumeOfflineWrites,
   suspendOfflineWrites,
 } from "@/lib/offline/storage";
+import { clearShellCache } from "@/lib/pwa/clearShellCache";
 import { useAuthActions } from "@convex-dev/auth/react";
 import { useRouter } from "next/navigation";
 import { ReactNode, useRef, useState } from "react";
@@ -58,6 +59,11 @@ export function useGuardedSignOut(): {
       return;
     }
     clearOfflineStorage(browserStore());
+    try {
+      await clearShellCache();
+    } catch {
+      // The session is already signed out. Sign-in is still the right page.
+    }
     router.replace("/signin");
     leaving.current = false;
   }

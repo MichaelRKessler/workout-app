@@ -20,7 +20,10 @@ const isProtectedRoute = createRouteMatcher([
 const authMiddleware = convexAuthNextjsMiddleware(
   async (request, { convexAuth }) => {
     if (isSignInPage(request) && (await convexAuth.isAuthenticated())) {
-      const next = safeNextPath(request.nextUrl.searchParams.get("next"));
+      const next = safeNextPath(
+        request.nextUrl.searchParams.get("next"),
+        request.nextUrl.origin,
+      );
       return nextjsMiddlewareRedirect(request, next);
     }
     if (isProtectedRoute(request) && !(await convexAuth.isAuthenticated())) {
