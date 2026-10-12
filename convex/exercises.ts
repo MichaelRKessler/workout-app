@@ -489,6 +489,37 @@ export const browse = authedQuery({
   },
 });
 
+/**
+ * Exercises filed under one muscle group, saved or suggested, sorted by name.
+ * Scans at most EXERCISE_LIMIT exercises, the same bound as `list`.
+ */
+export const byMuscle = authedQuery({
+  args: { muscleGroup: muscleGroupValidator },
+  returns: v.object({
+    exercises: v.array(libraryItemValidator),
+    truncated: v.boolean(),
+  }),
+  handler: async (ctx, args) => {
+    const rows = await ctx.db
+      .query("exercises")
+      .withIndex("by_user_and_normalized_name", (q) => q.eq("userId", ctx.userId))
+      .take(EXERCISE_LIMIT + 1);
+    const truncated = rows.length > EXERCISE_LIMIT;
+    const matching = rows
+      .slice(0, EXERCISE_LIMIT)
+      .filter((exercise) => presentMuscle(exercise).muscleGroup === args.muscleGroup);
+    const exercises = await Promise.all(
+      matching.map(async (exercise) => ({
+        _id: exercise._id,
+        name: exercise.name,
+        ...(await countSets(ctx, ctx.userId, exercise._id)),
+        ...presentMuscle(exercise),
+      })),
+    );
+    return { exercises, truncated };
+  },
+});
+
 const renameResult = v.union(
   v.object({
     status: v.literal("renamed"),
