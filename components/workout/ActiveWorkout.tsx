@@ -175,6 +175,7 @@ export function ActiveWorkout({
           setCount={setCount}
           loading={loadingSets}
           hold={restHold}
+          workoutKey={String(startedAt)}
           restLabel={!restHold && setCount > 0 ? restName : null}
           exerciseRestSeconds={setCount > 0 ? exerciseRest.restSeconds : null}
           onExerciseRest={restName ? (seconds) => void exerciseRest.save(seconds) : undefined}

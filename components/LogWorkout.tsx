@@ -50,6 +50,7 @@ import {
 } from "@/lib/voice/confirm";
 import { moveItem } from "@/convex/lib/routinePlan";
 import { useBrowserTimeZone } from "@/components/useBrowserTimeZone";
+import { useSessionText } from "@/components/useSessionText";
 import {
   PENDING_PLAN_EVENT,
   loadPendingPlan,
@@ -82,6 +83,9 @@ import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { readLocal } from "@/lib/localValue";
 
 type Toasted = ToastMessage & { id: number };
+
+/** Composer text kept while an exercise's progress page is open. */
+const COMPOSER_TEXT_KEY = "workout-composer-text";
 
 /**
  * The Log tab. With no open workout it shows the start screen; the first set
@@ -210,7 +214,7 @@ export function LogWorkout() {
   const [source, setSource] = useState<"voice" | "text">("voice");
   const [draft, setDraft] = useState<VoiceDraft | null>(null);
   const [sheetNotice, setSheetNotice] = useState<string | null>(null);
-  const [text, setText] = useState("");
+  const [text, setText] = useSessionText(COMPOSER_TEXT_KEY);
   const [homeTyping, setHomeTyping] = useState(false);
   const [editingPlan, setEditingPlan] = useState(false);
   const [manual, setManual] = useState<

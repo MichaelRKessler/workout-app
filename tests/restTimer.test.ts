@@ -9,10 +9,12 @@ import {
   MAX_REST_SECONDS,
   MIN_REST_SECONDS,
   readRestSeconds,
+  readSavedRest,
   REST_BUMP_SECONDS,
   REST_VIBRATION_PATTERN,
   restEndFrom,
   restIntervalActive,
+  savedRestValue,
   shiftActiveRest,
   shouldVibrateRest,
   vibrateForRest,
@@ -121,4 +123,31 @@ test("a running rest moves its end, and no rest yet starts one", () => {
   assert.equal(idle.endsAt, now + 60_000);
   assert.equal(idle.seconds, 60);
   assert.equal(idle.restarted, true);
+});
+
+test("a saved rest comes back only for the same workout", () => {
+  const now = 1_000_000;
+  const stored = savedRestValue({ workout: "100", endsAt: now + 60_000, seconds: 90, skipped: false });
+  assert.deepEqual(readSavedRest(stored, "100", now), {
+    workout: "100",
+    endsAt: now + 60_000,
+    seconds: 90,
+    skipped: false,
+  });
+  assert.equal(readSavedRest(stored, "200", now), null);
+  assert.equal(readSavedRest(null, "100", now), null);
+  assert.equal(readSavedRest("not json", "100", now), null);
+  assert.equal(readSavedRest("null", "100", now), null);
+  assert.equal(readSavedRest(JSON.stringify({ workout: "100", endsAt: "soon" }), "100", now), null);
+});
+
+test("a saved rest is kept after it ends, and a far future end is dropped", () => {
+  const now = 1_000_000;
+  const ended = savedRestValue({ workout: "100", endsAt: now - 5_000, seconds: 120, skipped: true });
+  assert.equal(readSavedRest(ended, "100", now)?.skipped, true);
+  const far = savedRestValue({ workout: "100", endsAt: now + (MAX_REST_SECONDS + 60) * 1000, seconds: 90, skipped: false });
+  assert.equal(readSavedRest(far, "100", now), null);
+  const odd = JSON.stringify({ workout: "100", endsAt: now + 10_000, seconds: 9999 });
+  assert.equal(readSavedRest(odd, "100", now)?.seconds, MAX_REST_SECONDS);
+  assert.equal(readSavedRest(odd, "100", now)?.skipped, false);
 });

@@ -13,20 +13,24 @@ import {
   bumpRestSeconds,
   DEFAULT_REST_SECONDS,
   readRestSeconds,
+  readSavedRest,
+  REST_RUN_KEY,
   REST_STORAGE_KEY,
   restEndFrom,
   restIntervalActive,
   shiftActiveRest,
+  savedRestValue,
   shouldVibrateRest,
   vibrateForRest,
 } from "@/lib/restTimer";
 import { useEffect, useRef, useState } from "react";
-import { readLocal, writeLocal } from "@/lib/localValue";
+import { readLocal, readSession, writeLocal, writeSession } from "@/lib/localValue";
 
 /**
  * Rest controls above the composer. Changing the time during a rest does not
  * save it. "Save for <exercise>" stores it for that exercise only. Before any
  * set, the buttons change the device default, which Settings also edits.
+ * With a workout key, a running rest survives a trip to a progress page.
  */
 export function RestTimer({
   setCount,
@@ -35,6 +39,7 @@ export function RestTimer({
   onExerciseRest,
   hold = false,
   restLabel = null,
+  workoutKey = null,
 }: {
   setCount: number;
   loading: boolean;
@@ -43,6 +48,8 @@ export function RestTimer({
   /** A superset round is still open, so this set does not start a countdown. */
   hold?: boolean;
   restLabel?: string | null;
+  /** The open workout. Its countdown is kept in this tab while you look elsewhere. */
+  workoutKey?: string | null;
 }) {
   const [globalSeconds, setGlobalSeconds] = useState(DEFAULT_REST_SECONDS);
   const [displaySeconds, setDisplaySeconds] = useState(DEFAULT_REST_SECONDS);
@@ -62,11 +69,13 @@ export function RestTimer({
   const setCountRef = useRef(setCount);
   const holdRef = useRef(hold);
   const endsAtRef = useRef(endsAt);
+  const workoutKeyRef = useRef(workoutKey);
   globalRef.current = globalSeconds;
   displayRef.current = displaySeconds;
   setCountRef.current = setCount;
   holdRef.current = hold;
   endsAtRef.current = endsAt;
+  workoutKeyRef.current = workoutKey;
 
   useEffect(() => {
     const stored = readRestSeconds(readLocal(REST_STORAGE_KEY));
@@ -94,6 +103,40 @@ export function RestTimer({
     writeLocal(REST_STORAGE_KEY, String(globalSeconds));
     window.dispatchEvent(new Event("workout-rest-default"));
   }, [ready, globalSeconds]);
+
+  // Coming back from a progress page picks up the countdown where it is now.
+  // The key can arrive late while the workout loads, so this runs again then.
+  useEffect(() => {
+    if (!workoutKey) {
+      return;
+    }
+    const at = Date.now();
+    const saved = readSavedRest(readSession(REST_RUN_KEY), workoutKey, at);
+    if (!saved) {
+      return;
+    }
+    // The length was settled before leaving. A late exercise rest must not move it.
+    adjusted.current = true;
+    skipped.current = saved.skipped;
+    if (saved.endsAt <= at) {
+      // It ended while you were away. Coming back should not chime late.
+      vibratedFor.current = saved.endsAt;
+      chimedFor.current = saved.endsAt;
+    }
+    setDisplaySeconds(saved.seconds);
+    setEndsAt(saved.endsAt);
+    setNow(at);
+  }, [workoutKey]);
+
+  useEffect(() => {
+    if (!ready || !workoutKey || endsAt === null) {
+      return;
+    }
+    writeSession(
+      REST_RUN_KEY,
+      savedRestValue({ workout: workoutKey, endsAt, seconds: displaySeconds, skipped: skipped.current }),
+    );
+  }, [ready, workoutKey, endsAt, displaySeconds]);
 
   useEffect(() => {
     function syncDefault() {
@@ -130,6 +173,9 @@ export function RestTimer({
       setSavedFlash(false);
       if (hold) {
         setEndsAt(null);
+        if (workoutKeyRef.current) {
+          writeSession(REST_RUN_KEY, null);
+        }
       } else {
         const duration = exerciseRestSeconds ?? globalRef.current;
         const start = Date.now();

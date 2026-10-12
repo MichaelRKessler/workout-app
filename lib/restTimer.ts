@@ -98,3 +98,50 @@ export function vibrateForRest(
     // Vibration can throw when the browser blocks it. The timer still finishes.
   }
 }
+
+/** The countdown of the open workout, kept while a progress page is open. */
+export const REST_RUN_KEY = "workout-rest-run";
+
+export type SavedRest = {
+  /** The workout this rest belongs to, so another workout never inherits it. */
+  workout: string;
+  endsAt: number;
+  seconds: number;
+  skipped: boolean;
+};
+
+export function savedRestValue(rest: SavedRest): string {
+  return JSON.stringify(rest);
+}
+
+/**
+ * A rest saved by this tab for the same workout. A countdown longer than the
+ * longest rest is from a changed clock and is dropped.
+ */
+export function readSavedRest(stored: string | null, workout: string, now: number): SavedRest | null {
+  if (stored === null) {
+    return null;
+  }
+  let value: unknown;
+  try {
+    value = JSON.parse(stored);
+  } catch {
+    return null;
+  }
+  if (typeof value !== "object" || value === null) {
+    return null;
+  }
+  const rest = value as Record<string, unknown>;
+  if (rest.workout !== workout || typeof rest.endsAt !== "number" || !Number.isFinite(rest.endsAt)) {
+    return null;
+  }
+  if (rest.endsAt - now > MAX_REST_SECONDS * 1000) {
+    return null;
+  }
+  return {
+    workout,
+    endsAt: rest.endsAt,
+    seconds: clampRestSeconds(Number(rest.seconds)),
+    skipped: rest.skipped === true,
+  };
+}

@@ -19,3 +19,28 @@ export function writeLocal(key: string, value: string): void {
     // The setting lasts for this visit only.
   }
 }
+
+/**
+ * Tab state kept in sessionStorage while you leave a page and come back, such
+ * as a running rest or text typed in the composer. The same failure rules as
+ * above apply. A null value removes the key.
+ */
+export function readSession(key: string): string | null {
+  try {
+    return window.sessionStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+export function writeSession(key: string, value: string | null): void {
+  try {
+    if (value === null) {
+      window.sessionStorage.removeItem(key);
+    } else {
+      window.sessionStorage.setItem(key, value);
+    }
+  } catch {
+    // The state lasts until this page closes.
+  }
+}
