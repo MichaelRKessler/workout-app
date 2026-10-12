@@ -5,7 +5,12 @@ import { clampToWindow, correctClientTime, requestOffsetMs } from "./clockSkew";
 import { isClientId } from "./clientIds";
 import { formatExerciseName } from "./exerciseName";
 import { combineNotes, normalizeNote, type NormalizedSet } from "./measures";
-import { invalidateExercises, recordEditedSet, recordInsertedSets } from "./exerciseStats";
+import {
+  invalidateExercises,
+  recordEditedSet,
+  recordInsertedSets,
+  recordRemovedSets,
+} from "./exerciseStats";
 import { announcedRecords, type PersonalRecord } from "./records";
 import { newestLoggedAt, noteSetsRemoved } from "./sessionActivity";
 import { plannedCompletedAt } from "./sessionTiming";
@@ -448,11 +453,7 @@ export async function acceptOfflineBatch(
     loggedAt: number;
     normalized: NormalizedSet;
   }> = [];
-  const droppedSets: Array<{
-    sessionId: Id<"sessions">;
-    exerciseId: Id<"exercises">;
-    loggedAt: number;
-  }> = [];
+  const droppedSets: Array<Doc<"sets">> = [];
 
   for (const item of args.sets) {
     try {
@@ -463,11 +464,7 @@ export async function acceptOfflineBatch(
       if (item.removed) {
         await rememberRemoval(ctx, userId, item.clientId, now);
         if (existing) {
-          droppedSets.push({
-            sessionId: existing.sessionId,
-            exerciseId: existing.exerciseId,
-            loggedAt: existing.loggedAt,
-          });
+          droppedSets.push(existing);
           await ctx.db.delete("sets", existing._id);
         }
         setResults.push({
@@ -588,11 +585,8 @@ export async function acceptOfflineBatch(
           ? await recordEditedSet(
               ctx,
               userId,
-              exerciseId,
               exercise?.name ?? formatted.name,
-              existing.loggedAt,
-              existing.sessionId,
-              recordPoint(existing),
+              existing,
               recordPoint({ ...normalized, sessionId: existing.sessionId }),
             )
           : await movedSetRecord(
@@ -626,6 +620,55 @@ export async function acceptOfflineBatch(
       });
     }
   }
+
+  // Removals are applied before new sets are scored, so a record in this
+  // batch is judged without the sets it removes.
+  const deletedSets: Array<Doc<"sets">> = [];
+  const deleteResults: OfflineDeleteResult[] = [];
+  for (const item of args.deletes) {
+    try {
+      if (!isClientId(item.deleteId)) {
+        throw userError("That set could not be removed");
+      }
+      const set = await ctx.db.get("sets", item.setId);
+      if (!set || set.userId !== userId) {
+        deleteResults.push({
+          deleteId: item.deleteId,
+          status: "applied",
+          message: null,
+        });
+        continue;
+      }
+      if (set.clientId) {
+        await rememberRemoval(ctx, userId, set.clientId, now);
+      }
+      await ctx.db.delete("sets", set._id);
+      await noteSetsRemoved(ctx, set.sessionId, [set.loggedAt]);
+      deletedSets.push(set);
+      deleteResults.push({
+        deleteId: item.deleteId,
+        status: "applied",
+        message: null,
+      });
+    } catch (error) {
+      deleteResults.push({
+        deleteId: item.deleteId,
+        status: "rejected",
+        message: messageOf(error),
+      });
+    }
+  }
+  if (droppedSets.length > 0) {
+    const droppedSessions = new Set(droppedSets.map((set) => set.sessionId));
+    for (const sessionId of droppedSessions) {
+      await noteSetsRemoved(
+        ctx,
+        sessionId,
+        droppedSets.filter((set) => set.sessionId === sessionId).map((set) => set.loggedAt),
+      );
+    }
+  }
+  await recordRemovedSets(ctx, userId, [...droppedSets, ...deletedSets]);
 
   const freshByExercise = new Map<Id<"exercises">, typeof freshSets>();
   for (const item of freshSets) {
@@ -662,22 +705,6 @@ export async function acceptOfflineBatch(
       }
     }
   }
-  if (droppedSets.length > 0) {
-    const droppedSessions = new Set(droppedSets.map((set) => set.sessionId));
-    for (const sessionId of droppedSessions) {
-      await noteSetsRemoved(
-        ctx,
-        sessionId,
-        droppedSets.filter((set) => set.sessionId === sessionId).map((set) => set.loggedAt),
-      );
-    }
-    await invalidateExercises(
-      ctx,
-      userId,
-      droppedSets.map((set) => set.exerciseId),
-    );
-  }
-
   for (const [sessionId, labels] of supersetLabels) {
     const session = await ctx.db.get("sessions", sessionId);
     if (!session || session.userId !== userId) {
@@ -740,6 +767,16 @@ export async function acceptOfflineBatch(
         throw userError("That edit could not be saved");
       }
       const set = await ctx.db.get("sets", item.setId);
+      if (!set && deletedSets.some((row) => row._id === item.setId)) {
+        // Deleted earlier in this batch. Edits used to land first, then the delete.
+        editResults.push({
+          editId: item.editId,
+          status: "applied",
+          personalRecord: null,
+          message: null,
+        });
+        continue;
+      }
       if (!set || set.userId !== userId) {
         throw userError("Set not found");
       }
@@ -756,11 +793,8 @@ export async function acceptOfflineBatch(
       const personalRecord = await recordEditedSet(
         ctx,
         userId,
-        set.exerciseId,
         exercise?.name ?? "Exercise",
-        set.loggedAt,
-        set.sessionId,
-        recordPoint(set),
+        set,
         recordPoint({ ...normalized, sessionId: set.sessionId }),
       );
       editResults.push({
@@ -774,41 +808,6 @@ export async function acceptOfflineBatch(
         editId: item.editId,
         status: "rejected",
         personalRecord: null,
-        message: messageOf(error),
-      });
-    }
-  }
-
-  const deleteResults: OfflineDeleteResult[] = [];
-  for (const item of args.deletes) {
-    try {
-      if (!isClientId(item.deleteId)) {
-        throw userError("That set could not be removed");
-      }
-      const set = await ctx.db.get("sets", item.setId);
-      if (!set || set.userId !== userId) {
-        deleteResults.push({
-          deleteId: item.deleteId,
-          status: "applied",
-          message: null,
-        });
-        continue;
-      }
-      if (set.clientId) {
-        await rememberRemoval(ctx, userId, set.clientId, now);
-      }
-      await ctx.db.delete("sets", set._id);
-      await noteSetsRemoved(ctx, set.sessionId, [set.loggedAt]);
-      await invalidateExercises(ctx, userId, [set.exerciseId]);
-      deleteResults.push({
-        deleteId: item.deleteId,
-        status: "applied",
-        message: null,
-      });
-    } catch (error) {
-      deleteResults.push({
-        deleteId: item.deleteId,
-        status: "rejected",
         message: messageOf(error),
       });
     }

@@ -1,3 +1,4 @@
+import { setKind } from "./measures";
 import { countsTowardRecord, type SetType } from "./setType";
 import {
   announcedRecords,
@@ -229,6 +230,9 @@ export function absorbSet(
   const stamps = announced.records.map((record) => stampFromRecord(record));
   const snap = snapFromSet(set, announced.headline);
   let next = applyPrimary(bests, snap, announced.headline);
+  if (!announced.records.some((record) => record.kind !== "calories")) {
+    next = timeDistanceBest(next, snap, set);
+  }
   const sessionCalories = sessionCaloriesBefore + countableCalories(set);
   const calorieRecord = announced.records.find((record) => record.kind === "calories");
   if (calorieRecord && calorieRecord.calories !== null) {
@@ -296,6 +300,49 @@ function applyPrimary(bests: Bests, snap: BestSnap, headline: PersonalRecord | n
     next.distance = snap;
   }
   return next;
+}
+
+/**
+ * The scan rule keeps the fastest time logged at the best distance, even
+ * from a set that was not a record. After 5,000 m with no time, 5,000 m in
+ * 1,500 s is no record, but it makes 5,000 m in 1,400 s one. So a timed set
+ * at the distance of an untimed best takes the best's place.
+ */
+function timeDistanceBest(bests: Bests, snap: BestSnap, set: JudgedSet): Bests {
+  const best = bests.distance;
+  if (
+    !best ||
+    best.durationSec !== null ||
+    set.durationSec === null ||
+    set.distanceM !== best.distanceM ||
+    setKind(set) !== "distance" ||
+    !countsTowardRecord(set)
+  ) {
+    return bests;
+  }
+  return { ...bests, distance: snap };
+}
+
+/**
+ * Judges a set on strength, time, and distance alone, leaving the calorie
+ * bests as they were. For a set whose calories are already counted or zero.
+ */
+export function absorbPrimary(
+  exerciseName: string,
+  bests: Bests,
+  set: JudgedSet,
+): { bests: Bests; stamps: RecordStamp[]; marks: MarkDraft[] } {
+  const folded = absorbSet(
+    exerciseName,
+    { ...bests, calories: null, secondCalories: null },
+    0,
+    { ...set, calories: null },
+  );
+  return {
+    bests: { ...folded.bests, calories: bests.calories, secondCalories: bests.secondCalories },
+    stamps: folded.stamps,
+    marks: folded.marks,
+  };
 }
 
 function promoteCalories(bests: Bests, snap: CalorieSnap): Bests {

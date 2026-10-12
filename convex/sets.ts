@@ -1,12 +1,12 @@
 import { v } from "convex/values";
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { authedMutation, authedQuery } from "./lib/customFunctions";
 import { userError } from "./lib/errors";
 import {
-  invalidateExercises,
   recordEditedSet,
   recordInsertedSets,
+  recordRemovedSets,
   type InsertedSet,
 } from "./lib/exerciseStats";
 import { personalRecordValidator, type PersonalRecord } from "./lib/records";
@@ -353,16 +353,6 @@ export const update = authedMutation({
       setType: args.setType ?? resolvedSetType(set.setType),
     });
     const exercise = await ctx.db.get("exercises", set.exerciseId);
-    const personalRecord = await recordEditedSet(
-      ctx,
-      ctx.userId,
-      set.exerciseId,
-      exercise?.name ?? "Exercise",
-      set.loggedAt,
-      set.sessionId,
-      recordPoint(set),
-      recordPoint({ ...normalized, sessionId: set.sessionId }),
-    );
     await ctx.db.replace("sets", args.setId, {
       userId: set.userId,
       sessionId: set.sessionId,
@@ -373,7 +363,13 @@ export const update = authedMutation({
       ...(set.clientId !== undefined ? { clientId: set.clientId } : {}),
       ...(set.clientRevision !== undefined ? { clientRevision: set.clientRevision } : {}),
     });
-    return personalRecord;
+    return await recordEditedSet(
+      ctx,
+      ctx.userId,
+      exercise?.name ?? "Exercise",
+      set,
+      recordPoint({ ...normalized, sessionId: set.sessionId }),
+    );
   },
 });
 
@@ -416,7 +412,7 @@ async function deleteOwnedSets(
   }
 
   let sessionId: Id<"sessions"> | null = null;
-  const removed: Array<{ exerciseId: Id<"exercises">; loggedAt: number }> = [];
+  const removed: Array<Doc<"sets">> = [];
   for (const setId of uniqueIds) {
     const set = await ctx.db.get("sets", setId);
     if (!set || set.userId !== userId) {
@@ -427,7 +423,7 @@ async function deleteOwnedSets(
     } else if (set.sessionId !== sessionId) {
       throw userError("Sets must belong to the same workout");
     }
-    removed.push({ exerciseId: set.exerciseId, loggedAt: set.loggedAt });
+    removed.push(set);
   }
 
   if (sessionId === null) {
@@ -445,9 +441,5 @@ async function deleteOwnedSets(
       removed.map((set) => set.loggedAt),
     );
   }
-  await invalidateExercises(
-    ctx,
-    userId,
-    removed.map((set) => set.exerciseId),
-  );
+  await recordRemovedSets(ctx, userId, removed);
 }

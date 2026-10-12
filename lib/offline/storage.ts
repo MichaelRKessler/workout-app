@@ -66,8 +66,29 @@ export function accountKey(email: string | null): string {
 }
 
 export function loadOutbox(store: KeyValueStore, email: string | null): Outbox {
-  migrateAccountStorage(store, email);
+  try {
+    migrateAccountStorage(store, email);
+  } catch (error) {
+    if (!(error instanceof OfflineStorageError)) {
+      throw error;
+    }
+    // A nearly full phone can fail to copy an older queue to its new key.
+    // Read the older keys as they are, so those changes still show as pending
+    // and still sync, and sign-out warns before it discards them.
+    return repairOpenSession(readUnmigratedOutbox(store, email));
+  }
   return repairOpenSession(readJson(store, outboxKey(email), parseOutbox, emptyOutbox()));
+}
+
+function readUnmigratedOutbox(store: KeyValueStore, email: string | null): Outbox {
+  const keys = [outboxKey(email), legacyOutboxKey(email)];
+  if (accountKey(ownerEmail(store, email)) === accountKey(email)) {
+    keys.push(`${PREFIX}outbox`);
+  }
+  return keys.reduce(
+    (merged, key) => mergeOutboxes(merged, readJson(store, key, parseOutbox, emptyOutbox())),
+    emptyOutbox(),
+  );
 }
 
 export function saveOutbox(store: KeyValueStore, email: string | null, outbox: Outbox): void {
@@ -265,6 +286,47 @@ export function browserStore(): KeyValueStore {
       return names;
     },
   });
+}
+
+/**
+ * For caches the server can rebuild: cached access, units, routines, the
+ * pending plan, progression, and the workout snapshot. A full or blocked
+ * store reads as empty and skips writes instead of throwing, so the screens
+ * that keep these caches still render. The offline queue keeps using
+ * `browserStore`, whose errors it reports.
+ */
+export function cacheStore(): KeyValueStore {
+  const store = browserStore();
+  return {
+    get(key) {
+      try {
+        return store.get(key);
+      } catch {
+        return null;
+      }
+    },
+    set(key, value) {
+      try {
+        store.set(key, value);
+      } catch {
+        // The cache is rebuilt from the server on the next load.
+      }
+    },
+    remove(key) {
+      try {
+        store.remove(key);
+      } catch {
+        // Same as a failed write: the stale entry is overwritten later.
+      }
+    },
+    keys() {
+      try {
+        return store.keys();
+      } catch {
+        return [];
+      }
+    },
+  };
 }
 
 /** Raw queue JSON, after the caller has migrated. Used to skip a no-op write. */

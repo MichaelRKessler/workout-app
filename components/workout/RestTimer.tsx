@@ -21,6 +21,7 @@ import {
   vibrateForRest,
 } from "@/lib/restTimer";
 import { useEffect, useRef, useState } from "react";
+import { readLocal, writeLocal } from "@/lib/localValue";
 
 /**
  * Rest controls above the composer. Changing the time during a rest does not
@@ -68,10 +69,10 @@ export function RestTimer({
   endsAtRef.current = endsAt;
 
   useEffect(() => {
-    const stored = readRestSeconds(window.localStorage.getItem(REST_STORAGE_KEY));
+    const stored = readRestSeconds(readLocal(REST_STORAGE_KEY));
     setGlobalSeconds(stored);
     setDisplaySeconds(stored);
-    setChimeOn(readRestChime(window.localStorage.getItem(REST_CHIME_KEY)));
+    setChimeOn(readRestChime(readLocal(REST_CHIME_KEY)));
     setReady(true);
     // iOS unlocks audio on touchend or click, not on a touch pointerdown.
     const unlock = () => unlockRestAudio();
@@ -90,20 +91,20 @@ export function RestTimer({
     if (!ready) {
       return;
     }
-    window.localStorage.setItem(REST_STORAGE_KEY, String(globalSeconds));
+    writeLocal(REST_STORAGE_KEY, String(globalSeconds));
     window.dispatchEvent(new Event("workout-rest-default"));
   }, [ready, globalSeconds]);
 
   useEffect(() => {
     function syncDefault() {
-      const stored = readRestSeconds(window.localStorage.getItem(REST_STORAGE_KEY));
+      const stored = readRestSeconds(readLocal(REST_STORAGE_KEY));
       setGlobalSeconds(stored);
       if (setCountRef.current === 0 && endsAtRef.current === null) {
         setDisplaySeconds(stored);
       }
     }
     function syncChime() {
-      setChimeOn(readRestChime(window.localStorage.getItem(REST_CHIME_KEY)));
+      setChimeOn(readRestChime(readLocal(REST_CHIME_KEY)));
     }
     window.addEventListener("workout-rest-default", syncDefault);
     window.addEventListener("workout-rest-chime", syncChime);

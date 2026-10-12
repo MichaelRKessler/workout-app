@@ -425,6 +425,62 @@ describe("offline sync", () => {
     ).toHaveLength(0);
   });
 
+  test("a batch that removes the best scores its new sets without it", async () => {
+    const t = testBackend();
+    const { asUser } = await signIn(t, "Michael");
+    const first = await asUser.mutation(api.offline.accept, {
+      sets: [queuedSet("client0001", { weightLb: 200, loggedAt: NOW - 60_000 })],
+      edits: [],
+      deletes: [],
+      actions: [],
+    });
+    expect(first.sets[0]?.personalRecord).toEqual(expect.objectContaining({ weightLb: 200 }));
+
+    // The new set comes first in the batch; the removal still lands before it is scored.
+    const second = await asUser.mutation(api.offline.accept, {
+      sets: [
+        queuedSet("client0002", { weightLb: 150 }),
+        queuedSet("client0001", { removed: true, revision: 2, weightLb: 200, loggedAt: NOW - 60_000 }),
+      ],
+      edits: [],
+      deletes: [],
+      actions: [],
+    });
+    expect(second.sets[0]?.personalRecord).toEqual(expect.objectContaining({ kind: "both", weightLb: 150 }));
+
+    const third = await asUser.mutation(api.offline.accept, {
+      sets: [queuedSet("client0003", { weightLb: 120, loggedAt: NOW + 1_000 })],
+      edits: [],
+      deletes: [{ deleteId: "delete0001", setId: second.sets[0]!.setId! }],
+      actions: [],
+    });
+    expect(third.deletes[0]?.status).toBe("applied");
+    expect(third.sets[0]?.personalRecord).toEqual(expect.objectContaining({ kind: "both", weightLb: 120 }));
+  });
+
+  test("an edit and a delete of one set in a batch both apply", async () => {
+    const t = testBackend();
+    const { asUser } = await signIn(t, "Michael");
+    const created = await asUser.mutation(api.offline.accept, {
+      sets: [queuedSet("client0001")],
+      edits: [],
+      deletes: [],
+      actions: [],
+    });
+    const setId = created.sets[0]!.setId!;
+    const both = await asUser.mutation(api.offline.accept, {
+      sets: [],
+      edits: [{ editId: "edit000001", setId, reps: 5, weightLb: 145 }],
+      deletes: [{ deleteId: "delete0001", setId }],
+      actions: [],
+    });
+    expect(both.edits[0]?.status).toBe("applied");
+    expect(both.deletes[0]?.status).toBe("applied");
+    expect(
+      await asUser.query(api.sets.listForSession, { sessionId: created.sets[0]!.sessionId! }),
+    ).toHaveLength(0);
+  });
+
   test("an edit of a set deleted on another device is answered removed", async () => {
     const t = testBackend();
     const { asUser } = await signIn(t, "Michael");

@@ -17,7 +17,9 @@ import { pluralize } from "@/lib/format";
 import { holdChanges, prepareBatch, splitBatch } from "@/lib/offline/batch";
 import {
   CLOCK_READING_MAX_ROUND_TRIP_MS,
-  clockReading,
+  monotonicNow,
+  needsClockReading,
+  timedClockReading,
   type ClockReading,
 } from "@/lib/offline/clock";
 import { resolveDocumentId } from "@/lib/offline/documentId";
@@ -68,6 +70,7 @@ import { shouldSendFinishDirectly, syncFailurePlan } from "@/lib/offline/syncPla
 import {
   accountKey,
   browserStore,
+  cacheStore,
   loadOutbox,
   loadSnapshot,
   OfflineStorageError,
@@ -226,6 +229,8 @@ export function OfflineSyncProvider({
   const acceptRef = useRef(accept);
   const serverTimeRef = useRef(readServerTime);
   const clockAskedAtRef = useRef<number | null>(null);
+  // Monotonic time of the last reading taken in this page load.
+  const clockFreshAtRef = useRef<number | null>(null);
   const completeRef = useRef(completeSession);
   const keepGoingRef = useRef(keepGoingSession);
   const discardRef = useRef(discardSession);
@@ -411,6 +416,9 @@ export function OfflineSyncProvider({
         return;
       }
       record(result);
+      if (clock) {
+        clockFreshAtRef.current = monotonicNow();
+      }
       const next = recordClock(applySyncResult(outboxRef.current, result).outbox, clock);
       if (lockDepth.current > 0) {
         writeThrough(next);
@@ -445,14 +453,14 @@ export function OfflineSyncProvider({
       }
       const gen = flushSerial.current + 1;
       flushSerial.current = gen;
-      const sentAt = Date.now();
+      const sentAt = monotonicNow();
       const invocation = acceptRef
         .current(batchPayload(prepared.batch, outboxRef.current.clock))
         .then(
           (raw) => ({
             kind: "ok" as const,
             raw: toSyncResult(raw),
-            clock: clockReading(sentAt, Date.now(), raw.serverNow),
+            clock: timedClockReading(monotonicNow() - sentAt, Date.now(), raw.serverNow),
           }),
           (error: unknown) => ({ kind: "error" as const, error }),
         );
@@ -504,22 +512,27 @@ export function OfflineSyncProvider({
     [applyRaw, writeThrough],
   );
 
-  // With no clock reading yet, the first batch would go uncorrected, so ask
-  // the server first. A failed ask waits a few minutes before the next one.
+  // Without a reading from this page load, the first batch could go out with
+  // no correction, or with one saved before the phone's clock was fixed, so
+  // ask the server first. A failed ask waits a few minutes before the next.
   const askServerClock = useCallback(async (): Promise<ClockReading | null> => {
     const askedAt = clockAskedAtRef.current;
-    if (askedAt !== null && Date.now() - askedAt < RETRY_CAP_MS) {
+    if (askedAt !== null && monotonicNow() - askedAt < RETRY_CAP_MS) {
       return null;
     }
-    const sentAt = Date.now();
+    const sentAt = monotonicNow();
     clockAskedAtRef.current = sentAt;
-    return await Promise.race([
+    const reading = await Promise.race([
       serverTimeRef.current({}).then(
-        (serverNow) => clockReading(sentAt, Date.now(), serverNow),
+        (serverNow) => timedClockReading(monotonicNow() - sentAt, Date.now(), serverNow),
         () => null,
       ),
       delay(CLOCK_READING_MAX_ROUND_TRIP_MS).then(() => null),
     ]);
+    if (reading) {
+      clockFreshAtRef.current = monotonicNow();
+    }
+    return reading;
   }, []);
 
   const sendBatch = useCallback(
@@ -532,7 +545,9 @@ export function OfflineSyncProvider({
       }
       await withLock(async () => {
         let merged = readMerged();
-        if (!merged.clock) {
+        // A failed ask keeps the stored reading: a corrected clock is rarer
+        // than a delivery delay, which is what sending no reading counts.
+        if (needsClockReading(merged.clock, clockFreshAtRef.current, monotonicNow())) {
           const reading = await askServerClock();
           if (reading) {
             merged = recordClock(readMerged(), reading);
@@ -947,7 +962,8 @@ export function OfflineSyncProvider({
     }
     snapshotSerial.current = serial;
     setSnapshot(next);
-    saveSnapshot(browserStore(), emailRef.current, next);
+    // The snapshot is a cache; a full store must not break the log screen.
+    saveSnapshot(cacheStore(), emailRef.current, next);
   }, []);
 
   const reconcile = useCallback(

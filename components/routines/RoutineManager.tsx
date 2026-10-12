@@ -15,7 +15,7 @@ import {
   saveRoutineCache,
   type CachedRoutine,
 } from "@/lib/offline/routineCache";
-import { browserStore, loadCachedAccess } from "@/lib/offline/storage";
+import { cacheStore, loadCachedAccess } from "@/lib/offline/storage";
 import { useMutation, useQuery } from "convex/react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
@@ -29,16 +29,16 @@ export function RoutineManager() {
   const [moving, setMoving] = useState(false);
 
   useEffect(() => {
-    const email = loadCachedAccess(browserStore())?.email ?? null;
-    setCached(loadRoutineCache(browserStore(), email));
+    const email = loadCachedAccess(cacheStore())?.email ?? null;
+    setCached(loadRoutineCache(cacheStore(), email));
   }, []);
 
   useEffect(() => {
     if (!live) {
       return;
     }
-    const email = loadCachedAccess(browserStore())?.email ?? null;
-    saveRoutineCache(browserStore(), email, live);
+    const email = loadCachedAccess(cacheStore())?.email ?? null;
+    saveRoutineCache(cacheStore(), email, live);
     setCached(live);
   }, [live]);
 

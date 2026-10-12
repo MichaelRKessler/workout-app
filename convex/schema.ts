@@ -236,6 +236,12 @@ export default defineSchema({
     // Bumped each time a rebuild page is scheduled. A page only runs while its
     // step is current. Rows written before this field read as step 0.
     step: v.optional(v.number()),
+    // loggedAt of the last set the running rebuild has walked. A later page
+    // reads any change after it, so that change does not restart the rebuild.
+    walkedThrough: v.optional(v.number()),
+    // Version of the record rules the bests were built with. Absent is 1,
+    // from before a timed set could take an untimed distance best's place.
+    recordRules: v.optional(v.number()),
     bestWeight: v.union(effortSnap, v.null()),
     bestEpley: v.union(effortSnap, v.null()),
     bestReps: v.union(effortSnap, v.null()),

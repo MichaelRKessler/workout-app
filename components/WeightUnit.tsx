@@ -4,7 +4,7 @@ import { api } from "@/convex/_generated/api";
 import { defaultLengthUnit, type LengthUnit } from "@/convex/lib/bodyMeasures";
 import type { WeightUnit } from "@/convex/lib/units";
 import {
-  browserStore,
+  cacheStore,
   loadLengthUnit,
   loadWeightUnit,
   saveLengthUnit,
@@ -20,14 +20,14 @@ export function WeightUnitProvider({ children }: { children: ReactNode }) {
   const [cached, setCached] = useState<WeightUnit | null>(null);
 
   useEffect(() => {
-    setCached(loadWeightUnit(browserStore()));
+    setCached(loadWeightUnit(cacheStore()));
   }, []);
 
   useEffect(() => {
     if (!preferences?.weightUnit) {
       return;
     }
-    saveWeightUnit(browserStore(), preferences.weightUnit);
+    saveWeightUnit(cacheStore(), preferences.weightUnit);
     setCached(preferences.weightUnit);
   }, [preferences?.weightUnit]);
 
@@ -49,14 +49,14 @@ export function useLengthUnit(): LengthUnit {
   const [cached, setCached] = useState<LengthUnit | null>(null);
 
   useEffect(() => {
-    setCached(loadLengthUnit(browserStore()));
+    setCached(loadLengthUnit(cacheStore()));
   }, []);
 
   useEffect(() => {
     if (!preferences?.lengthUnit) {
       return;
     }
-    saveLengthUnit(browserStore(), preferences.lengthUnit);
+    saveLengthUnit(cacheStore(), preferences.lengthUnit);
     setCached(preferences.lengthUnit);
   }, [preferences?.lengthUnit]);
 

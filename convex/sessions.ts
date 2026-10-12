@@ -1,12 +1,12 @@
 import { paginationOptsValidator, paginationResultValidator } from "convex/server";
 import { v } from "convex/values";
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { internalMutation } from "./_generated/server";
 import { authedMutation, authedQuery } from "./lib/customFunctions";
 import { loadAchievedRecords } from "./lib/achievedRecords";
-import { invalidateExercises, recordInsertedSets } from "./lib/exerciseStats";
+import { recordInsertedSets, recordRemovedSets } from "./lib/exerciseStats";
 import { newestLoggedAt } from "./lib/sessionActivity";
 import { assertDayWindow, assertMonthWindow } from "./lib/dayWindow";
 import { formatExerciseName } from "./lib/exerciseName";
@@ -792,33 +792,26 @@ export const removeDay = authedMutation({
 
     const plans: Array<{
       sessionId: Id<"sessions">;
-      setIds: Array<Id<"sets">>;
-      exerciseIds: Array<Id<"exercises">>;
+      sets: Array<Doc<"sets">>;
     }> = [];
     for (const session of sessions) {
       if (session.userId !== ctx.userId || session.status !== "completed") {
         throw userError("Workout not found");
       }
       const owned = await collectOwnedSets(ctx, session);
-      plans.push({
-        sessionId: session._id,
-        setIds: owned.map((set) => set._id),
-        exerciseIds: owned.map((set) => set.exerciseId),
-      });
+      plans.push({ sessionId: session._id, sets: owned });
     }
 
-    let sets = 0;
-    const exerciseIds: Array<Id<"exercises">> = [];
+    const removed: Array<Doc<"sets">> = [];
     for (const plan of plans) {
-      for (const setId of plan.setIds) {
-        await ctx.db.delete("sets", setId);
-        sets += 1;
+      for (const set of plan.sets) {
+        await ctx.db.delete("sets", set._id);
+        removed.push(set);
       }
-      exerciseIds.push(...plan.exerciseIds);
       await ctx.db.delete("sessions", plan.sessionId);
     }
-    await invalidateExercises(ctx, ctx.userId, exerciseIds);
-    return { workouts: plans.length, sets };
+    await recordRemovedSets(ctx, ctx.userId, removed);
+    return { workouts: plans.length, sets: removed.length };
   },
 });
 
@@ -864,16 +857,14 @@ async function deleteFinishedSession(
   if (sets.length > 2000) {
     throw userError("This workout has too many sets to delete");
   }
-  const exerciseIds: Array<Id<"exercises">> = [];
   for (const set of sets) {
     if (set.userId !== session.userId) {
       throw userError("Workout not found");
     }
-    exerciseIds.push(set.exerciseId);
     await ctx.db.delete("sets", set._id);
   }
   await ctx.db.delete("sessions", session._id);
-  await invalidateExercises(ctx, session.userId, exerciseIds);
+  await recordRemovedSets(ctx, session.userId, sets);
 }
 
 async function collectOwnedSets(
