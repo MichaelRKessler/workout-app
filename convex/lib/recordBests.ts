@@ -1,5 +1,5 @@
 import { setKind } from "./measures";
-import { countsTowardRecord, type SetType } from "./setType";
+import { countsTowardRecord, resolvedSetType, type SetType } from "./setType";
 import {
   announcedRecords,
   headlineRecord,
@@ -64,6 +64,31 @@ export type JudgedSet = {
   calories: number | null;
   setType: SetType;
 };
+
+/** A stored or just-inserted set as the fold reads it. */
+export function judgedSet(set: {
+  _id: string;
+  sessionId: string;
+  loggedAt: number;
+  reps?: number | null;
+  weightLb: number;
+  durationSec?: number | null;
+  distanceM?: number | null;
+  calories?: number | null;
+  setType?: SetType | null;
+}): JudgedSet {
+  return {
+    setId: set._id,
+    sessionId: set.sessionId,
+    loggedAt: set.loggedAt,
+    reps: set.reps ?? null,
+    weightLb: set.weightLb,
+    durationSec: set.durationSec ?? null,
+    distanceM: set.distanceM ?? null,
+    calories: set.calories ?? null,
+    setType: resolvedSetType(set.setType),
+  };
+}
 
 export function bestsFromStored(stats: {
   bestWeight: BestSnap | null;

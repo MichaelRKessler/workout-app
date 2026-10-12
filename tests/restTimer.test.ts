@@ -4,15 +4,16 @@ import { readRestChime, restChimeStored, shouldPlayRestChime } from "../lib/rest
 import {
   adjustRestSeconds,
   bumpRest,
-  bumpRestSeconds,
   DEFAULT_REST_SECONDS,
   MAX_REST_SECONDS,
   MIN_REST_SECONDS,
   readRestSeconds,
-  REST_BUMP_SECONDS,
+  readSavedRest,
+  REST_STEP_SECONDS,
   REST_VIBRATION_PATTERN,
   restEndFrom,
   restIntervalActive,
+  savedRestValue,
   shiftActiveRest,
   shouldVibrateRest,
   vibrateForRest,
@@ -26,8 +27,8 @@ test("rest length stays between 15 seconds and 5 minutes", () => {
   assert.equal(readRestSeconds("120"), 120);
   assert.equal(readRestSeconds("10"), MIN_REST_SECONDS);
   assert.equal(readRestSeconds("999"), MAX_REST_SECONDS);
-  assert.equal(adjustRestSeconds(90, 1), 105);
-  assert.equal(adjustRestSeconds(90, -1), 75);
+  assert.equal(adjustRestSeconds(90, 1), 120);
+  assert.equal(adjustRestSeconds(90, -1), 60);
   assert.equal(adjustRestSeconds(MIN_REST_SECONDS, -1), MIN_REST_SECONDS);
   assert.equal(adjustRestSeconds(MAX_REST_SECONDS, 1), MAX_REST_SECONDS);
 });
@@ -44,11 +45,9 @@ test("a running rest shifts with the length, and a finished one does not restart
   assert.equal(shouldVibrateRest(-20, true), false);
 });
 
-test("the rest bar steps by 30 seconds and stops ticking at zero", () => {
-  assert.equal(REST_BUMP_SECONDS, 30);
-  assert.equal(bumpRestSeconds(90, 1), 120);
-  assert.equal(bumpRestSeconds(90, -1), 60);
-  assert.equal(bumpRestSeconds(MIN_REST_SECONDS, -1), MIN_REST_SECONDS);
+test("rest steps by 30 seconds everywhere and stops ticking at zero", () => {
+  assert.equal(REST_STEP_SECONDS, 30);
+  assert.equal(adjustRestSeconds(MIN_REST_SECONDS, 1), 45);
   const endsAt = restEndFrom(1_000, 30);
   assert.equal(restIntervalActive(endsAt, endsAt - 1), true);
   assert.equal(restIntervalActive(endsAt, endsAt), false);
@@ -97,7 +96,7 @@ test("vibration uses one pattern and ignores browsers that cannot vibrate", () =
 test("+30 s after rest is done starts 30 more seconds, not a whole rest", () => {
   const now = 1_000_000;
   const done = bumpRest({ endsAt: now - 5_000, now, seconds: 90, direction: 1 });
-  assert.equal(done.endsAt, now + REST_BUMP_SECONDS * 1000);
+  assert.equal(done.endsAt, now + REST_STEP_SECONDS * 1000);
   assert.equal(done.seconds, 90);
   assert.equal(done.restarted, true);
 });
@@ -121,4 +120,31 @@ test("a running rest moves its end, and no rest yet starts one", () => {
   assert.equal(idle.endsAt, now + 60_000);
   assert.equal(idle.seconds, 60);
   assert.equal(idle.restarted, true);
+});
+
+test("a saved rest comes back only for the same workout", () => {
+  const now = 1_000_000;
+  const stored = savedRestValue({ workout: "100", endsAt: now + 60_000, seconds: 90, skipped: false });
+  assert.deepEqual(readSavedRest(stored, "100", now), {
+    workout: "100",
+    endsAt: now + 60_000,
+    seconds: 90,
+    skipped: false,
+  });
+  assert.equal(readSavedRest(stored, "200", now), null);
+  assert.equal(readSavedRest(null, "100", now), null);
+  assert.equal(readSavedRest("not json", "100", now), null);
+  assert.equal(readSavedRest("null", "100", now), null);
+  assert.equal(readSavedRest(JSON.stringify({ workout: "100", endsAt: "soon" }), "100", now), null);
+});
+
+test("a saved rest is kept after it ends, and a far future end is dropped", () => {
+  const now = 1_000_000;
+  const ended = savedRestValue({ workout: "100", endsAt: now - 5_000, seconds: 120, skipped: true });
+  assert.equal(readSavedRest(ended, "100", now)?.skipped, true);
+  const far = savedRestValue({ workout: "100", endsAt: now + (MAX_REST_SECONDS + 60) * 1000, seconds: 90, skipped: false });
+  assert.equal(readSavedRest(far, "100", now), null);
+  const odd = JSON.stringify({ workout: "100", endsAt: now + 10_000, seconds: 9999 });
+  assert.equal(readSavedRest(odd, "100", now)?.seconds, MAX_REST_SECONDS);
+  assert.equal(readSavedRest(odd, "100", now)?.skipped, false);
 });

@@ -167,4 +167,26 @@ describe("set types, suggestions, and per-exercise rest", () => {
     await asUser.mutation(api.exercises.merge, { fromId: incline._id, intoId: kept._id });
     expect(await asUser.query(api.exercises.restForName, { name: "Bench press" })).toBe(150);
   });
+
+  test("Settings lists only exercises with their own rest, and a reset drops one", async () => {
+    const t = testBackend();
+    const michael = await signIn(t, "Michael");
+    const other = await signIn(t, "Other");
+    const sessionId = await michael.asUser.mutation(api.sessions.start, {});
+    await michael.asUser.mutation(api.sets.log, { sessionId, exerciseName: "curl", reps: 10, weightLb: 30 });
+    await michael.asUser.mutation(api.exercises.setRest, { name: "Squat", restSeconds: 180 });
+    await michael.asUser.mutation(api.exercises.setRest, { name: "Bench press", restSeconds: 120 });
+    await other.asUser.mutation(api.exercises.setRest, { name: "Row", restSeconds: 60 });
+
+    const listed = await michael.asUser.query(api.exercises.restOverrides, {});
+    expect(listed.truncated).toBe(false);
+    expect(listed.rests.map(({ name, restSeconds }) => [name, restSeconds])).toEqual([
+      ["Bench press", 120],
+      ["Squat", 180],
+    ]);
+
+    await michael.asUser.mutation(api.exercises.setRest, { name: "Squat", restSeconds: null });
+    const after = await michael.asUser.query(api.exercises.restOverrides, {});
+    expect(after.rests.map((rest) => rest.name)).toEqual(["Bench press"]);
+  });
 });

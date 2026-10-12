@@ -49,7 +49,8 @@ export async function noteSetsAdded(
   if (!session || session.userId === undefined || session.setCount === undefined) {
     return;
   }
-  let last = session.lastSetAt ?? Number.NEGATIVE_INFINITY;
+  // An emptied workout saved by earlier code can still hold a removed set's time.
+  let last = session.setCount > 0 ? (session.lastSetAt ?? Number.NEGATIVE_INFINITY) : Number.NEGATIVE_INFINITY;
   for (const loggedAt of loggedAts) {
     if (loggedAt > last) {
       last = loggedAt;
@@ -63,12 +64,15 @@ export async function noteSetsAdded(
 
 /**
  * Drops removed sets from the stored count. If the newest set was removed,
- * the remaining sets are scanned once. The session cap is 500.
+ * the remaining sets are scanned once. The session cap is 500. Sets in
+ * `uncounted` were inserted in this mutation and are counted after it by
+ * noteSetsAdded, so the scan leaves them out.
  */
 export async function noteSetsRemoved(
   ctx: MutationCtx,
   sessionId: Id<"sessions">,
   loggedAts: number[],
+  uncounted: ReadonlySet<Id<"sets">> = new Set(),
 ): Promise<void> {
   if (loggedAts.length === 0) {
     return;
@@ -89,17 +93,16 @@ export async function noteSetsRemoved(
     .query("sets")
     .withIndex("by_session_and_exercise", (q) => q.eq("sessionId", sessionId))
     .take(500);
+  const counted = sets.filter((set) => set.userId === session.userId && !uncounted.has(set._id));
   let last: number | null = null;
-  for (const set of sets) {
-    if (set.userId !== session.userId) {
-      continue;
-    }
+  for (const set of counted) {
     if (last === null || set.loggedAt > last) {
       last = set.loggedAt;
     }
   }
   await ctx.db.patch("sessions", sessionId, {
-    setCount: sets.filter((set) => set.userId === session.userId).length,
-    ...(last !== null ? { lastSetAt: last } : {}),
+    setCount: counted.length,
+    // An empty workout has no newest set, so the next set is not placed after a removed one.
+    lastSetAt: last ?? undefined,
   });
 }

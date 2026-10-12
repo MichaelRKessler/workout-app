@@ -409,6 +409,34 @@ describe("saving and undoing a set list", () => {
     const finished = await asUser.query(api.sessions.get, { sessionId });
     expect(finished?.sets.map((set) => set._id)).toEqual([first]);
   });
+
+  test("a past workout emptied and logged again keeps its newest set time", async () => {
+    const t = testBackend();
+    const asUser = await signIn(t, "Michael");
+    const { sessionId } = await asUser.mutation(api.sessions.logPast, {
+      startedAt: Date.now() - 2 * 24 * 60 * 60 * 1000,
+      exercises: [{ name: "row", sets: [{ reps: 8, weightLb: 95 }, { reps: 8, weightLb: 95 }, { reps: 8, weightLb: 95 }] }],
+    });
+    const stored = async () => await t.run(async (ctx) => await ctx.db.get("sessions", sessionId));
+    const emptied = await asUser.query(api.sets.listForSession, { sessionId });
+    await asUser.mutation(api.sets.removeMany, { setIds: emptied.map((set) => set._id) });
+    const empty = await stored();
+    expect(empty?.setCount).toBe(0);
+    expect(empty?.lastSetAt).toBeUndefined();
+    // Earlier code kept the removed set's time on the emptied workout.
+    await t.run(async (ctx) => {
+      await ctx.db.patch("sessions", sessionId, { lastSetAt: emptied[2]!.loggedAt });
+    });
+
+    // The emptied workout places its next set right after its start, before
+    // the time of the last set that was removed.
+    await asUser.mutation(api.sets.log, { sessionId, exerciseName: "row", reps: 8, weightLb: 100 });
+    await asUser.mutation(api.sets.log, { sessionId, exerciseName: "row", reps: 8, weightLb: 105 });
+    const relogged = await asUser.query(api.sets.listForSession, { sessionId });
+    const times = relogged.map((set) => set.loggedAt);
+    expect(times).toEqual([emptied[0]!.loggedAt + 1, emptied[0]!.loggedAt + 2]);
+    expect(await stored()).toMatchObject({ setCount: 2, lastSetAt: times[1] });
+  });
 });
 
 describe("workouts left unfinished", () => {

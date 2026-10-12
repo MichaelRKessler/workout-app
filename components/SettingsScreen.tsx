@@ -1,6 +1,7 @@
 "use client";
 
 import { AccessSettings } from "@/components/AccessSettings";
+import { ExerciseRestList } from "@/components/ExerciseRestList";
 import { ExportData } from "@/components/ExportData";
 import { InstallOffer } from "@/components/InstallOffer";
 import { PageHeader, SectionLabel } from "@/components/PageHeader";
@@ -14,7 +15,7 @@ import type { LengthUnit } from "@/convex/lib/bodyMeasures";
 import { fromPounds, toPounds, WEIGHT_STEP, type WeightUnit } from "@/convex/lib/units";
 import { formatElapsed } from "@/lib/format";
 import { readRestChime, REST_CHIME_KEY, restChimeStored } from "@/lib/restChime";
-import { adjustRestSeconds, readRestSeconds, REST_STORAGE_KEY } from "@/lib/restTimer";
+import { adjustRestSeconds, readRestSeconds, REST_STEP_SECONDS, REST_STORAGE_KEY } from "@/lib/restTimer";
 import { useMutation, useQuery } from "convex/react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
@@ -362,13 +363,13 @@ function RestSettings() {
         <div className="flex min-h-14 items-center justify-between gap-4 px-4 py-3">
           <span className="text-base font-medium">Default rest</span>
           <div className="flex items-center gap-2">
-            <button type="button" aria-label="15 seconds less rest" onClick={() => change(-1)} className={buttonClass}>
+            <button type="button" aria-label={`${REST_STEP_SECONDS} seconds less rest`} onClick={() => change(-1)} className={buttonClass}>
               −
             </button>
             <span className="min-w-14 text-center font-mono text-lg font-medium tabular-nums">
               {formatElapsed(seconds * 1000)}
             </span>
-            <button type="button" aria-label="15 seconds more rest" onClick={() => change(1)} className={buttonClass}>
+            <button type="button" aria-label={`${REST_STEP_SECONDS} seconds more rest`} onClick={() => change(1)} className={buttonClass}>
               +
             </button>
           </div>
@@ -398,10 +399,12 @@ function RestSettings() {
           </button>
         </div>
         <p className="border-t border-line px-4 py-3 text-sm leading-normal text-muted">
-          This is the rest used before the first set, and the starting point for a new exercise.
-          Changing it during a rest is just for that rest until you tap Save as default.
+          This is the rest for any exercise without its own. During a workout, changing the time
+          is just for that rest until you tap Save for the exercise.
         </p>
+        <ExerciseRestList />
       </div>
     </section>
   );
 }
+

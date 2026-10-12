@@ -342,6 +342,11 @@ export function rememberedRestKey(email: string | null): string {
   return `${ACCOUNT_PREFIX}${accountKey(email)}:exercise-rest`;
 }
 
+/** Unsent composer text in this tab's sessionStorage. Another account never sees it. */
+export function composerTextKey(email: string | null): string {
+  return `${ACCOUNT_PREFIX}${accountKey(email)}:composer-text`;
+}
+
 /**
  * Copies the previous on-device queue into per-account keys.
  * The old key is removed only after the new key reads back the same bytes.

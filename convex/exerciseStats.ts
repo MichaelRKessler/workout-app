@@ -1,6 +1,7 @@
 import { v } from "convex/values";
-import { internalMutation } from "./_generated/server";
+import { internalMutation, internalQuery } from "./_generated/server";
 import { runBackfill, runRebuildPage } from "./lib/exerciseStats";
+import { auditExerciseStats, auditUserStats } from "./lib/statsAudit";
 
 /**
  * One page of an exercise rebuild. Scheduled from a mutation that already
@@ -35,5 +36,49 @@ export const backfillTick = internalMutation({
   handler: async (ctx, args) => {
     await runBackfill(ctx, args.followUp === true);
     return null;
+  },
+});
+
+const exerciseAudit = v.object({
+  exerciseId: v.id("exercises"),
+  name: v.union(v.string(), v.null()),
+  checked: v.boolean(),
+  reason: v.union(v.string(), v.null()),
+  statsRows: v.number(),
+  ready: v.union(v.boolean(), v.null()),
+  dirty: v.union(v.boolean(), v.null()),
+  drop: v.union(v.boolean(), v.null()),
+  generation: v.union(v.number(), v.null()),
+  step: v.union(v.number(), v.null()),
+  phase: v.union(v.literal("purge"), v.literal("purgeCalories"), v.literal("walk"), v.null()),
+  scheduledAt: v.union(v.number(), v.null()),
+  setsRead: v.number(),
+  documentsRead: v.number(),
+  mismatches: v.array(v.string()),
+});
+
+/**
+ * Read-only check of one exercise's stats against its sets, for the
+ * dashboard or `npx convex run`. Internal: it takes any user id.
+ */
+export const auditExercise = internalQuery({
+  args: { userId: v.id("users"), exerciseId: v.id("exercises") },
+  returns: exerciseAudit,
+  handler: async (ctx, args) => {
+    return await auditExerciseStats(ctx, args.userId, args.exerciseId);
+  },
+});
+
+/** One page of `auditExercise` over a user's exercises. Start with a null cursor. */
+export const auditUser = internalQuery({
+  args: { userId: v.id("users"), cursor: v.union(v.string(), v.null()) },
+  returns: v.object({
+    exercises: v.number(),
+    clean: v.number(),
+    flagged: v.array(exerciseAudit),
+    continueCursor: v.union(v.string(), v.null()),
+  }),
+  handler: async (ctx, args) => {
+    return await auditUserStats(ctx, args.userId, args.cursor);
   },
 });

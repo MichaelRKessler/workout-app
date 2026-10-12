@@ -458,6 +458,65 @@ describe("offline sync", () => {
     expect(third.sets[0]?.personalRecord).toEqual(expect.objectContaining({ kind: "both", weightLb: 120 }));
   });
 
+  test("a batch that removes a workout's newest set and adds another counts each set once", async () => {
+    const t = testBackend();
+    const { asUser } = await signIn(t, "Michael");
+    const first = await asUser.mutation(api.offline.accept, {
+      sets: [queuedSet("client0001", { loggedAt: NOW - 60_000 })],
+      edits: [],
+      deletes: [],
+      actions: [],
+    });
+    const sessionId = first.sets[0]!.sessionId!;
+    const stored = async () => await t.run(async (ctx) => await ctx.db.get("sessions", sessionId));
+
+    // Undo the synced set and log the next one, both while offline.
+    await asUser.mutation(api.offline.accept, {
+      sets: [
+        queuedSet("client0001", { removed: true, revision: 2, loggedAt: NOW - 60_000 }),
+        queuedSet("client0002", { loggedAt: NOW - 30_000 }),
+      ],
+      edits: [],
+      deletes: [],
+      actions: [],
+    });
+    expect(await stored()).toMatchObject({ setCount: 1, lastSetAt: NOW - 30_000 });
+
+    const [second] = await asUser.query(api.sets.listForSession, { sessionId });
+    await asUser.mutation(api.offline.accept, {
+      sets: [queuedSet("client0003", { loggedAt: NOW - 10_000 })],
+      edits: [],
+      deletes: [{ deleteId: "delete0001", setId: second!._id }],
+      actions: [],
+    });
+    expect(await stored()).toMatchObject({ setCount: 1, lastSetAt: NOW - 10_000 });
+  });
+
+  test("a batch that removes one queued set and deletes the newest keeps the workout's count", async () => {
+    const t = testBackend();
+    const { asUser } = await signIn(t, "Michael");
+    const first = await asUser.mutation(api.offline.accept, {
+      sets: [
+        queuedSet("client0001", { loggedAt: NOW - 60_000 }),
+        queuedSet("client0002", { loggedAt: NOW - 50_000 }),
+        queuedSet("client0003", { loggedAt: NOW - 40_000 }),
+      ],
+      edits: [],
+      deletes: [],
+      actions: [],
+    });
+    const sessionId = first.sets[0]!.sessionId!;
+
+    await asUser.mutation(api.offline.accept, {
+      sets: [queuedSet("client0001", { removed: true, revision: 2, loggedAt: NOW - 60_000 })],
+      edits: [],
+      deletes: [{ deleteId: "delete0001", setId: first.sets[2]!.setId! }],
+      actions: [],
+    });
+    const stored = await t.run(async (ctx) => await ctx.db.get("sessions", sessionId));
+    expect(stored).toMatchObject({ setCount: 1, lastSetAt: NOW - 50_000 });
+  });
+
   test("an edit and a delete of one set in a batch both apply", async () => {
     const t = testBackend();
     const { asUser } = await signIn(t, "Michael");

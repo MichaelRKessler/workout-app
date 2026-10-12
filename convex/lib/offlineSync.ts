@@ -622,7 +622,22 @@ export async function acceptOfflineBatch(
   }
 
   // Removals are applied before new sets are scored, so a record in this
-  // batch is judged without the sets it removes.
+  // batch is judged without the sets it removes. New sets join their
+  // workout's count when they are scored, so a recount here skips them.
+  const uncounted = new Set(freshSets.map((item) => item.setId));
+  // Queued removals are already gone from the table, so they come off the
+  // count before a delete below can recount the same workout.
+  if (droppedSets.length > 0) {
+    const droppedSessions = new Set(droppedSets.map((set) => set.sessionId));
+    for (const sessionId of droppedSessions) {
+      await noteSetsRemoved(
+        ctx,
+        sessionId,
+        droppedSets.filter((set) => set.sessionId === sessionId).map((set) => set.loggedAt),
+        uncounted,
+      );
+    }
+  }
   const deletedSets: Array<Doc<"sets">> = [];
   const deleteResults: OfflineDeleteResult[] = [];
   for (const item of args.deletes) {
@@ -643,7 +658,7 @@ export async function acceptOfflineBatch(
         await rememberRemoval(ctx, userId, set.clientId, now);
       }
       await ctx.db.delete("sets", set._id);
-      await noteSetsRemoved(ctx, set.sessionId, [set.loggedAt]);
+      await noteSetsRemoved(ctx, set.sessionId, [set.loggedAt], uncounted);
       deletedSets.push(set);
       deleteResults.push({
         deleteId: item.deleteId,
@@ -656,16 +671,6 @@ export async function acceptOfflineBatch(
         status: "rejected",
         message: messageOf(error),
       });
-    }
-  }
-  if (droppedSets.length > 0) {
-    const droppedSessions = new Set(droppedSets.map((set) => set.sessionId));
-    for (const sessionId of droppedSessions) {
-      await noteSetsRemoved(
-        ctx,
-        sessionId,
-        droppedSets.filter((set) => set.sessionId === sessionId).map((set) => set.loggedAt),
-      );
     }
   }
   await recordRemovedSets(ctx, userId, [...droppedSets, ...deletedSets]);

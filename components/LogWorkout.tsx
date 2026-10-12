@@ -50,6 +50,7 @@ import {
 } from "@/lib/voice/confirm";
 import { moveItem } from "@/convex/lib/routinePlan";
 import { useBrowserTimeZone } from "@/components/useBrowserTimeZone";
+import { useSessionText } from "@/components/useSessionText";
 import {
   PENDING_PLAN_EVENT,
   loadPendingPlan,
@@ -59,7 +60,7 @@ import {
   type PendingPlan,
   type PendingPlanExercise,
 } from "@/lib/offline/routineCache";
-import { cacheStore, loadCachedAccess } from "@/lib/offline/storage";
+import { cacheStore, composerTextKey, loadCachedAccess } from "@/lib/offline/storage";
 import { exerciseLink } from "@/lib/exerciseLink";
 import { setFromPrefill } from "@/lib/prefill";
 import { calendarDayBounds, calendarDayKey, groupHistoryDays } from "@/lib/historyDays";
@@ -210,7 +211,8 @@ export function LogWorkout() {
   const [source, setSource] = useState<"voice" | "text">("voice");
   const [draft, setDraft] = useState<VoiceDraft | null>(null);
   const [sheetNotice, setSheetNotice] = useState<string | null>(null);
-  const [text, setText] = useState("");
+  // Kept while an exercise's progress page is open.
+  const [text, setText] = useSessionText(composerTextKey(log.accountEmail));
   const [homeTyping, setHomeTyping] = useState(false);
   const [editingPlan, setEditingPlan] = useState(false);
   const [manual, setManual] = useState<

@@ -28,17 +28,10 @@ export function adjustRestSeconds(current: number, direction: -1 | 1): number {
   return clampRestSeconds(current + direction * REST_STEP_SECONDS);
 }
 
-/** The rest bar steps by 30 seconds. Settings still uses the 15 second step. */
-export const REST_BUMP_SECONDS = 30;
-
-export function bumpRestSeconds(current: number, direction: -1 | 1): number {
-  return clampRestSeconds(current + direction * REST_BUMP_SECONDS);
-}
-
 /**
- * A ±30 s tap after a set. A running rest moves its end. Once rest is done or
- * skipped, + starts 30 more seconds and − only shortens the next rest. With no
- * rest yet, either starts one at the new length.
+ * A ± tap after a set. A running rest moves its end. Once rest is done or
+ * skipped, + starts one more step of rest and − only shortens the next rest.
+ * With no rest yet, either starts one at the new length.
  */
 export function bumpRest(input: {
   endsAt: number | null;
@@ -49,11 +42,11 @@ export function bumpRest(input: {
   const { endsAt, now, seconds, direction } = input;
   if (endsAt !== null && endsAt <= now) {
     if (direction === 1) {
-      return { endsAt: now + REST_BUMP_SECONDS * 1000, seconds, restarted: true };
+      return { endsAt: now + REST_STEP_SECONDS * 1000, seconds, restarted: true };
     }
-    return { endsAt, seconds: bumpRestSeconds(seconds, -1), restarted: false };
+    return { endsAt, seconds: adjustRestSeconds(seconds, -1), restarted: false };
   }
-  const next = bumpRestSeconds(seconds, direction);
+  const next = adjustRestSeconds(seconds, direction);
   if (endsAt === null) {
     return { endsAt: restEndFrom(now, next), seconds: next, restarted: true };
   }
@@ -97,4 +90,51 @@ export function vibrateForRest(
   } catch {
     // Vibration can throw when the browser blocks it. The timer still finishes.
   }
+}
+
+/** The countdown of the open workout, kept while a progress page is open. */
+export const REST_RUN_KEY = "workout-rest-run";
+
+export type SavedRest = {
+  /** The workout this rest belongs to, so another workout never inherits it. */
+  workout: string;
+  endsAt: number;
+  seconds: number;
+  skipped: boolean;
+};
+
+export function savedRestValue(rest: SavedRest): string {
+  return JSON.stringify(rest);
+}
+
+/**
+ * A rest saved by this tab for the same workout. A countdown longer than the
+ * longest rest is from a changed clock and is dropped.
+ */
+export function readSavedRest(stored: string | null, workout: string, now: number): SavedRest | null {
+  if (stored === null) {
+    return null;
+  }
+  let value: unknown;
+  try {
+    value = JSON.parse(stored);
+  } catch {
+    return null;
+  }
+  if (typeof value !== "object" || value === null) {
+    return null;
+  }
+  const rest = value as Record<string, unknown>;
+  if (rest.workout !== workout || typeof rest.endsAt !== "number" || !Number.isFinite(rest.endsAt)) {
+    return null;
+  }
+  if (rest.endsAt - now > MAX_REST_SECONDS * 1000) {
+    return null;
+  }
+  return {
+    workout,
+    endsAt: rest.endsAt,
+    seconds: clampRestSeconds(Number(rest.seconds)),
+    skipped: rest.skipped === true,
+  };
 }

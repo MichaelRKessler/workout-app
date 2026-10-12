@@ -7,7 +7,7 @@ import { useWeightUnit } from "@/components/WeightUnit";
 import { api } from "@/convex/_generated/api";
 import { formatClock } from "@/convex/lib/measures";
 import { readableError } from "@/lib/errors";
-import { adjustRestSeconds, DEFAULT_REST_SECONDS } from "@/lib/restTimer";
+import { adjustRestSeconds, DEFAULT_REST_SECONDS, REST_STEP_SECONDS } from "@/lib/restTimer";
 import { moveItem } from "@/convex/lib/routinePlan";
 import {
   cleanSupersetId,
@@ -477,7 +477,7 @@ function RestField({ rest, onChange }: { rest: string; onChange: (rest: string) 
         ) : null}
         <button
           type="button"
-          aria-label="15 seconds less rest"
+          aria-label={`${REST_STEP_SECONDS} seconds less rest`}
           onClick={() => onChange(String(adjustRestSeconds(shown, -1)))}
           className={buttonClass}
         >
@@ -485,7 +485,7 @@ function RestField({ rest, onChange }: { rest: string; onChange: (rest: string) 
         </button>
         <button
           type="button"
-          aria-label="15 seconds more rest"
+          aria-label={`${REST_STEP_SECONDS} seconds more rest`}
           onClick={() => onChange(String(adjustRestSeconds(shown, 1)))}
           className={buttonClass}
         >
