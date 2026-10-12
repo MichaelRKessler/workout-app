@@ -9,6 +9,7 @@ import {
   countableCalories,
   emptyBests,
   headlineFromStamps,
+  judgedSet,
   type BestSnap,
   type Bests,
   type CalorieSnap,
@@ -17,7 +18,7 @@ import {
 } from "./recordBests";
 import { announcedRecords, recordAfterEdit, recordsFromStamps, type PersonalRecord, type RecordStamp } from "./records";
 import { noteSetsAdded } from "./sessionActivity";
-import { resolvedSetType, type SetType } from "./setType";
+import type { SetType } from "./setType";
 import { loadSetsBefore, recordPoint } from "./workouts";
 
 const SET_PAGE = 40;
@@ -647,7 +648,7 @@ async function walkSets(
       stats.generation,
       set.sessionId,
     );
-    const folded = absorbSet(exercise.name, bests, before, judged(set));
+    const folded = absorbSet(exercise.name, bests, before, judgedSet(set));
     bests = folded.bests;
     await writeStamps(ctx, set._id, set.recordStamps, folded.stamps);
     await writeMarks(ctx, stats, folded.marks);
@@ -752,7 +753,7 @@ async function commitFold(
       stats.generation,
       set.sessionId,
     ));
-    const folded = absorbSet(exerciseName, current, before, judged(set));
+    const folded = absorbSet(exerciseName, current, before, judgedSet(set));
     current = folded.bests;
     totals.set(set.sessionId, folded.sessionCalories);
     await writeStamps(ctx, set._id, undefined, folded.stamps);
@@ -817,7 +818,7 @@ async function announceFromMarks(
         exclude,
       );
     }
-    const folded = absorbSet(exerciseName, current, before, judged(set));
+    const folded = absorbSet(exerciseName, current, before, judgedSet(set));
     current = folded.bests;
     totals.set(set.sessionId, folded.sessionCalories);
     perSet.push({
@@ -910,7 +911,7 @@ async function insertInPlace(
     // Marks at the set's own time are left out, so this best is never higher
     // than the one a rebuild compares with. At worst a set rebuilds needlessly.
     const bests = await bestsBefore(ctx, stats, set.loggedAt);
-    if (movesBests(absorbPrimary(exerciseName, bests, judged(set)))) {
+    if (movesBests(absorbPrimary(exerciseName, bests, judgedSet(set)))) {
       return false;
     }
   }
@@ -1434,20 +1435,6 @@ function storedCalorie(snap: CalorieSnap | null) {
     sessionId: snap.sessionId as Id<"sessions">,
     calories: snap.calories,
     loggedAt: snap.loggedAt,
-  };
-}
-
-function judged(set: InsertedSet | Doc<"sets">) {
-  return {
-    setId: set._id,
-    sessionId: set.sessionId,
-    loggedAt: set.loggedAt,
-    reps: set.reps ?? null,
-    weightLb: set.weightLb,
-    durationSec: set.durationSec ?? null,
-    distanceM: set.distanceM ?? null,
-    calories: set.calories ?? null,
-    setType: resolvedSetType(set.setType),
   };
 }
 

@@ -117,6 +117,37 @@ npm run build
 
 Pull requests and pushes to `main` run these same commands in GitHub Actions. That workflow does not use a Convex URL, a Gemini key, or any other secret.
 
+`tests/statsFuzz.vitest.ts` runs random mixes of logging, edits, deletes, offline batches, merges, cron ticks, and repeated or late rebuild pages, and checks the stats after every step. It uses a few fixed seeds. To search longer, run `STATS_FUZZ_SEEDS=1-200 STATS_FUZZ_STEPS=300 npx vitest run tests/statsFuzz.vitest.ts`. A failure names its seed, step, and the operations before it.
+
+### Checking exercise stats
+
+Each exercise keeps a stats row (its bests, set count, and newest set), and each set keeps the records it set. Writes update them in place or rebuild them in the background. Two internal queries recompute them from the sets and list what disagrees. They only read, and they are not callable from the app.
+
+```bash
+npx convex run --prod exerciseStats:auditUser '{"userId":"<user id>","cursor":null}'
+npx convex run --prod exerciseStats:auditExercise '{"userId":"<user id>","exerciseId":"<exercise id>"}'
+```
+
+The user id is the `_id` of your row in the `users` table: Convex dashboard → the production deployment → Data → `users`. Exercise ids are in the `exercises` table. The dashboard's Functions page can run the same queries.
+
+`auditUser` checks up to ten exercises per call, fewer when their histories are long. Pass its `continueCursor` back as `cursor` until it is `null`. `clean` counts exercises that match their sets, and `flagged` lists the rest with their mismatches:
+
+- `"rebuilding"`: a rebuild is still running. Run it again in a minute; the cron restarts a rebuild that stalls.
+- `"2 stats rows"`: left by older code. The next set logged, edited, or deleted for that exercise keeps one row and rebuilds it.
+- `"too many sets"` or `"too many marks"`: more than 4,000 sets, or 2,000 record marks, which is more than one query should read. It is not checked.
+- Anything else, such as a wrong best or a set's record stamps, is a bug. Open an issue with the output.
+
+### Before merging changes to logging, sync, or stats
+
+The tests run against a simulated backend, so check these on a phone too. Use a dev deployment where you can: previews write to the live data.
+
+- Offline, then reconnect: in airplane mode, log three sets and undo one, then reconnect. Each set shows once, nothing stays pending, and the workout shows two sets.
+- Two tabs: log a set in one tab and edit or delete it in the other. Both show the same sets, and the exercise page shows the same best.
+- Finish, then log a past workout: finish today's workout, then log one for an earlier day with a heavier set. The exercise page shows the heavier best, and today's lighter set no longer shows as a record.
+- Merge in a superset: during a superset, merge one of its exercises into another in Settings. The workout, History, and the kept exercise's best all show the merged sets.
+- Delete, then log again: delete the set that holds an exercise's best, then log it again. The record is announced once and the exercise page matches.
+- Rest timer on iPhone: log a set and wait out the rest with the app open. It chimes. Switch to another app and back, log again, and it still chimes.
+
 ## Deployment
 
 Production is the Vercel project `workout-app` at [repsandsets.vercel.app](https://repsandsets.vercel.app). It is linked to this GitHub repo, so every push to `main` deploys to production, and other branches get preview deployments. Do not commit a `.vercel` directory.
