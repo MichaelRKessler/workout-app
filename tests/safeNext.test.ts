@@ -31,6 +31,26 @@ test("tab, CR, and LF cannot turn the return path into another site", () => {
   assert.equal(safeNextPath("/%00/secret", origin), "/");
 });
 
+test("dot segments cannot collapse the return path into another site", () => {
+  for (const value of [
+    "/.//evil.com",
+    "/..//evil.com",
+    "/a/..//evil.com",
+    "/%2e//evil.com",
+    "/%2E//evil.com",
+    "/.%2e//evil.com",
+    "/./\\evil.com",
+    "/.\\/evil.com",
+    "/./%5Cevil.com",
+  ]) {
+    const result = safeNextPath(value, origin);
+    assert.equal(new URL(result, origin).origin, origin, value);
+    assert.equal(result.startsWith("//"), false, value);
+  }
+  assert.equal(safeNextPath("/./history", origin), "/history");
+  assert.equal(safeNextPath("/routines/../history", origin), "/history");
+});
+
 test("a same-origin absolute URL becomes a path, and a query is not a redirect", () => {
   assert.equal(safeNextPath("https://repsandsets.vercel.app/history?day=1", origin), "/history?day=1");
   assert.equal(

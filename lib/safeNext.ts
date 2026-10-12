@@ -28,6 +28,11 @@ export function safeNextPath(value: string | null | undefined, origin?: string):
   if (url.origin !== base || url.username !== "" || url.password !== "") {
     return "/";
   }
+  // Dot segments collapse during parsing, so "/.//evil.com" comes back as
+  // "//evil.com", which a browser reads as another site.
+  if (url.pathname.startsWith("//") || url.pathname.startsWith("/\\")) {
+    return "/";
+  }
   return `${url.pathname}${url.search}${url.hash}`;
 }
 
