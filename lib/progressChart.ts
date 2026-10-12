@@ -1,5 +1,6 @@
-import { M_PER_MI, formatClock } from "../convex/lib/measures";
+import { M_PER_KM, M_PER_MI, formatClock } from "../convex/lib/measures";
 import { fromPounds, type WeightUnit } from "../convex/lib/units";
+import { formatVolumeLb, pluralize } from "./format";
 import { calendarDayBounds, calendarDayKey, parseDayKey } from "./historyDays";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -28,6 +29,14 @@ export const CHART_CARD_GUTTER_PX = 36;
 
 /** Axis labels use the app's 16px caption size. */
 export const AXIS_FONT_PX = 16;
+
+/** Plot box inside the chart SVG. The component draws the guide from these. */
+export const CHART_PLOT_TOP = 10;
+export const CHART_PLOT_HEIGHT = 148;
+export const CHART_PLOT_RIGHT = 8;
+
+/** A finger this far from pointer-down is a scrub, not a tap. */
+export const CHART_TAP_SLOP_PX = 10;
 
 /** Minimum space between date labels so 16px type does not collide. */
 export const TICK_GAP_PX = 8;
@@ -175,6 +184,43 @@ export function valueToY(display: number, scale: YScale, plotTop: number, plotHe
   const span = scale.max - scale.min || 1;
   const ratio = (display - scale.min) / span;
   return plotTop + (1 - ratio) * plotHeight;
+}
+
+/**
+ * Map a pointer into the SVG's viewBox. Using the rendered width keeps a
+ * scaled plot from selecting a point toward the y-axis.
+ */
+export function pointerXInView(
+  clientX: number,
+  rectLeft: number,
+  rectWidth: number,
+  viewWidth: number,
+): number {
+  if (!(rectWidth > 0) || !(viewWidth > 0)) return 0;
+  return ((clientX - rectLeft) / rectWidth) * viewWidth;
+}
+
+export function pointerMoved(startX: number, startY: number, x: number, y: number): boolean {
+  const dx = x - startX;
+  const dy = y - startY;
+  return dx * dx + dy * dy > CHART_TAP_SLOP_PX * CHART_TAP_SLOP_PX;
+}
+
+export type ChartGesture =
+  | { type: "tap"; key: string }
+  | { type: "scrub"; key: string }
+  | { type: "outside" }
+  | { type: "scroll" };
+
+/**
+ * Nothing is selected until a gesture says so. A second tap on the same day
+ * clears it. Dragging keeps the day under the finger. A tap outside the chart
+ * or a page scroll returns to the summary.
+ */
+export function selectionAfter(current: string | null, action: ChartGesture): string | null {
+  if (action.type === "outside" || action.type === "scroll") return null;
+  if (action.type === "scrub") return action.key;
+  return current === action.key ? null : action.key;
 }
 
 export function nearestPointIndex(coords: Array<{ x: number }>, x: number): number {
@@ -345,6 +391,59 @@ export function prepareYScale(
   };
 }
 
+export function yAxisLabels(prepared: PreparedScale): string[] {
+  return prepared.scale.ticks.map((tick, index, all) => {
+    const text = formatYTick(tick, prepared.tickKind);
+    if (index === all.length - 1 && prepared.caption) return `${text} ${prepared.caption}`;
+    return text;
+  });
+}
+
+export function yAxisGutter(prepared: PreparedScale, width: number): number {
+  const labels = yAxisLabels(prepared);
+  const widest = labels.reduce((max, label) => Math.max(max, estimateLabelWidth(label, AXIS_FONT_PX)), 0);
+  return Math.min(width * 0.46, Math.max(44, widest + 8));
+}
+
+export type SeriesLayout = {
+  domain: { start: number; end: number };
+  plotLeft: number;
+  plotWidth: number;
+  coords: Array<{ x: number; y: number; dayKey: string }>;
+  yTicks: Array<{ y: number; label: string }>;
+};
+
+/** One layout for the dots, the guide line, and hit testing. */
+export function seriesLayout(
+  plotted: Array<{ startedAt: number; value: number; dayKey?: string }>,
+  range: ChartRange,
+  now: number,
+  width: number,
+  metric: ChartMetric,
+  unit: WeightUnit,
+): SeriesLayout | null {
+  const domain = chartDomain(range, plotted, now);
+  if (!domain || !(width > 0) || plotted.length === 0) return null;
+  const prepared = prepareYScale(
+    plotted.map((point) => point.value),
+    metric,
+    unit,
+  );
+  const plotLeft = yAxisGutter(prepared, width);
+  const plotWidth = Math.max(32, width - plotLeft - CHART_PLOT_RIGHT);
+  const coords = plotted.map((point) => ({
+    x: timeToX(point.startedAt, domain, plotLeft, plotWidth),
+    y: valueToY(prepared.toDisplay(point.value), prepared.scale, CHART_PLOT_TOP, CHART_PLOT_HEIGHT),
+    dayKey: point.dayKey ?? "",
+  }));
+  const labels = yAxisLabels(prepared);
+  const yTicks = prepared.scale.ticks.map((tick, index) => ({
+    y: valueToY(tick, prepared.scale, CHART_PLOT_TOP, CHART_PLOT_HEIGHT),
+    label: labels[index] ?? "",
+  }));
+  return { domain, plotLeft, plotWidth, coords, yTicks };
+}
+
 export function formatYTick(value: number, kind: "number" | "time"): string {
   if (!Number.isFinite(value)) return "";
   if (kind === "time") return formatClock(value);
@@ -364,6 +463,79 @@ export function formatChartDate(timestamp: number, timeZone: string, withWeekday
     month: "short",
     day: "numeric",
   }).format(timestamp);
+}
+
+const CHART_MINUS = "−";
+
+/** Whole pounds, or the nearest 0.5 kg. Chart readouts only; logged sets stay exact. */
+function roundChartWeight(weightLb: number, unit: WeightUnit): number {
+  const display = fromPounds(Math.abs(weightLb), unit);
+  if (unit === "kg") return Math.round(display * 2) / 2;
+  return Math.round(display);
+}
+
+function formatChartWeight(weightLb: number, unit: WeightUnit): string {
+  if (weightLb === 0) return "bodyweight";
+  const rounded = roundChartWeight(weightLb, unit);
+  if (rounded === 0) return `0 ${unit}`;
+  const text = Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
+  return `${text} ${unit}`;
+}
+
+function formatChartDistance(meters: number): string {
+  const safe = Math.abs(meters);
+  const miles = safe / M_PER_MI;
+  const milesRounded = Math.round(miles * 100) / 100;
+  if (milesRounded >= 0.1 && Math.abs(milesRounded * M_PER_MI - safe) <= 1) {
+    return `${milesRounded.toFixed(2)} mi`;
+  }
+  if (safe >= M_PER_KM) {
+    return `${(Math.round((safe / M_PER_KM) * 100) / 100).toFixed(2)} km`;
+  }
+  return `${(Math.round(safe * 100) / 100).toFixed(2)} m`;
+}
+
+/** Magnitude used for a change, where 0 lb is zero rather than bodyweight. */
+function formatChartMagnitude(value: number, metric: ChartMetric, unit: WeightUnit): string {
+  if (metric === "epley" || metric === "weight" || metric === "body") {
+    const rounded = roundChartWeight(value, unit);
+    if (rounded === 0) return `0 ${unit}`;
+    const text = Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
+    return `${text} ${unit}`;
+  }
+  return formatChartValue(value, metric, unit);
+}
+
+export function formatChartValue(value: number, metric: ChartMetric, unit: WeightUnit): string {
+  if (!Number.isFinite(value)) return "";
+  if (metric === "volume") return formatVolumeLb(value, unit);
+  if (metric === "epley" || metric === "weight" || metric === "body") return formatChartWeight(value, unit);
+  if (metric === "reps") return pluralize(Math.round(value), "rep");
+  if (metric === "time") return formatClock(value);
+  return formatChartDistance(value);
+}
+
+export function formatChartDelta(delta: number, metric: ChartMetric, unit: WeightUnit): string {
+  if (!Number.isFinite(delta)) return "";
+  const magnitude = formatChartMagnitude(Math.abs(delta), metric, unit);
+  const zero = formatChartMagnitude(0, metric, unit);
+  if (magnitude === zero) return zero;
+  return delta > 0 ? `+${magnitude}` : `${CHART_MINUS}${magnitude}`;
+}
+
+export function formatChartSet(set: ChartSetSnap | null, metric: ChartMetric, unit: WeightUnit): string | null {
+  if (!set || metric === "body") return null;
+  if (metric === "time") {
+    const clock = formatClock(set.durationSec ?? 0);
+    return set.weightLb > 0 ? `${clock} @ ${formatChartWeight(set.weightLb, unit)}` : clock;
+  }
+  if (metric === "distance") {
+    const distance = formatChartDistance(set.distanceM ?? 0);
+    return set.durationSec ? `${distance} in ${formatClock(set.durationSec)}` : distance;
+  }
+  if ((set.reps ?? 0) <= 0) return null;
+  if (set.weightLb <= 0) return `${set.reps}×BW`;
+  return `${set.reps}×${formatChartWeight(set.weightLb, unit)}`;
 }
 
 export function metricValue(
