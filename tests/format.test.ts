@@ -8,6 +8,7 @@ import {
   formatLastTime,
   formatPersonalRecord,
   formatPersonalRecords,
+  formatRecordDetail,
   formatSetShort,
   formatVolumeLb,
   formatWorkoutLength,
@@ -185,5 +186,20 @@ test("volume, streaks, and personal records have stable labels", () => {
       },
     ]),
     "New PRs · bike",
+  );
+});
+
+test("record detail drops the New PR lead-in for lists under a records heading", () => {
+  assert.equal(
+    formatRecordDetail({
+      exerciseName: "row",
+      kind: "distance",
+      reps: null,
+      weightLb: 0,
+      epleyLb: null,
+      distanceM: 5050,
+      durationSec: 1200,
+    }),
+    "row · 5.05 km in 20:00",
   );
 });
