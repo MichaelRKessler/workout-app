@@ -15,7 +15,7 @@ import { loadPendingPlan, loadRoutineCache, savePendingPlan, saveRoutineCache } 
 import { loadSnapshot, saveSnapshot, type KeyValueStore } from "../lib/offline/storage.ts";
 import { prefillValues, setFromPrefill } from "../lib/prefill.ts";
 import { blankRoutineExercise, routineDraftToPayload } from "../lib/routineDraft.ts";
-import { splitWorkoutPlan, type VisiblePlanItem } from "../lib/workoutPlan.ts";
+import { guidedNextId, guidedProgress, splitWorkoutPlan, type VisiblePlanItem } from "../lib/workoutPlan.ts";
 import { toPounds } from "../convex/lib/units.ts";
 import type { SetLine } from "../lib/groupSets.ts";
 
@@ -438,4 +438,51 @@ test("the workout plan keeps routine order and parks extra exercises after it", 
   assert.equal(split.rows[0]?.sets.length, 1);
   assert.equal(split.rows[1]?.sets.length, 0);
   assert.equal(split.extras[0]?.name, "Curl");
+});
+
+test("guided progress counts planned sets, skips skipped exercises, and finds the next one", () => {
+  const rows = [
+    { exerciseId: "a", skipped: false, targetSets: 3, sets: [1, 2, 3, 4] },
+    { exerciseId: "b", skipped: true, targetSets: 3, sets: [] },
+    { exerciseId: "c", skipped: false, targetSets: null, sets: [] },
+    { exerciseId: "d", skipped: false, targetSets: 2, sets: [1] },
+  ];
+  assert.deepEqual(guidedProgress(rows, "d"), { position: 3, exercises: 3, setsDone: 4, setsPlanned: 6 });
+  assert.deepEqual(guidedProgress(rows, null).position, null);
+  assert.deepEqual(guidedProgress(rows, "b").position, null);
+});
+
+test("the guided view's next exercise is the first with sets left, rotating inside a superset", () => {
+  const item = (exerciseId: string, sets: number, extra: { targetSets?: number | null; skipped?: boolean; supersetId?: string | null } = {}) => ({
+    exerciseId,
+    skipped: extra.skipped ?? false,
+    targetSets: extra.targetSets === undefined ? 3 : extra.targetSets,
+    sets: Array.from({ length: sets }),
+    supersetId: extra.supersetId ?? null,
+  });
+  assert.equal(guidedNextId([item("a", 3), item("b", 1), item("c", 0)]), "b");
+  assert.equal(guidedNextId([item("a", 0, { skipped: true }), item("b", 0)]), "b");
+  assert.equal(guidedNextId([item("a", 0, { targetSets: null }), item("b", 0)]), "a");
+  assert.equal(guidedNextId([item("a", 1, { targetSets: null }), item("b", 0)]), "b");
+  assert.equal(
+    guidedNextId([item("a", 3), item("curl", 1, { supersetId: "s" }), item("push", 0, { supersetId: "s" })]),
+    "push",
+  );
+  assert.equal(guidedNextId([item("a", 3), item("b", 3)]), null);
+  assert.equal(
+    guidedNextId([
+      item("curl", 0, { targetSets: null, supersetId: "s" }),
+      item("push", 0, { targetSets: null, supersetId: "s" }),
+      item("c", 0),
+    ]),
+    "curl",
+  );
+  assert.equal(
+    guidedNextId([
+      item("curl", 1, { targetSets: null, supersetId: "s" }),
+      item("push", 1, { targetSets: null, supersetId: "s" }),
+      item("c", 0),
+    ]),
+    "c",
+  );
 });

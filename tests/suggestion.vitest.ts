@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { fromPounds, toPounds } from "../convex/lib/units";
-import { formatSuggestion, suggestNext } from "../lib/suggestion";
+import { explainSuggestion, formatSuggestion, suggestNext } from "../lib/suggestion";
 
 const options = { enabled: true, incrementLb: 5 };
 
@@ -97,5 +97,32 @@ describe("suggested next weight", () => {
     }
     expect(fromPounds(weightLb, "kg")).toBe(82.5);
     expect(formatSuggestion({ kind: "weight", weightLb }, "kg")).toBe("Try 82.5 kg today");
+  });
+});
+
+describe("why the suggestion is that number", () => {
+  const sets = [
+    { reps: 8, weightLb: 135 },
+    { reps: 8, weightLb: 135 },
+  ];
+  test("names the reps reached and the step, in the unit on screen", () => {
+    const next = suggestNext(sets, options);
+    expect(next).not.toBeNull();
+    expect(explainSuggestion(sets, next!, { unit: "lb" })).toBe(
+      "All 2 sets reached 8 reps last time, so 5 lb more.",
+    );
+    const kgNext = suggestNext([{ reps: 5, weightLb: toPounds(60, "kg") }], { ...options, unit: "kg", incrementLb: toPounds(2.5, "kg") });
+    expect(explainSuggestion([{ reps: 5, weightLb: toPounds(60, "kg") }], kgNext!, { unit: "kg" })).toBe(
+      "You reached 5 reps last time, so 2.5 kg more.",
+    );
+  });
+  test("bodyweight sets explain extra reps", () => {
+    const body = [
+      { reps: 12, weightLb: 0 },
+      { reps: 12, weightLb: 0 },
+    ];
+    expect(explainSuggestion(body, suggestNext(body, options)!, { unit: "lb" })).toBe(
+      "All 2 sets reached 12 reps last time, so 2 more reps.",
+    );
   });
 });
