@@ -38,14 +38,14 @@ function useBodyPaths(): BodyPaths | null {
   return paths;
 }
 
-const SILHOUETTE = "var(--line-soft)";
+const SILHOUETTE = "var(--body-base)";
 
 /** Step 0 is a muscle with no sets this week; 1 to 4 deepen toward the accent. */
 const LEVEL_FILL: Record<MuscleLevel, string> = {
-  0: "var(--line)",
-  1: "color-mix(in oklab, var(--accent) 30%, var(--line))",
-  2: "color-mix(in oklab, var(--accent) 52%, var(--line))",
-  3: "color-mix(in oklab, var(--accent) 76%, var(--line))",
+  0: "var(--body-idle)",
+  1: "color-mix(in oklab, var(--accent) 30%, var(--body-idle))",
+  2: "color-mix(in oklab, var(--accent) 52%, var(--body-idle))",
+  3: "color-mix(in oklab, var(--accent) 76%, var(--body-idle))",
   4: "var(--accent)",
 };
 
