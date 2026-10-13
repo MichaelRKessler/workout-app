@@ -10,6 +10,8 @@
   --line-soft: #ecece8;
   --fill: #edede9;
   --fill-2: #f0f0ec;
+  --body-base: #ecece8;
+  --body-idle: #e4e4e0;
   --inverse: #0e0f11;
   --inverse-ink: #ffffff;
   --accent: #e4572e;
@@ -31,6 +33,9 @@
   --line-soft: #1f2125;
   --fill: #1c1d21;
   --fill-2: #232428;
+  /* The body map needs more lift off the card than hairlines do, or the figure disappears. */
+  --body-base: #33363c;
+  --body-idle: #474b53;
   --inverse: #f3f3f1;
   --inverse-ink: #0e0f11;
   --accent: #f06a43;
