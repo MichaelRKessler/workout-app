@@ -212,7 +212,8 @@ export function streakLabel(weeks: number): string {
   return `${weeks}-week streak`;
 }
 
-export function formatPersonalRecord(
+/** "bench press · 225 lb", the record without the "New PR" lead-in. */
+export function formatRecordDetail(
   record: {
     exerciseName: string;
     kind: "weight" | "epley" | "both" | "reps" | "duration" | "distance" | "calories";
@@ -226,31 +227,38 @@ export function formatPersonalRecord(
   unit: WeightUnit = "lb",
 ): string {
   if (record.kind === "calories") {
-    return `New PR · ${record.exerciseName} · ${formatCalories(record.calories ?? 0)}`;
+    return `${record.exerciseName} · ${formatCalories(record.calories ?? 0)}`;
   }
   if (record.kind === "duration") {
     const time = formatClock(record.durationSec ?? 0);
     const load = record.weightLb > 0 ? ` at ${formatWeightLb(record.weightLb, unit)}` : "";
-    return `New PR · ${record.exerciseName} · ${time}${load}`;
+    return `${record.exerciseName} · ${time}${load}`;
   }
   if (record.kind === "distance") {
     const distance = formatDistance(record.distanceM ?? 0);
     const time = record.durationSec ? ` in ${formatClock(record.durationSec)}` : "";
-    return `New PR · ${record.exerciseName} · ${distance}${time}`;
+    return `${record.exerciseName} · ${distance}${time}`;
   }
   if (record.kind === "reps") {
-    return `New PR · ${record.exerciseName} · ${pluralize(record.reps ?? 0, "rep")}`;
+    return `${record.exerciseName} · ${pluralize(record.reps ?? 0, "rep")}`;
   }
   const load = formatWeightLb(record.weightLb, unit);
   const estimate =
     record.epleyLb === null ? null : `est. 1RM ${formatWeightLb(record.epleyLb, unit)}`;
   if (record.kind === "epley" && estimate) {
-    return `New PR · ${record.exerciseName} · ${estimate}`;
+    return `${record.exerciseName} · ${estimate}`;
   }
   if (record.kind === "both" && estimate) {
-    return `New PR · ${record.exerciseName} · ${load} · ${estimate}`;
+    return `${record.exerciseName} · ${load} · ${estimate}`;
   }
-  return `New PR · ${record.exerciseName} · ${load}`;
+  return `${record.exerciseName} · ${load}`;
+}
+
+export function formatPersonalRecord(
+  record: Parameters<typeof formatRecordDetail>[0],
+  unit: WeightUnit = "lb",
+): string {
+  return `New PR · ${formatRecordDetail(record, unit)}`;
 }
 
 export function formatPersonalRecords(

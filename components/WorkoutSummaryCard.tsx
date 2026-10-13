@@ -4,7 +4,7 @@ import { Button } from "@/components/Button";
 import type { PersonalRecord } from "@/convex/lib/records";
 import { formatCalories, formatDistance } from "@/convex/lib/measures";
 import type { WeightUnit } from "@/convex/lib/units";
-import { formatPersonalRecord, formatVolumeLb, pluralize } from "@/lib/format";
+import { formatRecordDetail, formatVolumeLb, pluralize } from "@/lib/format";
 import {
   formatSummaryMinutes,
   summaryMinutes,
@@ -30,59 +30,73 @@ export function WorkoutSummaryCard({
     summary.totalMs !== null && summary.activeMs !== null
       ? summaryMinutes(summary.totalMs, summary.activeMs)
       : null;
-  const recordHeading =
-    records.length === 0
-      ? "Records"
-      : `${pluralize(records.length, "new record")}`;
+  const stats: Array<{ label: string; value: string }> = [];
+  if (clock) {
+    stats.push(
+      { label: "Time", value: formatSummaryMinutes(clock.total) },
+      { label: "Active", value: formatSummaryMinutes(clock.active) },
+      { label: "Rest", value: formatSummaryMinutes(clock.rest) },
+    );
+  }
+  // A cardio-only or bodyweight workout has no volume, so "0 lb" would only add noise.
+  if (summary.volumeLb > 0) {
+    stats.push({ label: "Volume", value: volumeLabel(summary.volumeLb, unit) });
+  }
+  if (summary.distanceM > 0) {
+    stats.push({ label: "Distance", value: formatDistance(summary.distanceM) });
+  }
+  if (summary.calories > 0) {
+    stats.push({ label: "Calories", value: formatCalories(summary.calories) });
+  }
+  const counts = [
+    pluralize(summary.exerciseCount, "exercise"),
+    pluralize(summary.setCount, "set"),
+  ].join(" · ");
 
   return (
-    <section aria-label="Workout summary" className="rounded-[1.25rem] border border-line bg-surface p-4">
-      <h2 className="text-xs font-medium tracking-[0.06em] text-subtle uppercase">Summary</h2>
-      <dl className="mt-3 grid grid-cols-2 gap-x-3 gap-y-3">
-        {clock ? (
-          <>
-            <Stat label="Time" value={formatSummaryMinutes(clock.total)} />
-            <Stat label="Volume" value={volumeLabel(summary.volumeLb, unit)} />
-            <Stat label="Active" value={formatSummaryMinutes(clock.active)} />
-            <Stat label="Rest" value={formatSummaryMinutes(clock.rest)} />
-          </>
-        ) : (
-          <Stat label="Volume" value={volumeLabel(summary.volumeLb, unit)} />
-        )}
-        <Stat label="Exercises" value={String(summary.exerciseCount)} />
-        <Stat label="Sets" value={String(summary.setCount)} />
-        {summary.distanceM > 0 ? (
-          <Stat label="Distance" value={formatDistance(summary.distanceM)} />
-        ) : null}
-        {summary.calories > 0 ? (
-          <Stat label="Calories" value={formatCalories(summary.calories)} />
-        ) : null}
-      </dl>
-      {summary.warmupCount > 0 ? (
-        <p className="mt-3 text-sm text-pretty text-subtle">
-          {pluralize(summary.warmupCount, "warm-up")} not included in sets
-          {summary.calories > 0 ? ", volume, or calories" : " or volume"}.
-        </p>
+    <section aria-label="Workout summary" className="rounded-[1.25rem] border border-line bg-surface px-4 py-3.5">
+      {stats.length > 0 ? (
+        <dl className="mb-2.5 grid grid-cols-3 gap-x-3 gap-y-2.5">
+          {stats.map((stat) => (
+            <Stat key={stat.label} label={stat.label} value={stat.value} />
+          ))}
+        </dl>
       ) : null}
+      <p className="text-sm text-pretty text-muted">
+        {counts}
+        {summary.warmupCount > 0 ? (
+          <span className="text-subtle">
+            {" "}
+            · {pluralize(summary.warmupCount, "warm-up")} not counted
+          </span>
+        ) : null}
+      </p>
       {note ? <p className="mt-2 text-sm text-pretty text-subtle">{note}</p> : null}
-      <div className="mt-3 border-t border-line pt-3">
-        <h3 className="text-xs font-medium tracking-[0.06em] text-subtle uppercase">{recordHeading}</h3>
-        {records.length > 0 ? (
-          <ul className="mt-1.5 flex flex-col gap-1">
-            {records.map((record) => (
-              <li key={`${record.exerciseName}-${record.kind}-${record.weightLb}`} className="text-base">
-                {formatPersonalRecord(record, unit)}
-              </li>
-            ))}
-          </ul>
-        ) : recordsPending ? (
-          <p className="mt-1.5 text-base text-pretty text-muted">
-            New records show in History after this workout syncs.
-          </p>
-        ) : (
-          <p className="mt-1.5 text-base text-muted">No new records.</p>
-        )}
-      </div>
+      {records.length > 0 || recordsPending ? (
+        <div className="mt-3 border-t border-line pt-2.5">
+          {records.length > 0 ? (
+            <>
+              <h3 className="text-xs font-medium tracking-[0.06em] text-subtle uppercase">
+                {pluralize(records.length, "new record")}
+              </h3>
+              <ul className="mt-1 flex flex-col gap-0.5">
+                {records.map((record) => (
+                  <li
+                    key={`${record.exerciseName}-${record.kind}-${record.weightLb}`}
+                    className="text-[0.9375rem] leading-snug text-pretty"
+                  >
+                    {formatRecordDetail(record, unit)}
+                  </li>
+                ))}
+              </ul>
+            </>
+          ) : (
+            <p className="text-sm text-pretty text-muted">
+              New records show in History after this workout syncs.
+            </p>
+          )}
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -95,7 +109,7 @@ function Stat({ label, value }: { label: string; value: string }) {
   return (
     <div className="min-w-0">
       <dt className="text-xs font-medium tracking-[0.06em] text-subtle uppercase">{label}</dt>
-      <dd className="mt-0.5 truncate font-mono text-lg font-medium tracking-[-0.03em]">{value}</dd>
+      <dd className="text-[1.0625rem] leading-snug font-semibold tabular-nums">{value}</dd>
     </div>
   );
 }

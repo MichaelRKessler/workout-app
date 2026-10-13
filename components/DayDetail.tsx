@@ -469,7 +469,7 @@ export function DayDetail({ dayKey }: { dayKey: string }) {
             {orderedSessions.map((session) => formatTimeOfDay(session.startedAt)).join(" · ")}
           </p>
         ) : (
-          <div className="mt-4">
+          <div className="mt-3">
             <SessionNote
               note={anchor.note}
               draft={noteDrafts[anchor._id]}
@@ -749,9 +749,9 @@ function SessionNote({
         value={draft ?? note ?? ""}
         onChange={(event) => onDraft(event.target.value)}
         maxLength={500}
-        rows={3}
+        rows={2}
         placeholder="Optional. How the workout felt."
-        className="mt-2 w-full resize-none rounded-xl border border-input bg-background px-3 py-2 text-base outline-none focus:border-foreground"
+        className="mt-1.5 w-full resize-none rounded-xl border border-input bg-background px-3 py-2 text-base outline-none focus:border-foreground"
       />
       {draft !== undefined ? (
         <Button variant="secondary" className="mt-2" disabled={saving} onClick={onSave}>
