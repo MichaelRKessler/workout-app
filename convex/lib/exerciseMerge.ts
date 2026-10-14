@@ -92,6 +92,9 @@ export async function applyMergeBatch(
   if (into.restSeconds === undefined && from.restSeconds !== undefined) {
     await ctx.db.patch("exercises", into._id, { restSeconds: from.restSeconds });
   }
+  if (into.demoId === undefined && from.demoId !== undefined) {
+    await ctx.db.patch("exercises", into._id, { demoId: from.demoId });
+  }
   const copiedMuscle = muscleGroupToCopy(into, from);
   if (copiedMuscle) {
     await ctx.db.patch("exercises", into._id, { muscleGroup: copiedMuscle });

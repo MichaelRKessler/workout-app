@@ -3,13 +3,13 @@ import type { MuscleGroup } from "./muscleGroup";
 
 type ExerciseDoc = Pick<
   Doc<"exercises">,
-  "userId" | "name" | "normalizedName" | "createdAt" | "restSeconds" | "muscleGroup"
+  "userId" | "name" | "normalizedName" | "createdAt" | "restSeconds" | "muscleGroup" | "demoId"
 >;
 
 /**
  * Full exercise document for a replace. Null clears an optional field.
- * An omitted patch key keeps the stored value, so rest and muscle survive
- * each other's edits.
+ * An omitted patch key keeps the stored value, so rest, muscle and demo
+ * survive each other's edits.
  */
 export function exerciseRecord(
   exercise: ExerciseDoc,
@@ -18,6 +18,7 @@ export function exerciseRecord(
     normalizedName?: string;
     restSeconds?: number | null;
     muscleGroup?: MuscleGroup | null;
+    demoId?: string | null;
   },
 ) {
   const restSeconds =
@@ -32,6 +33,8 @@ export function exerciseRecord(
       : patch.muscleGroup === null
         ? undefined
         : patch.muscleGroup;
+  const demoId =
+    patch.demoId === undefined ? exercise.demoId : patch.demoId === null ? undefined : patch.demoId;
   return {
     userId: exercise.userId,
     name: patch.name ?? exercise.name,
@@ -39,5 +42,6 @@ export function exerciseRecord(
     createdAt: exercise.createdAt,
     ...(restSeconds !== undefined ? { restSeconds } : {}),
     ...(muscleGroup !== undefined ? { muscleGroup } : {}),
+    ...(demoId !== undefined ? { demoId } : {}),
   };
 }
