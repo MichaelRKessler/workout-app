@@ -202,9 +202,12 @@ export function buildRecap(input: RecapInput): Recap | null {
   }
   const earlier = sessions.slice(0, index);
   const seed = hashSeed(input.sessionId);
-  const celebrations = findCelebrations(current, earlier);
+  // All-time claims need all of history. A partial read could miss an older
+  // best and call this workout a record when it isn't.
+  const celebrations = input.complete ? findCelebrations(current, earlier) : [];
   const confetti =
-    celebrations.some((item) => item.kind !== "beatLastTime") || beatsBestLoad(current, earlier);
+    input.complete &&
+    (celebrations.some((item) => item.kind !== "beatLastTime") || beatsBestLoad(current, earlier));
   const badges = input.complete ? earnBadges(sessions.slice(0, index + 1), input.utcOffsetMinutes) : [];
   const candidates = highlightCandidates(current, earlier, input, badges);
   return {
@@ -593,7 +596,7 @@ function highlightCandidates(
   }
 
   const workoutNumber = earlier.length + 1;
-  if (workoutNumber >= 5) {
+  if (input.complete && workoutNumber >= 5) {
     const round10 = workoutNumber % 10 === 0;
     candidates.push({ highlight: { kind: "workoutNumber", count: workoutNumber }, weight: round10 ? 5 : 0.5 });
   }

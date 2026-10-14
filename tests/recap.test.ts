@@ -135,9 +135,17 @@ test("week streak badges follow consecutive weeks", () => {
   assert.equal(recapFor("late", gap).badges.some((badge) => badge.id === "streak-4"), false);
 });
 
-test("badges are skipped when history could not be read in full", () => {
+test("badges and record claims are skipped when history could not be read in full", () => {
   const recap = recapFor("a", [workout("a", 0, squat(10, 260, 5))], false);
   assert.deepEqual(recap.badges, []);
+  const partial = recapFor(
+    "b",
+    [workout("a", 0, squat(5, 225, 3)), workout("b", 3, [...squat(7, 245), ...squat(5, 225, 4)])],
+    false,
+  );
+  assert.deepEqual(partial.celebrations, []);
+  assert.equal(partial.confetti, false);
+  assert.equal(partial.highlights.some((item) => item.kind === "workoutNumber"), false);
 });
 
 test("highlights vary by workout and never repeat a kind", () => {
