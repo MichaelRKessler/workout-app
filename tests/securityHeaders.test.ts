@@ -14,6 +14,7 @@ test("responses send the clickjacking, referrer, and microphone policy", () => {
   assert.match(contentSecurityPolicy, /connect-src[^;]*https:\/\/\*\.convex\.cloud/);
   assert.doesNotMatch(headers.get("Permissions-Policy") ?? "", /screen-wake-lock/);
   assert.doesNotMatch(contentSecurityPolicy, /navigate-to/);
+  assert.match(contentSecurityPolicy, /img-src[^;]*https:\/\/cdn\.jsdelivr\.net/);
 
   const config = fs.readFileSync(path.resolve(import.meta.dirname, "../next.config.ts"), "utf8");
   assert.match(config, /securityHeaders/);

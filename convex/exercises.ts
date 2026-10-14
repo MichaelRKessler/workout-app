@@ -221,6 +221,43 @@ export const setMuscle = authedMutation({
   },
 });
 
+// free-exercise-db ids are letters, digits, "_" and "-"; "none" hides the demo.
+const DEMO_ID = /^[A-Za-z0-9_-]{1,120}$/;
+
+/** The saved demo choice. Null demoId means the demo follows the name. */
+export const demoChoice = authedQuery({
+  args: { exerciseId: v.string() },
+  returns: v.union(v.null(), v.object({ demoId: v.union(v.string(), v.null()) })),
+  handler: async (ctx, args) => {
+    const exercise = await ownedExercise(ctx, ctx.userId, args.exerciseId);
+    return exercise ? { demoId: exercise.demoId ?? null } : null;
+  },
+});
+
+/** Picks the demo for an exercise, or "none" to hide it. Null follows the name again. */
+export const setDemo = authedMutation({
+  args: {
+    exerciseId: v.id("exercises"),
+    demoId: v.union(v.string(), v.null()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const exercise = await ctx.db.get("exercises", args.exerciseId);
+    if (!exercise || exercise.userId !== ctx.userId) {
+      throw userError("Exercise not found");
+    }
+    if (args.demoId !== null && !DEMO_ID.test(args.demoId)) {
+      throw userError("That demo isn't in the catalogue");
+    }
+    if ((exercise.demoId ?? null) === args.demoId) {
+      return null;
+    }
+    // A patch, not a replace, so merge bookkeeping on the exercise survives.
+    await ctx.db.patch("exercises", exercise._id, { demoId: args.demoId ?? undefined });
+    return null;
+  },
+});
+
 /** Remembers rest for this exercise on the account. Null clears it. */
 export const setRest = authedMutation({
   args: {

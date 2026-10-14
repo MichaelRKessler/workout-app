@@ -47,6 +47,9 @@ export default defineSchema({
         v.literal("other"),
       ),
     ),
+    // Optional demo override: a free-exercise-db id, or "none" to hide the demo.
+    // Absent means the demo matched from the name.
+    demoId: v.optional(v.string()),
     // Set on the source while a merge that didn't fit in one transaction is
     // still moving its sets. Absent once the merge finishes or stops.
     mergingInto: v.optional(v.id("exercises")),

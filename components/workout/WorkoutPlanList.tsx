@@ -2,6 +2,7 @@
 
 import { SetTypeTag } from "@/components/SetTypePicker";
 import { useProgression } from "@/components/useProgression";
+import { GuidedDemo } from "@/components/ExerciseDemo";
 import { ExerciseTile } from "@/components/workout/ExerciseRow";
 import { usePreviousExercise } from "@/components/workout/usePreviousExercise";
 import { useWeightUnit } from "@/components/WeightUnit";
@@ -585,6 +586,7 @@ function GuidedCard({
             {detail ? <span className="text-sm text-muted">{detail}</span> : null}
           </span>
         </div>
+        <GuidedDemo key={row.exerciseId} exerciseId={progressHref ? row.exerciseId : null} name={row.name} />
 
         {row.sets.length > 0 ? (
           <div className="mt-2 flex flex-wrap gap-x-3 font-mono text-sm text-muted">

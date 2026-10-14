@@ -1,6 +1,7 @@
 "use client";
 
 import { Button } from "@/components/Button";
+import { ExerciseDemo } from "@/components/ExerciseDemo";
 import { MuscleGroupField } from "@/components/MuscleGroupField";
 import { useOfflineLog } from "@/components/OfflineSync";
 import { PageHeader } from "@/components/PageHeader";
@@ -111,6 +112,7 @@ export function ExerciseHistory({
           muscleSource={detail.muscleSource}
           offline={offline}
         />
+        <ExerciseDemo exerciseId={detail._id} name={detail.name} offline={offline} />
         <Records detail={detail} unit={unit} />
         <TrendChart
           points={detail.trend}
