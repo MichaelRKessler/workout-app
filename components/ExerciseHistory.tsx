@@ -103,7 +103,7 @@ export function ExerciseHistory({
   );
 
   return (
-    <div className="px-5 pt-3 pb-[calc(32px+env(safe-area-inset-bottom))]">
+    <div className="px-5 pt-3 pb-[calc(32px+var(--page-inset))]">
       <PageHeader backHref={backHref} backLabel={backLabel} title={detail.name}>
         <MuscleGroupField
           exerciseId={detail._id}

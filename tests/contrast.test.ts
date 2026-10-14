@@ -49,3 +49,14 @@ test("accent text and input borders clear the contrast floors", () => {
   assert.ok(contrast(darkInput, darkSurface) >= 3);
   assert.ok(contrast(darkInput, dark) >= 3);
 });
+
+test("dark-mode secondary text stays easy to read on every dark fill", () => {
+  const css = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
+  const darkBlock = String.raw`:root\[data-theme="dark"\]`;
+  for (const text of ["--muted", "--subtle"]) {
+    for (const fill of ["--background", "--surface", "--fill-2"]) {
+      const ratio = contrast(token(css, darkBlock, text), token(css, darkBlock, fill));
+      assert.ok(ratio >= 7, `${text} on ${fill} is ${ratio.toFixed(2)}`);
+    }
+  }
+});

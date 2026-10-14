@@ -2,6 +2,7 @@
 
 import { NoAccess } from "@/components/NoAccess";
 import { OfflineBanner, OfflineSyncProvider } from "@/components/OfflineSync";
+import { TabBar } from "@/components/TabBar";
 import { useConnectivity } from "@/components/useConnectivity";
 import { WeightUnitProvider } from "@/components/WeightUnit";
 import { BrandMark } from "@/components/icons";
@@ -124,12 +125,13 @@ export function AppShell({ children }: { children: ReactNode }) {
   }
 
   return (
-    <main className="mx-auto min-h-dvh w-full max-w-lg">
+    <main className="with-tabbar mx-auto min-h-dvh w-full max-w-lg">
       <OfflineSyncProvider email={effective.email}>
         <WeightUnitProvider>
           <OfflineBanner />
           <AdminSeed />
           {children}
+          <TabBar />
         </WeightUnitProvider>
       </OfflineSyncProvider>
     </main>

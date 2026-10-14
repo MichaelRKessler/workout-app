@@ -109,10 +109,10 @@ export function ExerciseLibrary() {
   }
 
   return (
-    <div className="px-5 pt-3 pb-[calc(32px+env(safe-area-inset-bottom))]">
+    <div className="px-5 pt-3 pb-[calc(32px+var(--page-inset))]">
       <PageHeader
-        backHref={fromHome ? "/" : "/settings"}
-        backLabel={fromHome ? "Back to home" : "Back to settings"}
+        backHref={fromHome ? "/" : undefined}
+        backLabel="Back to home"
         title="Exercises"
       >
         <p className="mt-1.5 text-base leading-normal text-muted">

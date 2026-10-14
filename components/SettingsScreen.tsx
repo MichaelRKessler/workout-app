@@ -84,7 +84,7 @@ export function SettingsScreen() {
   const shownIncrement = fromPounds(progression.incrementLb, unit);
 
   return (
-    <div className="px-5 pt-3 pb-[calc(32px+env(safe-area-inset-bottom))]">
+    <div className="px-5 pt-3 pb-[calc(32px+var(--page-inset))]">
       <PageHeader backHref="/" title="Settings" />
 
       <AccessSettings />

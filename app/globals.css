@@ -27,8 +27,9 @@
   --background: #0e0f11;
   --surface: #17181b;
   --foreground: #f3f3f1;
-  --muted: #a3a6ad;
-  --subtle: #8c8f96;
+  /* Brighter than the light-mode greys so secondary text holds up on near-black. */
+  --muted: #c0c3c8;
+  --subtle: #aeb1b8;
   --line: #2a2c31;
   --line-soft: #1f2125;
   --fill: #1c1d21;
@@ -106,6 +107,23 @@
   --shadow-float: 0 1px 2px rgb(var(--shadow-ink) / 0.04), 0 6px 20px rgb(var(--shadow-ink) / 0.06);
   --shadow-lift: 0 10px 28px rgb(var(--shadow-ink) / 0.2);
   --shadow-sheet: 0 -12px 40px rgb(var(--shadow-ink) / 0.14);
+}
+
+/*
+  Bottom spacing. Pages pad by --page-inset and fixed bottom bars sit at --tabbar-h.
+  With the tab bar showing, the bar owns the home-indicator area, so docks above it
+  drop their own safe-area padding (--dock-inset).
+*/
+:root {
+  --tabbar-h: 0px;
+  --page-inset: env(safe-area-inset-bottom);
+  --dock-inset: env(safe-area-inset-bottom);
+}
+
+.with-tabbar {
+  --tabbar-h: calc(4.5rem + env(safe-area-inset-bottom));
+  --page-inset: var(--tabbar-h);
+  --dock-inset: 0px;
 }
 
 body {

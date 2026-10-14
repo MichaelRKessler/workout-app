@@ -1,24 +1,16 @@
 "use client";
 
-import { HistoryIcon } from "@/components/icons";
 import { api } from "@/convex/_generated/api";
 import { useQuery } from "convex/react";
 import Link from "next/link";
 
-/** History and the account avatar, which is also the way into Settings. */
+/** The account avatar, which is also the way into Settings. History lives in the tab bar. */
 export function TopActions() {
   const viewer = useQuery(api.users.viewer);
   const initial = (viewer?.name || viewer?.email || "").trim().charAt(0).toUpperCase();
 
   return (
     <div className="-mr-1.5 flex items-center gap-0.5">
-      <Link
-        href="/history"
-        aria-label="History"
-        className="flex size-11 items-center justify-center rounded-full text-foreground hover:bg-fill-2"
-      >
-        <HistoryIcon className="size-6" />
-      </Link>
       <Link
         href="/settings"
         aria-label="Settings and account"

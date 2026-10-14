@@ -8,21 +8,24 @@ export function PageHeader({
   title,
   children,
 }: {
-  backHref: string;
+  /** Left out on the tab bar's own pages, which need no way back. */
+  backHref?: string;
   backLabel?: string;
   title: ReactNode;
   children?: ReactNode;
 }) {
   return (
     <header>
-      <Link
-        href={backHref}
-        aria-label={backLabel}
-        className="-ml-3 flex size-11 items-center justify-center rounded-full text-foreground hover:bg-fill-2"
-      >
-        <ChevronLeftIcon className="size-6" strokeWidth={1.8} />
-      </Link>
-      <h1 className="mt-1.5 text-title leading-tight font-semibold tracking-[-0.03em]">{title}</h1>
+      {backHref ? (
+        <Link
+          href={backHref}
+          aria-label={backLabel}
+          className="-ml-3 flex size-11 items-center justify-center rounded-full text-foreground hover:bg-fill-2"
+        >
+          <ChevronLeftIcon className="size-6" strokeWidth={1.8} />
+        </Link>
+      ) : null}
+      <h1 className={`${backHref ? "mt-1.5" : "mt-3"} text-title leading-tight font-semibold tracking-[-0.03em]`}>{title}</h1>
       {children}
     </header>
   );

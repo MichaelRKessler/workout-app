@@ -1,18 +1,16 @@
 "use client";
 
-import { ArrowUpIcon, CloseIcon, MicIcon, PlusIcon, Spinner } from "@/components/icons";
+import { ArrowUpIcon, CloseIcon, PlusIcon, Spinner } from "@/components/icons";
 import { MAX_WORKOUT_TEXT_LENGTH } from "@/lib/voice/proposal";
 import { FormEvent } from "react";
 
-/** The bottom bar during a workout: + for the form, a field for typed sets, and the mic. */
+/** The bar above the tabs during a workout: + for the form and a field for typed sets. The mic is the center tab. */
 export function Composer({
   text,
   onTextChange,
   onSubmitText,
   parsingText,
-  onVoice,
   onManual,
-  busy,
   offline = false,
   autoFocus = false,
   onClose,
@@ -21,9 +19,7 @@ export function Composer({
   onTextChange: (value: string) => void;
   onSubmitText: () => void;
   parsingText: boolean;
-  onVoice: () => void;
   onManual: () => void;
-  busy: boolean;
   offline?: boolean;
   autoFocus?: boolean;
   /** Shown on Home, where the composer opens on demand: a close button and Escape. */
@@ -39,7 +35,7 @@ export function Composer({
   }
 
   return (
-    <div className="bg-background px-4 pt-3 pb-[calc(16px+env(safe-area-inset-bottom))]">
+    <div className="bg-background px-4 pt-3 pb-[calc(16px+var(--dock-inset))]">
       {onClose ? (
         <div className="mx-auto mb-2 flex max-w-lg justify-end">
           <button
@@ -93,17 +89,7 @@ export function Composer({
           >
             {parsingText ? <Spinner className="size-6" /> : <ArrowUpIcon className="size-7" strokeWidth={2} />}
           </button>
-        ) : (
-          <button
-            type="button"
-            onClick={onVoice}
-            disabled={busy || offline}
-            aria-label="Log a set by voice"
-            className="flex size-16 shrink-0 items-center justify-center rounded-full bg-inverse text-inverse-ink shadow-lift disabled:opacity-60"
-          >
-            <MicIcon className="size-7" strokeWidth={1.7} />
-          </button>
-        )}
+        ) : null}
       </form>
     </div>
   );

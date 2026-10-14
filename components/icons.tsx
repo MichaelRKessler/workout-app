@@ -88,6 +88,31 @@ export function HistoryIcon(props: IconProps) {
   );
 }
 
+export function HomeIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M4 10.5 12 4l8 6.5V19a1 1 0 0 1-1 1h-4.5v-6h-5v6H5a1 1 0 0 1-1-1z" />
+    </Icon>
+  );
+}
+
+export function DumbbellIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M6.5 7.5v9M17.5 7.5v9M3.5 10v4M20.5 10v4M6.5 12h11" />
+    </Icon>
+  );
+}
+
+export function BodyIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <circle cx="12" cy="4.5" r="2" />
+      <path d="M5.5 8.5h13M12 8.5v6M12 14.5l-3 6M12 14.5l3 6" />
+    </Icon>
+  );
+}
+
 export function KeyboardIcon(props: IconProps) {
   return (
     <Icon {...props}>

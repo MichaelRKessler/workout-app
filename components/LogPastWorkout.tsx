@@ -190,7 +190,7 @@ export function LogPastWorkout() {
   return (
     <form
       onSubmit={(event) => void onSubmit(event)}
-      className="px-5 pt-3 pb-[calc(32px+env(safe-area-inset-bottom))]"
+      className="px-5 pt-3 pb-[calc(32px+var(--page-inset))]"
     >
       <PageHeader backHref="/history" backLabel="Back to history" title="Log a past workout">
         <p className="mt-1.5 text-base leading-normal text-muted">

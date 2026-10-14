@@ -79,20 +79,14 @@ export function HistoryList() {
   const waiting = !timeZone || status === "LoadingFirstPage";
 
   return (
-    <div className="px-5 pt-3 pb-[calc(32px+env(safe-area-inset-bottom))]">
-      <PageHeader backHref="/" title="History" />
+    <div className="px-5 pt-3 pb-[calc(32px+var(--page-inset))]">
+      <PageHeader title="History" />
       <div className="mt-4 flex flex-wrap gap-2">
         <Link
           href="/history/log"
           className="inline-flex min-h-11 items-center rounded-full border border-line bg-surface px-4 text-base font-medium hover:bg-fill-2"
         >
           Log a past workout
-        </Link>
-        <Link
-          href="/body"
-          className="inline-flex min-h-11 items-center rounded-full border border-line bg-surface px-4 text-base font-medium hover:bg-fill-2"
-        >
-          Body
         </Link>
       </div>
       <div role="tablist" aria-label="History layout" className="mt-4 grid grid-cols-2 gap-1 rounded-full bg-fill p-1">

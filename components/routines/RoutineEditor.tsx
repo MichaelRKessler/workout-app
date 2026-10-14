@@ -147,7 +147,7 @@ export function RoutineEditor({ routineId }: { routineId?: string }) {
     .slice(0, 8);
 
   return (
-    <div className="px-5 pt-3 pb-[calc(32px+env(safe-area-inset-bottom))]">
+    <div className="px-5 pt-3 pb-[calc(32px+var(--page-inset))]">
       <PageHeader
         backHref="/routines"
         backLabel="Back to routines"
