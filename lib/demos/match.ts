@@ -186,11 +186,23 @@ function indexOf(catalogue: readonly DemoEntry[]): Indexed[] {
  * barbell version, then the shorter name.
  */
 export function matchDemo(name: string, catalogue: readonly DemoEntry[]): DemoEntry | null {
-  const words = demoWords(name).filter((word) => word !== "bodyweight");
+  const words = demoWords(name);
+  // "Bodyweight squat" should find the bodyweight entry, but "Push-ups
+  // (bodyweight)" still finds "Pushups", so the word is dropped only as a retry.
+  const exact = matchWords(words, indexOf(catalogue));
+  if (exact || !words.includes("bodyweight")) {
+    return exact;
+  }
+  return matchWords(
+    words.filter((word) => word !== "bodyweight"),
+    indexOf(catalogue),
+  );
+}
+
+function matchWords(words: string[], index: Indexed[]): DemoEntry | null {
   if (words.length === 0) {
     return null;
   }
-  const index = indexOf(catalogue);
   const aliasId = ALIAS_KEYS.get([...words].sort().join(" "));
   if (aliasId) {
     const aliased = index.find((item) => item.entry.id === aliasId);

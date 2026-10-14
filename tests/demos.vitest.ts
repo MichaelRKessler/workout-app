@@ -45,6 +45,9 @@ describe("matching names to demos", () => {
     ["Goblet squat", "Goblet Squat"],
     ["Smith machine squat", "Smith Machine Squat"],
     ["T-bar row", "T-Bar Row with Handle"],
+    ["Bodyweight squat", "Bodyweight Squat"],
+    ["Bodyweight row", "Bodyweight Mid Row"],
+    ["Push-ups (bodyweight)", "Pushups"],
   ])("%s finds %s", (name, expected) => {
     expect(matchDemo(name, catalogue)?.name).toBe(expected);
   });
@@ -108,6 +111,20 @@ describe("saving a demo choice", () => {
     await expect(
       owner.asUser.mutation(api.exercises.setDemo, { exerciseId, demoId: "" }),
     ).rejects.toThrow(/catalogue/);
+  });
+
+  test("saving a demo leaves merge bookkeeping alone", async () => {
+    const t = convexTest(schema, modules);
+    const { userId, asUser } = await signIn(t, "Michael");
+    const intoId = await addExercise(t, userId, "Curl");
+    const fromId = await addExercise(t, userId, "Curls");
+    await t.run(async (ctx) => ctx.db.patch("exercises", fromId, { mergingInto: intoId }));
+
+    await asUser.mutation(api.exercises.setDemo, { exerciseId: fromId, demoId: "Barbell_Curl" });
+    await asUser.mutation(api.exercises.setDemo, { exerciseId: fromId, demoId: null });
+    const stored = await t.run(async (ctx) => ctx.db.get("exercises", fromId));
+    expect(stored?.mergingInto).toBe(intoId);
+    expect(stored).not.toHaveProperty("demoId");
   });
 
   test("a merge keeps the kept exercise's choice, or takes the merged one's", async () => {

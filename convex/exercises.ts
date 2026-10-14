@@ -252,7 +252,8 @@ export const setDemo = authedMutation({
     if ((exercise.demoId ?? null) === args.demoId) {
       return null;
     }
-    await ctx.db.replace("exercises", exercise._id, exerciseRecord(exercise, { demoId: args.demoId }));
+    // A patch, not a replace, so merge bookkeeping on the exercise survives.
+    await ctx.db.patch("exercises", exercise._id, { demoId: args.demoId ?? undefined });
     return null;
   },
 });
