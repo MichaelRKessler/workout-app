@@ -14,6 +14,9 @@ import { userError } from "./errors";
 
 export const MAX_SETS_PER_SESSION = 500;
 
+/** Exercises checked for an old-key spelling match before a new one is made. */
+const LEGACY_SCAN = 500;
+
 /** One confirmed voice list, and one Undo of that list. */
 export const MAX_SETS_PER_BATCH = 30;
 
@@ -49,15 +52,30 @@ export async function findExerciseByName(
     return byKey;
   }
   const legacyKey = legacyExerciseNameKey(formatted.name);
-  if (legacyKey === formatted.normalizedName) {
-    return null;
+  if (legacyKey !== formatted.normalizedName) {
+    const byLegacyKey = await ctx.db
+      .query("exercises")
+      .withIndex("by_user_and_normalized_name", (q) =>
+        q.eq("userId", userId).eq("normalizedName", legacyKey),
+      )
+      .first();
+    if (byLegacyKey) {
+      return byLegacyKey;
+    }
   }
-  return await ctx.db
+  // An old key can be another spelling, such as "sit-ups" for "Sit ups".
+  // Only a library that still has old keys needs this scan.
+  const library = await ctx.db
     .query("exercises")
-    .withIndex("by_user_and_normalized_name", (q) =>
-      q.eq("userId", userId).eq("normalizedName", legacyKey),
-    )
-    .first();
+    .withIndex("by_user_and_normalized_name", (q) => q.eq("userId", userId))
+    .take(LEGACY_SCAN);
+  return (
+    library.find(
+      (exercise) =>
+        exercise.normalizedName !== exerciseNameKey(exercise.name) &&
+        exerciseNameKey(exercise.name) === formatted.normalizedName,
+    ) ?? null
+  );
 }
 
 export async function getOrCreateExercise(

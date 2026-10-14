@@ -71,6 +71,7 @@ describe("spelling variants", () => {
     const sessionId = await asUser.mutation(api.sessions.start, {});
     const legacyId = await insertLegacy(t, userId, sessionId, "Chin-up", 2);
     await asUser.mutation(api.sets.log, { sessionId, exerciseName: "chin-up", reps: 5, weightLb: 0 });
+    await asUser.mutation(api.sets.log, { sessionId, exerciseName: "Chin ups", reps: 5, weightLb: 0 });
     const library = await asUser.query(api.exercises.list, {});
     expect(library.exercises.map((exercise) => exercise._id)).toEqual([legacyId]);
   });
