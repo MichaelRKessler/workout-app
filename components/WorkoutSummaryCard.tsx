@@ -155,7 +155,7 @@ export function FinishedWorkout({
     : headingFor(seed, recap?.confetti ?? false);
 
   return (
-    <div className="px-5 pt-3 pb-[calc(32px+env(safe-area-inset-bottom))]">
+    <div className="px-5 pt-3 pb-[calc(32px+var(--page-inset))]">
       {recap?.confetti ? <Confetti /> : null}
       <h1 className="mt-2 text-title leading-tight font-semibold tracking-[-0.03em]">{heading}</h1>
       <p className="mt-1.5 text-base text-muted">Workout saved to History.</p>

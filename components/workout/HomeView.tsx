@@ -2,7 +2,7 @@
 
 import { BodyMap } from "@/components/BodyMap";
 import { useWeightUnit } from "@/components/WeightUnit";
-import { BrandMark, ChevronRightIcon, KeyboardIcon, MicIcon } from "@/components/icons";
+import { BrandMark, ChevronRightIcon, KeyboardIcon } from "@/components/icons";
 import { TopActions } from "@/components/TopActions";
 import { formatCalories } from "@/convex/lib/measures";
 import { formatMuscleSummary, MUSCLE_LABELS, type MuscleGroup } from "@/convex/lib/muscleGroup";
@@ -17,7 +17,6 @@ import {
 import { muscleFilterHref } from "@/lib/exerciseLink";
 import { formatHistoryDayMeta, type HistoryDay } from "@/lib/historyDays";
 import { formatSupersetNames } from "@/convex/lib/superset";
-import { OFFLINE_VOICE_MESSAGE } from "@/lib/offline/messages";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
@@ -39,14 +38,12 @@ export type HomeRoutine = {
   name: string;
 };
 
-/** No workout open: the mic starts one with the first confirmed set. */
+/** No workout open: the mic in the tab bar starts one with the first confirmed set. */
 export function HomeView({
   lastWorkout,
   weekSummary,
   routines,
-  voiceBusy,
   offline = false,
-  onVoice,
   onType,
   onStartRoutine,
   onRepeat,
@@ -57,9 +54,7 @@ export function HomeView({
   weekSummary?: WeekSummary | null;
   /** Undefined while the list is still loading. An empty list offers to create one. */
   routines?: HomeRoutine[] | null;
-  voiceBusy: boolean;
   offline?: boolean;
-  onVoice: () => void;
   /** Opens the same typed-set bar used during a workout. */
   onType: () => void;
   onStartRoutine?: (routineId: string) => void;
@@ -69,10 +64,10 @@ export function HomeView({
 }) {
   return (
     <div
-      className={`flex min-h-[calc(100dvh-env(safe-area-inset-top))] flex-col px-5 pt-3 ${
+      className={`flex flex-col px-5 pt-3 ${
         typing
-          ? "pb-[calc(8.5rem+env(safe-area-inset-bottom))]"
-          : "pb-[calc(20px+env(safe-area-inset-bottom))]"
+          ? "pb-[calc(8.5rem+var(--page-inset))]"
+          : "pb-[calc(20px+var(--page-inset))]"
       }`}
     >
       <header className="flex min-h-11 items-center justify-between gap-3">
@@ -83,92 +78,63 @@ export function HomeView({
         <TopActions />
       </header>
 
-      <main className="flex flex-1 flex-col items-center justify-center py-8 text-center">
+      <section aria-labelledby="home-title" className="pt-5 pb-1">
         <p className="text-xs font-medium tracking-[0.06em] text-subtle uppercase" suppressHydrationWarning>
           {formatLongDate(Date.now())}
         </p>
-        <h1 className="mt-3 text-3xl leading-[1.15] font-semibold tracking-[-0.025em]">
-          Start a workout
+        <h1 id="home-title" className="mt-1.5 text-3xl leading-[1.15] font-semibold tracking-[-0.025em]">
+          Ready when you are
         </h1>
-        <p className="mt-2.5 max-w-[21.5rem] text-base leading-normal text-pretty text-muted">
+        <p className="mt-1.5 text-base leading-normal text-pretty text-muted">
           {offline
-            ? "Add the first set by hand. It stays on this phone until you reconnect."
-            : "Say your first set. The workout starts when you confirm it."}
+            ? "Tap + below to add a set by hand. It stays on this phone until you reconnect."
+            : "Tap the mic below and say your first set, like “Bench press, 3 sets of 10 at 135”."}
         </p>
-
-        <button
-          type="button"
-          onClick={onVoice}
-          disabled={voiceBusy || offline}
-          aria-label="Log a set by voice"
-          className="mt-11 flex size-34 items-center justify-center rounded-full border border-line transition active:scale-[0.98] disabled:opacity-70"
-        >
-          <span className="flex size-28 items-center justify-center rounded-full bg-inverse text-inverse-ink shadow-lift">
-            <MicIcon className="size-10" strokeWidth={1.6} />
-          </span>
-        </button>
-        <p className="mt-4 text-sm text-subtle">
-          {offline ? OFFLINE_VOICE_MESSAGE : "“Bench press, 3 sets of 10 at 135”"}
-        </p>
-
         <button
           type="button"
           onClick={onType}
-          className="mt-5 inline-flex min-h-11 items-center gap-2 rounded-full px-4 text-base font-medium hover:bg-fill-2"
+          className="-ml-4 mt-1 inline-flex min-h-11 items-center gap-2 rounded-full px-4 text-base font-medium hover:bg-fill-2"
         >
           <KeyboardIcon className="size-5" />
           Type it instead
         </button>
-        <div className="mt-1 flex flex-wrap items-center justify-center">
-          <Link
-            href="/history/log"
-            className="inline-flex min-h-11 items-center rounded-full px-4 text-base font-medium text-muted hover:bg-fill-2"
-          >
-            Log a past workout
-          </Link>
-          <Link
-            href="/body"
-            className="inline-flex min-h-11 items-center rounded-full px-4 text-base font-medium text-muted hover:bg-fill-2"
-          >
-            Body
-          </Link>
-        </div>
-        {routines && routines.length > 0 ? (
-          <div className="mt-5 w-full max-w-[22rem]">
-            <div className="mb-2 flex items-baseline justify-between gap-3 px-1">
-              <h2 className="text-xs font-medium tracking-[0.06em] text-subtle uppercase">Routines</h2>
-              <Link href="/routines" className="text-sm font-medium text-muted hover:underline">
-                Edit
-              </Link>
-            </div>
-            <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1 [scrollbar-width:none]">
-              {routines.map((routine) => (
-                <button
-                  key={routine._id}
-                  type="button"
-                  onClick={() => onStartRoutine?.(routine._id)}
-                  className="min-h-11 max-w-[14rem] shrink-0 truncate rounded-full border border-line bg-surface px-4 text-base font-medium hover:bg-fill-2"
-                >
-                  {routine.name}
-                </button>
-              ))}
-            </div>
-          </div>
-        ) : routines ? (
-          <Link
-            href="/routines/new"
-            className="mt-1 inline-flex min-h-11 items-center rounded-full px-4 text-base font-medium text-muted hover:bg-fill-2"
-          >
-            Create a routine
-          </Link>
-        ) : null}
-      </main>
-
-      {weekSummary ? <WeeklySummary summary={weekSummary} /> : null}
+      </section>
 
       {lastWorkout ? (
         <LastWorkoutCard workout={lastWorkout} onRepeat={onRepeat} repeating={repeating} />
       ) : null}
+
+      {routines && routines.length > 0 ? (
+        <div className="mt-5">
+          <div className="mb-2 flex items-baseline justify-between gap-3">
+            <h2 className="text-xs font-medium tracking-[0.06em] text-subtle uppercase">Routines</h2>
+            <Link href="/routines" className="text-sm font-medium text-muted hover:underline">
+              Edit
+            </Link>
+          </div>
+          <div className="-mx-5 flex gap-2 overflow-x-auto px-5 pb-1 [scrollbar-width:none]">
+            {routines.map((routine) => (
+              <button
+                key={routine._id}
+                type="button"
+                onClick={() => onStartRoutine?.(routine._id)}
+                className="min-h-11 max-w-[14rem] shrink-0 truncate rounded-full border border-line bg-surface px-4 text-base font-medium hover:bg-fill-2"
+              >
+                {routine.name}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : routines ? (
+        <Link
+          href="/routines/new"
+          className="-ml-4 mt-3 inline-flex min-h-11 items-center self-start rounded-full px-4 text-base font-medium text-muted hover:bg-fill-2"
+        >
+          Create a routine
+        </Link>
+      ) : null}
+
+      {weekSummary ? <WeeklySummary summary={weekSummary} /> : null}
     </div>
   );
 }
@@ -222,7 +188,7 @@ function WeeklySummary({ summary }: { summary: WeekSummary }) {
   const untrained = untrainedGroups(summary.muscles);
   const trainedAny = summary.muscles.some((item) => item.sets > 0);
   return (
-    <section aria-label="This week" className="mb-3 rounded-[1.25rem] border border-line bg-surface p-4">
+    <section aria-label="This week" className="mt-5 rounded-[1.25rem] border border-line bg-surface p-4">
       <div className="flex items-baseline justify-between gap-3">
         <h2 className="text-xs font-medium tracking-[0.06em] text-subtle uppercase">This week</h2>
         <p className="text-sm text-muted">{streakLabel(summary.streakWeeks)}</p>

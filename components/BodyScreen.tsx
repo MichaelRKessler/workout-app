@@ -339,8 +339,8 @@ export function BodyScreen() {
       : `Weight in ${weightUnit}. Measurements in ${lengthUnit}.`;
 
   return (
-    <div className="px-5 pt-3 pb-[calc(32px+env(safe-area-inset-bottom))]">
-      <PageHeader backHref="/" title="Body">
+    <div className="px-5 pt-3 pb-[calc(32px+var(--page-inset))]">
+      <PageHeader title="Body">
         <p className="mt-1.5 text-base leading-normal text-muted">
           {unitLine}{" "}
           <Link href="/settings" className="font-medium text-foreground underline">

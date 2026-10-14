@@ -90,7 +90,7 @@ export function ActiveWorkout({
 
   return (
     <>
-      <div className="px-5 pt-3 pb-[calc(16rem+env(safe-area-inset-bottom))]">
+      <div className="px-5 pt-3 pb-[calc(16rem+var(--page-inset))]">
         <header className="border-b border-line pb-4">
           <div className="flex items-center justify-between gap-3">
             <p className="min-w-0 text-xs leading-snug" suppressHydrationWarning>
@@ -169,7 +169,7 @@ export function ActiveWorkout({
           </ul>
         )}
       </div>
-      <div className="fixed inset-x-0 bottom-0 z-20">
+      <div className="fixed inset-x-0 bottom-[var(--tabbar-h)] z-20">
         <RestTimer
           setCount={setCount}
           loading={loadingSets}

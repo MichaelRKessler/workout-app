@@ -62,7 +62,7 @@ export function RoutineManager() {
   }
 
   return (
-    <div className="px-5 pt-3 pb-[calc(32px+env(safe-area-inset-bottom))]">
+    <div className="px-5 pt-3 pb-[calc(32px+var(--page-inset))]">
       <PageHeader backHref="/" backLabel="Back to workout" title="Routines">
         <p className="mt-1.5 text-base leading-normal text-muted">
           Start one in a tap. Edit the order, the name, or the targets whenever you want.

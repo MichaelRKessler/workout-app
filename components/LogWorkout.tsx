@@ -58,6 +58,8 @@ import {
 import { useQuery } from "convex/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { readLocal } from "@/lib/localValue";
+import { LOG_EVENT, LOG_PARAM } from "@/lib/tabBar";
+import { useRouter } from "next/navigation";
 
 function combinedNote(existing: string | null | undefined, extra: string | null): string | null {
   if (!extra) {
@@ -473,6 +475,41 @@ export function LogWorkout() {
     plan.clearPlan();
   }
 
+  // The tab bar's center button: the mic, or the hand-entry form while offline.
+  const onLogTab = useRef(() => {});
+  onLogTab.current = () => {
+    if (voiceLog.busy || manual !== null) {
+      return;
+    }
+    setFinished(null);
+    if (offline) {
+      actions.openManual();
+    } else {
+      void voiceLog.startVoice();
+    }
+  };
+  useEffect(() => {
+    const listener = () => onLogTab.current();
+    window.addEventListener(LOG_EVENT, listener);
+    return () => window.removeEventListener(LOG_EVENT, listener);
+  }, []);
+
+  // Another tab's center button lands here with ?log=1 once the workout state is known.
+  const router = useRouter();
+  const logRequested = useRef<boolean | null>(null);
+  const ready = offline || (openSession !== undefined && exercises !== undefined);
+  useEffect(() => {
+    if (logRequested.current === null) {
+      logRequested.current = new URLSearchParams(window.location.search).has(LOG_PARAM);
+    }
+    if (!logRequested.current || !ready) {
+      return;
+    }
+    logRequested.current = false;
+    router.replace("/", { scroll: false });
+    onLogTab.current();
+  }, [ready, router]);
+
   if (!offline && (openSession === undefined || exercises === undefined)) {
     return (
       <div className="flex min-h-[70dvh] items-center justify-center">
@@ -632,9 +669,7 @@ export function LogWorkout() {
             onTextChange: setText,
             onSubmitText: () => void voiceLog.submitText(),
             parsingText: voice.status === "parsing" && voiceLog.source === "text",
-            onVoice: () => void voiceLog.startVoice(),
             onManual: () => actions.openManual(),
-            busy: voiceLog.busy,
             offline,
           }}
         />
@@ -646,26 +681,22 @@ export function LogWorkout() {
             lastWorkout={lastWorkout}
             weekSummary={weekSummary}
             routines={routineList ?? plan.cachedRoutines ?? undefined}
-            voiceBusy={voiceLog.busy}
             offline={offline}
             typing={homeTyping}
             repeating={beginWorkout.pending}
-            onVoice={() => void voiceLog.startVoice()}
             onType={() => setHomeTyping(true)}
             onRepeat={(sessionIds) => void beginWorkout.repeatWorkouts(sessionIds)}
             onStartRoutine={(routineId) => void beginWorkout.startRoutine(routineId)}
           />
           {homeTyping ? (
-            <div className="fixed inset-x-0 bottom-0 z-20">
+            <div className="fixed inset-x-0 bottom-[var(--tabbar-h)] z-20">
               <Composer
                 autoFocus
                 text={text}
                 onTextChange={setText}
                 onSubmitText={() => void voiceLog.submitText()}
                 parsingText={voice.status === "parsing" && voiceLog.source === "text"}
-                onVoice={() => void voiceLog.startVoice()}
                 onManual={() => actions.openManual()}
-                busy={voiceLog.busy}
                 offline={offline}
                 onClose={() => setHomeTyping(false)}
               />
