@@ -674,7 +674,7 @@ describe("workouts left unfinished", () => {
       const exerciseId = await ctx.db.insert("exercises", {
         userId: recent.userId,
         name: "Bench press",
-        normalizedName: "bench press",
+        normalizedName: "benchpress",
         createdAt: now,
       });
       await ctx.db.insert("sets", {
@@ -760,7 +760,7 @@ describe("previous workout and editing a set", () => {
       }),
     ).toEqual({
       exerciseName: "bench press",
-      normalizedName: "bench press",
+      normalizedName: "benchpress",
       sets: [
         { reps: 10, weightLb: 135, durationSec: null, distanceM: null, calories: null, rpe: null, setType: "working" },
         { reps: 10, weightLb: 135, durationSec: null, distanceM: null, calories: null, rpe: null, setType: "working" },
@@ -786,7 +786,7 @@ describe("previous workout and editing a set", () => {
       const exercise = await ctx.db
         .query("exercises")
         .withIndex("by_user_and_normalized_name", (q) =>
-          q.eq("userId", session!.userId).eq("normalizedName", "bench press"),
+          q.eq("userId", session!.userId).eq("normalizedName", "benchpress"),
         )
         .unique();
       if (!session || !exercise) {
@@ -862,7 +862,7 @@ describe("previous workout and editing a set", () => {
       const exercise = await ctx.db
         .query("exercises")
         .withIndex("by_user_and_normalized_name", (q) =>
-          q.eq("userId", session.userId).eq("normalizedName", "bench press"),
+          q.eq("userId", session.userId).eq("normalizedName", "benchpress"),
         )
         .unique();
       if (!exercise) {

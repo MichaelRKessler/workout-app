@@ -1,12 +1,21 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
-import { formatExerciseName, MAX_KNOWN_EXERCISE_NAMES } from "./exerciseName";
+import {
+  exerciseNameKey,
+  formatExerciseName,
+  legacyExerciseNameKey,
+  MAX_KNOWN_EXERCISE_NAMES,
+  type FormattedExerciseName,
+} from "./exerciseName";
 import { normalizeStoredSet, type NormalizedSet } from "./measures";
 import { MAX_REPS, MIN_REPS, REPS_MESSAGE, wholeInRange } from "./setLimits";
 import { persistedSetType, resolvedSetType, type SetType } from "./setType";
 import { userError } from "./errors";
 
 export const MAX_SETS_PER_SESSION = 500;
+
+/** Exercises checked for an old-key spelling match before a new one is made. */
+const LEGACY_SCAN = 500;
 
 /** One confirmed voice list, and one Undo of that list. */
 export const MAX_SETS_PER_BATCH = 30;
@@ -23,6 +32,52 @@ export async function getOwnedSession(
   return session;
 }
 
+/**
+ * The exercise a typed name means, whatever its spelling. Exercises saved
+ * before spelling variants matched keep their old key until the cleanup
+ * rewrites it, so a name that misses falls back to that key.
+ */
+export async function findExerciseByName(
+  ctx: QueryCtx | MutationCtx,
+  userId: Id<"users">,
+  formatted: FormattedExerciseName,
+): Promise<Doc<"exercises"> | null> {
+  const byKey = await ctx.db
+    .query("exercises")
+    .withIndex("by_user_and_normalized_name", (q) =>
+      q.eq("userId", userId).eq("normalizedName", formatted.normalizedName),
+    )
+    .first();
+  if (byKey) {
+    return byKey;
+  }
+  const legacyKey = legacyExerciseNameKey(formatted.name);
+  if (legacyKey !== formatted.normalizedName) {
+    const byLegacyKey = await ctx.db
+      .query("exercises")
+      .withIndex("by_user_and_normalized_name", (q) =>
+        q.eq("userId", userId).eq("normalizedName", legacyKey),
+      )
+      .first();
+    if (byLegacyKey) {
+      return byLegacyKey;
+    }
+  }
+  // An old key can be another spelling, such as "sit-ups" for "Sit ups".
+  // Only a library that still has old keys needs this scan.
+  const library = await ctx.db
+    .query("exercises")
+    .withIndex("by_user_and_normalized_name", (q) => q.eq("userId", userId))
+    .take(LEGACY_SCAN);
+  return (
+    library.find(
+      (exercise) =>
+        exercise.normalizedName !== exerciseNameKey(exercise.name) &&
+        exerciseNameKey(exercise.name) === formatted.normalizedName,
+    ) ?? null
+  );
+}
+
 export async function getOrCreateExercise(
   ctx: MutationCtx,
   userId: Id<"users">,
@@ -33,12 +88,7 @@ export async function getOrCreateExercise(
     throw userError("Exercise name must be 1 to 80 characters");
   }
 
-  const existing = await ctx.db
-    .query("exercises")
-    .withIndex("by_user_and_normalized_name", (q) =>
-      q.eq("userId", userId).eq("normalizedName", formatted.normalizedName),
-    )
-    .unique();
+  const existing = await findExerciseByName(ctx, userId, formatted);
 
   if (existing) {
     return existing._id;
@@ -249,12 +299,7 @@ export async function loadPreviousExerciseSets(
     return null;
   }
 
-  const exercise = await ctx.db
-    .query("exercises")
-    .withIndex("by_user_and_normalized_name", (q) =>
-      q.eq("userId", userId).eq("normalizedName", formatted.normalizedName),
-    )
-    .unique();
+  const exercise = await findExerciseByName(ctx, userId, formatted);
   if (!exercise || exercise.userId !== userId) {
     return null;
   }
@@ -348,7 +393,7 @@ function previousSetsResult(
   const ordered = [...sets].sort(compareSetsAscending);
   return {
     exerciseName: exercise.name,
-    normalizedName: exercise.normalizedName,
+    normalizedName: exerciseNameKey(exercise.name),
     sets: ordered.map((set) => ({
       reps: set.reps ?? null,
       weightLb: set.weightLb,

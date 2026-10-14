@@ -3,7 +3,7 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import { internalMutation } from "./_generated/server";
+import { internalMutation, internalQuery } from "./_generated/server";
 import { isEmailAllowed, normalizeEmail } from "./lib/accessControl";
 import { authedMutation, authedQuery } from "./lib/customFunctions";
 import {
@@ -23,6 +23,7 @@ import { setTypeValidator } from "./lib/setTypeValidator";
 import { userError } from "./lib/errors";
 import {
   EXERCISE_RECORD_SCAN,
+  findExerciseByName,
   getOrCreateExercise,
   loadRecentSetsForExercise,
   loadVoiceExerciseNames,
@@ -150,12 +151,7 @@ export const restForName = authedQuery({
     if (!formatted) {
       return null;
     }
-    const exercise = await ctx.db
-      .query("exercises")
-      .withIndex("by_user_and_normalized_name", (q) =>
-        q.eq("userId", ctx.userId).eq("normalizedName", formatted.normalizedName),
-      )
-      .unique();
+    const exercise = await findExerciseByName(ctx, ctx.userId, formatted);
     if (!exercise || exercise.userId !== ctx.userId) {
       return null;
     }
@@ -603,12 +599,7 @@ export const rename = authedMutation({
     if (!formatted) {
       throw userError("Exercise name must be 1 to 80 characters");
     }
-    const existing = await ctx.db
-      .query("exercises")
-      .withIndex("by_user_and_normalized_name", (q) =>
-        q.eq("userId", ctx.userId).eq("normalizedName", formatted.normalizedName),
-      )
-      .unique();
+    const existing = await findExerciseByName(ctx, ctx.userId, formatted);
     if (existing && existing._id !== exercise._id) {
       if (existing.userId !== ctx.userId) {
         throw userError("Exercise not found");
@@ -735,5 +726,170 @@ export const repointFinishedPlans = internalMutation({
     }
     await adjustPlanScans(ctx, args.intoId, -1);
     return null;
+  },
+});
+
+/** Exercises read per person by the spelling cleanup. More than this stops it. */
+const SPELLING_SCAN = 2000;
+/** Sets counted per exercise when choosing which spelling to keep. */
+const SPELLING_COUNT_CAP = 5000;
+
+const spellingGroupValidator = v.object({
+  keep: v.object({ _id: v.id("exercises"), name: v.string(), setCount: v.number() }),
+  merge: v.array(v.object({ _id: v.id("exercises"), name: v.string(), setCount: v.number() })),
+});
+
+const spellingReportValidator = v.object({
+  userId: v.id("users"),
+  email: v.union(v.string(), v.null()),
+  groups: v.array(spellingGroupValidator),
+  busy: v.array(v.string()),
+  rekeyed: v.number(),
+});
+
+type SpellingGroup = {
+  keep: { _id: Id<"exercises">; name: string; setCount: number };
+  merge: Array<{ _id: Id<"exercises">; name: string; setCount: number }>;
+};
+
+/**
+ * One person's exercises grouped by spelling. Each group with more than one
+ * exercise keeps the one with the most sets, then the oldest.
+ */
+async function findSpellingGroups(ctx: MutationCtx | QueryCtx, userId: Id<"users">) {
+  const rows = await ctx.db
+    .query("exercises")
+    .withIndex("by_user_and_normalized_name", (q) => q.eq("userId", userId))
+    .take(SPELLING_SCAN + 1);
+  if (rows.length > SPELLING_SCAN) {
+    throw new Error(`More than ${SPELLING_SCAN} exercises for ${userId}`);
+  }
+  const byKey = new Map<string, Array<Doc<"exercises">>>();
+  for (const exercise of rows) {
+    const key = formatExerciseName(exercise.name)?.normalizedName ?? exercise.normalizedName;
+    byKey.set(key, [...(byKey.get(key) ?? []), exercise]);
+  }
+  const groups: SpellingGroup[] = [];
+  const busy: string[] = [];
+  const rekey: Array<{ exercise: Doc<"exercises">; key: string }> = [];
+  for (const [key, members] of byKey) {
+    if (members.length === 1) {
+      rekey.push({ exercise: members[0], key });
+      continue;
+    }
+    const counted = await Promise.all(
+      members.map(async (exercise) => {
+        const sets = await ctx.db
+          .query("sets")
+          .withIndex("by_user_exercise_and_logged", (q) =>
+            q.eq("userId", userId).eq("exerciseId", exercise._id),
+          )
+          .take(SPELLING_COUNT_CAP);
+        return { exercise, setCount: sets.length };
+      }),
+    );
+    // A merge already running on any of them would refuse another one.
+    const merging = await Promise.all(
+      members.map(async (exercise) => {
+        const target = await ctx.db
+          .query("exercises")
+          .withIndex("by_merging_into", (q) => q.eq("mergingInto", exercise._id))
+          .first();
+        return exercise.mergingInto !== undefined || target !== null;
+      }),
+    );
+    if (merging.some(Boolean)) {
+      busy.push(members.map((exercise) => exercise.name).join(" / "));
+      continue;
+    }
+    counted.sort(
+      (left, right) =>
+        right.setCount - left.setCount || left.exercise.createdAt - right.exercise.createdAt,
+    );
+    const [keep, ...rest] = counted;
+    if (rest.some((item) => (item.exercise.pendingPlanScans ?? 0) > 0)) {
+      busy.push(members.map((exercise) => exercise.name).join(" / "));
+      continue;
+    }
+    rekey.push({ exercise: keep.exercise, key });
+    groups.push({
+      keep: { _id: keep.exercise._id, name: keep.exercise.name, setCount: keep.setCount },
+      merge: rest.map((item) => ({
+        _id: item.exercise._id,
+        name: item.exercise.name,
+        setCount: item.setCount,
+      })),
+    });
+  }
+  return { groups, busy, rekey };
+}
+
+/**
+ * Lists the exercises the spelling cleanup would merge, for every person.
+ * Changes nothing. Run it before `mergeSpellingVariants` to see the plan.
+ */
+export const spellingVariants = internalQuery({
+  args: {},
+  returns: v.array(spellingReportValidator),
+  handler: async (ctx) => {
+    const users = await ctx.db.query("users").take(1000);
+    const reports = [];
+    for (const user of users) {
+      const found = await findSpellingGroups(ctx, user._id);
+      const rekeyed = found.rekey.filter(({ exercise, key }) => exercise.normalizedName !== key);
+      if (found.groups.length > 0 || found.busy.length > 0 || rekeyed.length > 0) {
+        reports.push({
+          userId: user._id,
+          email: user.email ?? null,
+          groups: found.groups,
+          busy: found.busy,
+          rekeyed: rekeyed.length,
+        });
+      }
+    }
+    return reports;
+  },
+});
+
+/**
+ * Merges exercises that differ only in spelling into the one with the most
+ * sets, and stores every remaining exercise under its spelling key. Each
+ * merge runs like one chosen in the library, so big histories continue in
+ * later runs. Safe to run again: a group still merging is skipped and listed.
+ */
+export const mergeSpellingVariants = internalMutation({
+  args: { userId: v.optional(v.id("users")) },
+  returns: v.array(spellingReportValidator),
+  handler: async (ctx, args) => {
+    const users = args.userId
+      ? [await ctx.db.get("users", args.userId)].filter((user) => user !== null)
+      : await ctx.db.query("users").take(1000);
+    const reports = [];
+    for (const user of users) {
+      const found = await findSpellingGroups(ctx, user._id);
+      let rekeyed = 0;
+      for (const { exercise, key } of found.rekey) {
+        if (exercise.normalizedName !== key) {
+          await ctx.db.patch("exercises", exercise._id, { normalizedName: key });
+          rekeyed += 1;
+        }
+      }
+      for (const group of found.groups) {
+        for (const from of group.merge) {
+          const result = await applyMergeBatch(ctx, user._id, from._id, group.keep._id);
+          await scheduleNextStep(ctx, user._id, from._id, group.keep._id, result.done);
+        }
+      }
+      if (found.groups.length > 0 || found.busy.length > 0 || rekeyed > 0) {
+        reports.push({
+          userId: user._id,
+          email: user.email ?? null,
+          groups: found.groups,
+          busy: found.busy,
+          rekeyed,
+        });
+      }
+    }
+    return reports;
   },
 });

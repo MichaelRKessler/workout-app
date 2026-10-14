@@ -61,11 +61,11 @@ describe("merging exercises", () => {
 
     await asUser.mutation(api.sessions.logPast, {
       startedAt: Date.now() - 60 * 60 * 1000,
-      exercises: [{ name: "Curl", sets: [{ reps: 8, weightLb: 25 }] }],
+      exercises: [{ name: "Biceps curl", sets: [{ reps: 8, weightLb: 25 }] }],
     });
     const library = await asUser.query(api.exercises.list, {});
     const from = library.exercises.find((exercise) => exercise.name === "Curls");
-    const into = library.exercises.find((exercise) => exercise.name === "Curl");
+    const into = library.exercises.find((exercise) => exercise.name === "Biceps curl");
     if (!from || !into) {
       throw new Error("Expected both exercises");
     }
@@ -81,22 +81,22 @@ describe("merging exercises", () => {
       fromId: from._id,
       intoId: into._id,
     });
-    expect(merged).toMatchObject({ name: "Curl", continuing: false });
+    expect(merged).toMatchObject({ name: "Biceps curl", continuing: false });
 
     const finished = await asUser.query(api.sessions.get, { sessionId: open._id });
     const grouped = finished?.exercises.filter((exercise) => exercise.name !== "Shrug") ?? [];
-    expect(grouped.map((exercise) => exercise.name)).toEqual(["Curl", "Pushdown"]);
+    expect(grouped.map((exercise) => exercise.name)).toEqual(["Biceps curl", "Pushdown"]);
     expect(grouped[0]?.supersetId).toBeTruthy();
     expect(grouped[0]?.supersetId).toBe(grouped[1]?.supersetId);
 
     const routine = await asUser.query(api.routines.get, { routineId });
-    expect(routine?.exercises.map((exercise) => exercise.name)).toEqual(["Curl", "Pushdown"]);
+    expect(routine?.exercises.map((exercise) => exercise.name)).toEqual(["Biceps curl", "Pushdown"]);
     expect(routine?.exercises[0]?.supersetId).toBe(routine?.exercises[1]?.supersetId);
 
     const exported = await asUser.query(api.exportData.sets, {
       paginationOpts: { numItems: 20, cursor: null },
     });
-    const curl = exported.page.find((row) => row.exercise === "Curl" && row.reps === 12);
+    const curl = exported.page.find((row) => row.exercise === "Biceps curl" && row.reps === 12);
     const pushdown = exported.page.find((row) => row.exercise === "Pushdown");
     expect(curl?.superset).toBeTruthy();
     expect(curl?.superset).toBe(pushdown?.superset);
@@ -107,7 +107,7 @@ describe("merging exercises", () => {
     if (!repeated) {
       throw new Error("Expected the repeated workout");
     }
-    expect(repeated.plan.map((item) => item.name)).toEqual(["Curl", "Pushdown"]);
+    expect(repeated.plan.map((item) => item.name)).toEqual(["Biceps curl", "Pushdown"]);
     expect(repeated.plan[0]?.supersetId).toBeTruthy();
     expect(repeated.plan[0]?.supersetId).toBe(repeated.plan[1]?.supersetId);
 
@@ -117,7 +117,7 @@ describe("merging exercises", () => {
       sessionIds: [open._id],
     });
     const fromHistory = await asUser.query(api.routines.get, { routineId: saved });
-    expect(fromHistory?.exercises.map((exercise) => exercise.name)).toEqual(["Curl", "Pushdown"]);
+    expect(fromHistory?.exercises.map((exercise) => exercise.name)).toEqual(["Biceps curl", "Pushdown"]);
     expect(fromHistory?.exercises[0]?.supersetId).toBe(fromHistory?.exercises[1]?.supersetId);
   });
 
