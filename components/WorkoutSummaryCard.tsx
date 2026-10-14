@@ -1,6 +1,10 @@
 "use client";
 
 import { Button } from "@/components/Button";
+import { BadgeShelf, WorkoutRecap } from "@/components/WorkoutRecap";
+import { Confetti } from "@/components/workout/Confetti";
+import { api } from "@/convex/_generated/api";
+import { hashSeed } from "@/convex/lib/recap";
 import type { PersonalRecord } from "@/convex/lib/records";
 import { formatCalories, formatDistance } from "@/convex/lib/measures";
 import type { WeightUnit } from "@/convex/lib/units";
@@ -10,7 +14,10 @@ import {
   summaryMinutes,
   type WorkoutSummary,
 } from "@/lib/workoutSummary";
+import { headingFor } from "@/lib/recapText";
+import { useQuery } from "convex/react";
 import Link from "next/link";
+import { useState } from "react";
 
 export function WorkoutSummaryCard({
   summary,
@@ -115,6 +122,7 @@ function Stat({ label, value }: { label: string; value: string }) {
 }
 
 export function FinishedWorkout({
+  sessionId,
   summary,
   records,
   unit,
@@ -123,6 +131,8 @@ export function FinishedWorkout({
   dayKey,
   onDone,
 }: {
+  /** The saved workout on the server. Null while it waits to sync. */
+  sessionId: string | null;
   summary: WorkoutSummary;
   records: PersonalRecord[];
   unit: WeightUnit;
@@ -131,10 +141,29 @@ export function FinishedWorkout({
   dayKey: string;
   onDone: () => void;
 }) {
+  // Read once so the recap keeps the calendar it was opened with.
+  const [utcOffsetMinutes] = useState(() => -new Date().getTimezoneOffset());
+  const loaded = useQuery(
+    api.recap.forSession,
+    sessionId && !recordsPending ? { sessionId, utcOffsetMinutes } : "skip",
+  );
+  const recap = loaded?.recap ?? null;
+  const names = loaded?.exerciseNames ?? {};
+  const seed = recap?.seed ?? hashSeed(sessionId ?? dayKey);
+  const heading = loaded === undefined && sessionId && !recordsPending
+    ? "Workout saved"
+    : headingFor(seed, recap?.confetti ?? false);
+
   return (
     <div className="px-5 pt-3 pb-[calc(32px+env(safe-area-inset-bottom))]">
-      <h1 className="mt-2 text-title leading-tight font-semibold tracking-[-0.03em]">Workout saved</h1>
-      <p className="mt-1.5 text-base text-muted">It is in History with this summary.</p>
+      {recap?.confetti ? <Confetti /> : null}
+      <h1 className="mt-2 text-title leading-tight font-semibold tracking-[-0.03em]">{heading}</h1>
+      <p className="mt-1.5 text-base text-muted">Workout saved to History.</p>
+      {recap ? (
+        <div className="mt-5">
+          <WorkoutRecap recap={recap} names={names} unit={unit} />
+        </div>
+      ) : null}
       <div className="mt-5">
         <WorkoutSummaryCard
           summary={summary}
@@ -155,6 +184,7 @@ export function FinishedWorkout({
           Done
         </Button>
       </div>
+      {recap ? <BadgeShelf badges={recap.badges} names={names} /> : null}
     </div>
   );
 }

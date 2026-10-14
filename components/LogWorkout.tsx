@@ -158,6 +158,7 @@ export function LogWorkout() {
   const [finishError, setFinishError] = useState<string | null>(null);
   const [ending, setEnding] = useState(false);
   const [finished, setFinished] = useState<{
+    sessionId: string | null;
     summary: WorkoutSummary;
     records: PersonalRecord[];
     recordsPending: boolean;
@@ -439,6 +440,7 @@ export function LogWorkout() {
     setFinishOpen(false);
     plan.clearPlan();
     setFinished({
+      sessionId: saved.sessionId ?? knownSession?._id ?? null,
       summary: summarizeSessions([
         {
           startedAt: snapshotStart,
@@ -497,6 +499,7 @@ export function LogWorkout() {
   if (finished) {
     return (
       <FinishedWorkout
+        sessionId={finished.sessionId}
         summary={finished.summary}
         records={finished.records}
         unit={unit}

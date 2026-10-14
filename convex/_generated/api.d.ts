@@ -23,6 +23,7 @@ import type * as lib_exerciseName from "../lib/exerciseName.js";
 import type * as lib_offlineSync from "../lib/offlineSync.js";
 import type * as lib_workouts from "../lib/workouts.js";
 import type * as offline from "../offline.js";
+import type * as recap from "../recap.js";
 import type * as routines from "../routines.js";
 import type * as sessions from "../sessions.js";
 import type * as sets from "../sets.js";
@@ -50,6 +51,7 @@ declare const fullApi: ApiFromModules<{
   "lib/offlineSync": typeof lib_offlineSync;
   "lib/workouts": typeof lib_workouts;
   offline: typeof offline;
+  recap: typeof recap;
   routines: typeof routines;
   sessions: typeof sessions;
   sets: typeof sets;
