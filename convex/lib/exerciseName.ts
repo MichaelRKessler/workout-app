@@ -27,6 +27,8 @@ export function formatExerciseName(raw: string): FormattedExerciseName | null {
 export function exerciseNameKey(name: string): string {
   const words = name
     .toLocaleLowerCase()
+    // "Farmer's" is one word, not "farmer" and "s".
+    .replace(/['\u2019]/g, "")
     .split(/[^\p{L}\p{N}]+/u)
     .filter((word) => word.length > 0)
     .map(singular);
@@ -43,6 +45,10 @@ export function legacyExerciseNameKey(name: string): string {
 function singular(word: string): string {
   if (word.length < 3 || !word.endsWith("s") || word.endsWith("ss")) {
     return word;
+  }
+  // Flies and carries become fly and carry.
+  if (word.length > 4 && word.endsWith("ies")) {
+    return `${word.slice(0, -3)}y`;
   }
   // Crunches, pushes, boxes and presses drop "es". Other plurals drop "s".
   if (/(ch|sh|x|ss)es$/.test(word)) {

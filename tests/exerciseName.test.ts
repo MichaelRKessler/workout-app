@@ -38,6 +38,8 @@ test("keeps words ending in ss and strips es from presses and crunches", () => {
   assert.equal(formatExerciseName("Bench presses")?.normalizedName, "benchpress");
   assert.equal(formatExerciseName("Crunches")?.normalizedName, formatExerciseName("crunch")?.normalizedName);
   assert.equal(formatExerciseName("Lunges")?.normalizedName, formatExerciseName("Lunge")?.normalizedName);
+  assert.equal(formatExerciseName("Chest flies")?.normalizedName, formatExerciseName("Chest fly")?.normalizedName);
+  assert.equal(formatExerciseName("Farmer's carries")?.normalizedName, formatExerciseName("farmers carry")?.normalizedName);
 });
 
 test("keeps different exercises apart", () => {
