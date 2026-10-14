@@ -132,14 +132,14 @@ describe("rename and merge", () => {
     });
     await asUser.mutation(api.sets.log, {
       sessionId,
-      exerciseName: "benchpress",
+      exerciseName: "flat bench",
       reps: 3,
       weightLb: 185,
     });
 
     const library = await asUser.query(api.exercises.list, {});
     const kept = library.exercises.find((exercise) => exercise.name === "bench press");
-    const extra = library.exercises.find((exercise) => exercise.name === "benchpress");
+    const extra = library.exercises.find((exercise) => exercise.name === "flat bench");
     if (!kept || !extra) {
       throw new Error("expected both exercises");
     }
@@ -157,14 +157,14 @@ describe("rename and merge", () => {
     expect(conflict).toMatchObject({
       status: "conflict",
       intoId: kept._id,
-      fromName: "benchpress",
+      fromName: "flat bench",
       setCount: 1,
       setCountCapped: false,
     });
     const stillTwo = await asUser.query(api.exercises.list, {});
     expect(stillTwo.exercises).toHaveLength(2);
     expect(stillTwo.exercises.map((exercise) => exercise.name)).toEqual(
-      expect.arrayContaining(["Bench Press", "benchpress"]),
+      expect.arrayContaining(["Bench Press", "flat bench"]),
     );
 
     await expect(

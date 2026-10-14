@@ -233,7 +233,7 @@ describe("checking exercise stats in production", () => {
     await drain(t);
 
     const first = await t.query(internal.exerciseStats.auditUser, { userId, cursor: null });
-    expect(first).toEqual({ exercises: 10, clean: 10, flagged: [], continueCursor: "lift 09" });
+    expect(first).toEqual({ exercises: 10, clean: 10, flagged: [], continueCursor: "lift09" });
     const second = await t.query(internal.exerciseStats.auditUser, { userId, cursor: first.continueCursor });
     expect(second).toEqual({ exercises: 2, clean: 2, flagged: [], continueCursor: null });
   });

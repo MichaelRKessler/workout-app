@@ -1,6 +1,12 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
-import { formatExerciseName, MAX_KNOWN_EXERCISE_NAMES } from "./exerciseName";
+import {
+  exerciseNameKey,
+  formatExerciseName,
+  legacyExerciseNameKey,
+  MAX_KNOWN_EXERCISE_NAMES,
+  type FormattedExerciseName,
+} from "./exerciseName";
 import { normalizeStoredSet, type NormalizedSet } from "./measures";
 import { MAX_REPS, MIN_REPS, REPS_MESSAGE, wholeInRange } from "./setLimits";
 import { persistedSetType, resolvedSetType, type SetType } from "./setType";
@@ -23,6 +29,37 @@ export async function getOwnedSession(
   return session;
 }
 
+/**
+ * The exercise a typed name means, whatever its spelling. Exercises saved
+ * before spelling variants matched keep their old key until the cleanup
+ * rewrites it, so a name that misses falls back to that key.
+ */
+export async function findExerciseByName(
+  ctx: QueryCtx | MutationCtx,
+  userId: Id<"users">,
+  formatted: FormattedExerciseName,
+): Promise<Doc<"exercises"> | null> {
+  const byKey = await ctx.db
+    .query("exercises")
+    .withIndex("by_user_and_normalized_name", (q) =>
+      q.eq("userId", userId).eq("normalizedName", formatted.normalizedName),
+    )
+    .first();
+  if (byKey) {
+    return byKey;
+  }
+  const legacyKey = legacyExerciseNameKey(formatted.name);
+  if (legacyKey === formatted.normalizedName) {
+    return null;
+  }
+  return await ctx.db
+    .query("exercises")
+    .withIndex("by_user_and_normalized_name", (q) =>
+      q.eq("userId", userId).eq("normalizedName", legacyKey),
+    )
+    .first();
+}
+
 export async function getOrCreateExercise(
   ctx: MutationCtx,
   userId: Id<"users">,
@@ -33,12 +70,7 @@ export async function getOrCreateExercise(
     throw userError("Exercise name must be 1 to 80 characters");
   }
 
-  const existing = await ctx.db
-    .query("exercises")
-    .withIndex("by_user_and_normalized_name", (q) =>
-      q.eq("userId", userId).eq("normalizedName", formatted.normalizedName),
-    )
-    .unique();
+  const existing = await findExerciseByName(ctx, userId, formatted);
 
   if (existing) {
     return existing._id;
@@ -249,12 +281,7 @@ export async function loadPreviousExerciseSets(
     return null;
   }
 
-  const exercise = await ctx.db
-    .query("exercises")
-    .withIndex("by_user_and_normalized_name", (q) =>
-      q.eq("userId", userId).eq("normalizedName", formatted.normalizedName),
-    )
-    .unique();
+  const exercise = await findExerciseByName(ctx, userId, formatted);
   if (!exercise || exercise.userId !== userId) {
     return null;
   }
@@ -348,7 +375,7 @@ function previousSetsResult(
   const ordered = [...sets].sort(compareSetsAscending);
   return {
     exerciseName: exercise.name,
-    normalizedName: exercise.normalizedName,
+    normalizedName: exerciseNameKey(exercise.name),
     sets: ordered.map((set) => ({
       reps: set.reps ?? null,
       weightLb: set.weightLb,
