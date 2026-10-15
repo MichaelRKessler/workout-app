@@ -93,7 +93,8 @@ function ImportSheet({ onClose }: { onClose: () => void }) {
     }
     setStage({ name: "reading", done: 0, total: parts.length });
     const today = calendarDayKey(Date.now());
-    const proposals: ImportProposal[] = [];
+    // Kept in file order, so a workout split across parts keeps its sets in order.
+    const proposals: Array<ImportProposal | undefined> = [];
     const errors: string[] = [];
     let done = 0;
     let next = 0;
@@ -106,7 +107,7 @@ function ImportSheet({ onClose }: { onClose: () => void }) {
           continue;
         }
         try {
-          proposals.push(await requestPart(part, index, parts.length, today, controller.signal));
+          proposals[index] = await requestPart(part, index, parts.length, today, controller.signal);
         } catch (caught) {
           if (controller.signal.aborted) {
             return;
@@ -121,11 +122,12 @@ function ImportSheet({ onClose }: { onClose: () => void }) {
     if (controller.signal.aborted) {
       return;
     }
-    if (proposals.length === 0) {
+    const answered = proposals.filter((proposal): proposal is ImportProposal => proposal !== undefined);
+    if (answered.length === 0) {
       setStage({ name: "pick", error: errors[0] ?? "That file could not be read. Try another file." });
       return;
     }
-    const merged = mergeProposals(proposals);
+    const merged = mergeProposals(answered);
     try {
       const existing = await loadExisting(merged);
       const review = reviewImport(merged, existing, Date.now());

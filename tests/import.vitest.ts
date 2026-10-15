@@ -295,6 +295,12 @@ describe("checking a file before it is saved", () => {
     ]);
     expect(merged.unreadable).toBe(3);
     expect(merged.body).toHaveLength(1);
+    const twice = mergeProposals([
+      proposal({
+        body: ["07:00", "19:00"].map((time) => ({ date: "2026-10-02", time, weightLb: 232, bodyFatPct: null, waistCm: null, chestCm: null, armCm: null, hipsCm: null, thighCm: null, note: null })),
+      }),
+    ]);
+    expect(twice.body.map((entry) => entry.time)).toEqual(["07:00", "19:00"]);
     expect(merged.workouts.map((workout) => workout.date)).toEqual(["2026-10-01", "2026-10-02"]);
     expect(merged.workouts[1]).toMatchObject({ note: "legs" });
     expect(merged.workouts[1]?.exercises.map((exercise) => [exercise.exerciseName, exercise.sets.length])).toEqual([

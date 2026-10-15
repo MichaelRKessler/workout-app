@@ -80,7 +80,7 @@ export function mergeProposals(proposals: readonly ImportProposal[]): ImportProp
     }
     for (const entry of proposal.body) {
       // The same row read twice, for example a header-only overlap, is one entry.
-      const key = JSON.stringify([entry.date, ...BODY_FIELDS.map(([field]) => entry[field])]);
+      const key = JSON.stringify([entry.date, entry.time, entry.note, ...BODY_FIELDS.map(([field]) => entry[field])]);
       if (!body.has(key)) {
         body.set(key, entry);
       }
