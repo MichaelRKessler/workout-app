@@ -3,7 +3,7 @@
 import { useOfflineLog, type SyncOutcome } from "@/components/OfflineSync";
 import type { ToastMessage } from "@/components/Toast";
 import type { WeightUnit } from "@/convex/lib/units";
-import { formatPersonalRecord, formatPersonalRecords, pluralize } from "@/lib/format";
+import { formatPersonalRecord, pluralize } from "@/lib/format";
 import type { SetLine } from "@/lib/groupSets";
 import { QUEUED_SAVE_MESSAGE } from "@/lib/offline/messages";
 import { takeToast } from "@/lib/pendingToast";
@@ -92,12 +92,13 @@ export function useSetActions({
     if (count === 0) {
       return;
     }
-    const added = `Added ${pluralize(count, "set")} · ${exerciseName}`;
-    const record = formatPersonalRecords(saved.personalRecords, unit);
+    // One short line: the full record is in the recap, and a long toast covers the card.
+    const added = count === 1 ? `Logged ${exerciseName}` : `Logged ${pluralize(count, "set")} · ${exerciseName}`;
+    const records = saved.personalRecords.length;
     const undoIds = saved.setIds.length > 0 ? saved.setIds : saved.clientIds;
     showToast({
       tone: "info",
-      message: record ? `${record}. ${added}` : added,
+      message: records > 0 ? `${added} · ${records > 1 ? "New PRs" : "New PR"}` : added,
       action: { label: "Undo", onClick: () => void undo(undoIds) },
     });
   }

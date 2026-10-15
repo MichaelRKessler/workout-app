@@ -10,7 +10,7 @@ import { ExerciseRow } from "@/components/workout/ExerciseRow";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { exerciseLink } from "@/lib/exerciseLink";
-import { formatLongDate, formatTimeOfDay, pluralize } from "@/lib/format";
+import { formatDayTitle, formatTimeOfDay, pluralize } from "@/lib/format";
 import { groupSets } from "@/lib/groupSets";
 import { packSupersetOrder, supersetBlocks } from "@/convex/lib/superset";
 import { calendarDayKey } from "@/lib/historyDays";
@@ -125,7 +125,7 @@ function OpenSessionDetail({
       <PageHeader
         backHref="/history"
         backLabel="Back to history"
-        title={<span suppressHydrationWarning>{formatLongDate(session.startedAt)}</span>}
+        title={<span suppressHydrationWarning>{formatDayTitle(session.startedAt)}</span>}
       >
         <p className="mt-1.5 text-base text-muted" suppressHydrationWarning>
           {meta}

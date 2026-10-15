@@ -47,7 +47,8 @@ test("caches read as empty and skip writes when storage is blocked or full", () 
 
 test("the rest bar renders when storage is blocked", () => {
   blockStorage();
-  render(<RestTimer setCount={0} loading={false} />);
+  const view = render(<RestTimer setCount={0} loading={false} />);
+  view.rerender(<RestTimer setCount={1} loading={false} />);
   expect(screen.getByText("1:30")).toBeInstanceOf(HTMLElement);
   expect(() => screen.getByRole("button", { name: "+30s" }).click()).not.toThrow();
 });

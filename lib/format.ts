@@ -244,7 +244,7 @@ export function formatRecordDetail(
   }
   const load = formatWeightLb(record.weightLb, unit);
   const estimate =
-    record.epleyLb === null ? null : `est. 1RM ${formatWeightLb(record.epleyLb, unit)}`;
+    record.epleyLb === null ? null : `est. 1RM ${formatVolumeLb(record.epleyLb, unit)}`;
   if (record.kind === "epley" && estimate) {
     return `${record.exerciseName} · ${estimate}`;
   }
@@ -288,6 +288,17 @@ export function formatPersonalRecords(
     }
   }
   return `New PRs · ${names.join(", ")}`;
+}
+
+/** Page title for a day: "Tue, Oct 13", with the year when it isn't this year. Fits on one line. */
+export function formatDayTitle(timestamp: number, now: number = Date.now()): string {
+  const sameYear = new Date(timestamp).getFullYear() === new Date(now).getFullYear();
+  return new Intl.DateTimeFormat(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    ...(sameYear ? {} : { year: "numeric" }),
+  }).format(timestamp);
 }
 
 /** "Sun, Oct 11" */

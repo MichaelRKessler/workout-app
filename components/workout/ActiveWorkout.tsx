@@ -38,7 +38,6 @@ export function ActiveWorkout({
   onDiscard,
   idleNote,
   emptyMessage,
-  exerciseCount,
   planList,
   composer,
   editingPlan = false,
@@ -90,28 +89,28 @@ export function ActiveWorkout({
 
   return (
     <>
-      <div className="px-5 pt-3 pb-[calc(16rem+var(--page-inset))]">
-        <header className="border-b border-line pb-4">
+      <div className="px-5 pt-3 pb-[calc(10.5rem+var(--page-inset))]">
+        <header className="border-b border-line pb-3">
           <div className="flex items-center justify-between gap-3">
-            <p className="min-w-0 text-xs leading-snug" suppressHydrationWarning>
-              <span className="font-medium tracking-[0.06em] text-subtle uppercase">In progress</span>
-              <span className="mt-0.5 block text-subtle">{formatShortDate(startedAt)}</span>
+            <p className="min-w-0 text-xs leading-snug font-medium tracking-[0.06em] text-subtle uppercase" suppressHydrationWarning>
+              In progress
+              {/* The date only matters for a workout left open from another day. */}
+              {formatShortDate(startedAt) !== formatShortDate(Date.now()) ? ` · ${formatShortDate(startedAt)}` : ""}
+              {" · "}
+              {pluralize(setCount, "set")}
             </p>
             <TopActions />
           </div>
-          <div className="flex flex-wrap items-end justify-between gap-x-3 gap-y-2">
-            <div className="flex flex-col gap-0.5">
-              <p className="font-mono text-timer leading-[1.15] font-medium tracking-[-0.04em]">
+          <div className="mt-1 flex items-center justify-between gap-3">
+            <div className="flex min-w-0 flex-col">
+              <p className="font-mono text-xl leading-tight font-semibold tabular-nums">
                 <span className="sr-only">Elapsed </span>
                 <ElapsedClock startedAt={startedAt} />
               </p>
-              <p className="text-sm text-muted">
-                {pluralize(exerciseCount ?? groups.length, "exercise")} · {pluralize(setCount, "set")}
-                {idleNote ? <span className="text-subtle"> · {idleNote}</span> : null}
-              </p>
-              {note ? <p className="mt-1 text-sm text-muted">{note}</p> : null}
+              {idleNote ? <p className="text-sm text-subtle">{idleNote}</p> : null}
+              {note ? <p className="text-sm text-muted">{note}</p> : null}
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex shrink-0 items-center gap-1">
               {canEditPlan ? (
                 <button
                   type="button"

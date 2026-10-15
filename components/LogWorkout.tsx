@@ -27,6 +27,7 @@ import { plannedCompletedAt } from "@/convex/lib/sessionTiming";
 import { EXAMPLE_EXERCISES } from "@/lib/examples";
 import { useWeightUnit } from "@/components/WeightUnit";
 import { formatDuration, pluralize } from "@/lib/format";
+import { planLeftNote } from "@/lib/workoutPlan";
 import { summarizeSessions, type WorkoutSummary } from "@/lib/workoutSummary";
 import type { PersonalRecord } from "@/convex/lib/records";
 import { groupSets } from "@/lib/groupSets";
@@ -81,6 +82,7 @@ function combinedNote(existing: string | null | undefined, extra: string | null)
 export function LogWorkout() {
   const openSession = useQuery(api.sessions.getOpen);
   const routineList = useQuery(api.routines.list);
+  const nextRoutine = useQuery(api.routines.nextUp);
   const beginWorkout = useBeginWorkout();
   const exercises = useQuery(api.exercises.list);
   const sets = useQuery(
@@ -681,6 +683,7 @@ export function LogWorkout() {
             lastWorkout={lastWorkout}
             weekSummary={weekSummary}
             routines={routineList ?? plan.cachedRoutines ?? undefined}
+            nextRoutine={nextRoutine}
             offline={offline}
             typing={homeTyping}
             repeating={beginWorkout.pending}
@@ -795,6 +798,7 @@ export function LogWorkout() {
         open={finishOpen && !showStale}
         summary={`${pluralize(groups.length, "exercise")} · ${pluralize(sessionSets.length, "set")} · ${formatDuration(savedEnd - startedAt)}`}
         note={idleTrimmed ? "Idle time after your last set isn't counted." : null}
+        planNote={planLeftNote(planView?.rows)}
         pending={ending}
         error={finishError}
         workoutNote={finishNote}
@@ -817,3 +821,4 @@ export function LogWorkout() {
     </>
   );
 }
+

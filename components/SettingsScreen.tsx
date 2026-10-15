@@ -17,7 +17,6 @@ import { formatElapsed } from "@/lib/format";
 import { readRestChime, REST_CHIME_KEY, restChimeStored } from "@/lib/restChime";
 import { adjustRestSeconds, readRestSeconds, REST_STEP_SECONDS, REST_STORAGE_KEY } from "@/lib/restTimer";
 import { useMutation, useQuery } from "convex/react";
-import Link from "next/link";
 import { useEffect, useState } from "react";
 import { readLocal, writeLocal } from "@/lib/localValue";
 
@@ -38,7 +37,6 @@ export function SettingsScreen() {
 
   const name = viewer?.name || viewer?.email || "Signed in";
   const initial = (viewer?.name || viewer?.email || "").trim().charAt(0).toUpperCase();
-  const dark = theme === "dark";
 
   async function chooseUnit(next: WeightUnit) {
     if (next === unit || savingUnit || offline) {
@@ -87,8 +85,6 @@ export function SettingsScreen() {
     <div className="px-5 pt-3 pb-[calc(32px+var(--page-inset))]">
       <PageHeader backHref="/" title="Settings" />
 
-      <AccessSettings />
-
       <section aria-labelledby="settings-units" className="mt-7">
         <SectionLabel id="settings-units">Weight</SectionLabel>
         <div className="overflow-hidden rounded-[1.25rem] border border-line bg-surface">
@@ -112,8 +108,7 @@ export function SettingsScreen() {
             </div>
           </div>
           <p className="border-t border-line px-4 py-3 text-sm leading-normal text-muted">
-            Shown in this unit. Saved weights stay in pounds, so a workout logged in pounds still
-            means pounds if you switch to kilograms.
+            Only changes what you see. Saved weights don&apos;t change.
             {offline ? " Changing the unit needs a connection." : ""}
           </p>
         </div>
@@ -142,9 +137,7 @@ export function SettingsScreen() {
             </div>
           </div>
           <p className="border-t border-line px-4 py-3 text-sm leading-normal text-muted">
-            Inches follow pounds, and centimeters follow kilograms, until you pick one here. After
-            that, it stays when you change the weight unit. Body measurements are stored in
-            centimeters.
+            Follows the weight unit until you pick one.
             {offline ? " Changing the unit needs a connection." : ""}
           </p>
         </div>
@@ -217,8 +210,7 @@ export function SettingsScreen() {
             </div>
           ) : null}
           <p className="border-t border-line px-4 py-3 text-sm leading-normal text-muted">
-            When every working set hit its reps last time, a Try button offers the next load.
-            Numbers stay as they are until you tap it.
+            Offers the next load when every working set hit its reps last time.
             {offline ? " Changing this needs a connection." : ""}
           </p>
         </div>
@@ -231,54 +223,32 @@ export function SettingsScreen() {
         </div>
       </section>
 
-      <section aria-labelledby="settings-exercises" className="mt-7">
-        <SectionLabel id="settings-exercises">Library</SectionLabel>
-        <div className="overflow-hidden rounded-[1.25rem] border border-line bg-surface">
-          <Link
-            href="/body"
-            className="flex min-h-14 items-center justify-between border-b border-line px-4 text-base font-medium hover:bg-fill-2"
-          >
-            Body
-            <span className="text-sm font-normal text-muted">Weight and measurements</span>
-          </Link>
-          <Link
-            href="/exercises"
-            className="flex min-h-14 items-center justify-between px-4 text-base font-medium hover:bg-fill-2"
-          >
-            Exercises
-            <span className="text-sm font-normal text-muted">Rename or combine</span>
-          </Link>
-        </div>
-      </section>
-
       <section aria-labelledby="settings-appearance" className="mt-7">
         <SectionLabel id="settings-appearance">Appearance</SectionLabel>
         <div className="overflow-hidden rounded-[1.25rem] border border-line bg-surface">
-          <div className="flex min-h-14 items-center justify-between gap-4 px-4">
-            <span id="dark-mode-label" className="text-base font-medium">
-              Dark mode
-            </span>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={dark}
-              aria-labelledby="dark-mode-label"
-              onClick={() => setTheme(dark ? "light" : "dark")}
-              className="-mr-1 flex h-11 items-center px-1"
-            >
-              <span
-                aria-hidden="true"
-                className={`relative h-8 w-13 rounded-full transition-colors ${
-                  dark ? "bg-foreground" : "bg-line"
-                }`}
-              >
-                <span
-                  className={`absolute top-0.5 left-0.5 size-7 rounded-full bg-surface shadow-[0_1px_3px_rgb(0_0_0/0.2)] transition-transform ${
-                    dark ? "translate-x-5" : "translate-x-0"
+          <div className="flex min-h-14 flex-wrap items-center justify-between gap-x-4 gap-y-2 px-4 py-3">
+            <span className="text-base font-medium">Theme</span>
+            <div role="group" aria-label="Theme" className="flex rounded-full border border-line p-0.5">
+              {(
+                [
+                  ["system", "Match phone"],
+                  ["light", "Light"],
+                  ["dark", "Dark"],
+                ] as const
+              ).map(([choice, label]) => (
+                <button
+                  key={choice}
+                  type="button"
+                  aria-pressed={theme === choice}
+                  onClick={() => setTheme(choice)}
+                  className={`min-h-11 rounded-full px-3.5 text-sm font-medium ${
+                    theme === choice ? "bg-inverse text-inverse-ink" : "text-muted"
                   }`}
-                />
-              </span>
-            </button>
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
       </section>
@@ -314,6 +284,8 @@ export function SettingsScreen() {
           ) : null}
         </div>
       </section>
+
+      <AccessSettings />
       {signOut.dialog}
     </div>
   );
@@ -399,8 +371,7 @@ function RestSettings() {
           </button>
         </div>
         <p className="border-t border-line px-4 py-3 text-sm leading-normal text-muted">
-          This is the rest for any exercise without its own. During a workout, changing the time
-          is just for that rest until you tap Save for the exercise.
+          Used for any exercise without its own rest.
         </p>
         <ExerciseRestList />
       </div>

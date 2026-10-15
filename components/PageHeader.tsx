@@ -6,12 +6,15 @@ export function PageHeader({
   backHref,
   backLabel = "Back",
   title,
+  action,
   children,
 }: {
   /** Left out on the tab bar's own pages, which need no way back. */
   backHref?: string;
   backLabel?: string;
   title: ReactNode;
+  /** A small button on the title's line, such as Edit. */
+  action?: ReactNode;
   children?: ReactNode;
 }) {
   return (
@@ -25,7 +28,14 @@ export function PageHeader({
           <ChevronLeftIcon className="size-6" strokeWidth={1.8} />
         </Link>
       ) : null}
-      <h1 className={`${backHref ? "mt-1.5" : "mt-3"} text-title leading-tight font-semibold tracking-[-0.03em]`}>{title}</h1>
+      {action ? (
+        <div className={`${backHref ? "mt-1.5" : "mt-3"} flex items-center justify-between gap-3`}>
+          <h1 className="min-w-0 text-title leading-tight font-semibold tracking-[-0.03em]">{title}</h1>
+          <div className="shrink-0">{action}</div>
+        </div>
+      ) : (
+        <h1 className={`${backHref ? "mt-1.5" : "mt-3"} text-title leading-tight font-semibold tracking-[-0.03em]`}>{title}</h1>
+      )}
       {children}
     </header>
   );

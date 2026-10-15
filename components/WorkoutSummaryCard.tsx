@@ -174,15 +174,15 @@ export function FinishedWorkout({
         />
       </div>
       <div className="mt-6 flex flex-col gap-2.5">
+        <Button size="lg" className="w-full" onClick={onDone}>
+          Done
+        </Button>
         <Link
           href={`/history/day/${dayKey}`}
-          className="inline-flex min-h-13 items-center justify-center rounded-full bg-inverse px-6 text-base font-semibold text-inverse-ink hover:opacity-90"
+          className="inline-flex min-h-13 items-center justify-center rounded-full border border-line bg-surface px-6 text-base font-semibold hover:bg-fill-2"
         >
           View in History
         </Link>
-        <Button variant="secondary" size="lg" className="w-full" onClick={onDone}>
-          Done
-        </Button>
       </div>
       {recap ? <BadgeShelf badges={recap.badges} names={names} /> : null}
     </div>

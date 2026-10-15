@@ -18,7 +18,8 @@ export function toastDuration(toast: Pick<ToastMessage, "tone" | "action">): num
 }
 
 /**
- * A short note above the bottom controls. Give it a `key` per message so the
+ * A short note above the tab bar, or at the top of the screen when `raised`
+ * (a workout or the typing bar holds the bottom). Give it a `key` per message so the
  * timer restarts for each one. The timer pauses while the toast is hovered or
  * has focus, so its action can still be reached.
  */
@@ -29,6 +30,7 @@ export function Toast({
 }: {
   toast: ToastMessage | null;
   onDismiss: () => void;
+  /** The bottom is busy, so show it at the top where it covers only the header. */
   raised: boolean;
 }) {
   const onDismissRef = useRef(onDismiss);
@@ -52,7 +54,7 @@ export function Toast({
       aria-live="polite"
       className={`pointer-events-none fixed inset-x-0 z-30 flex justify-center px-4 ${
         raised
-          ? "bottom-[calc(15rem+var(--page-inset))]"
+          ? "top-[calc(env(safe-area-inset-top)+8px)]"
           : "bottom-[calc(20px+var(--page-inset))]"
       }`}
     >

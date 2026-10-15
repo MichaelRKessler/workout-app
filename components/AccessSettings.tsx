@@ -53,7 +53,7 @@ export function AccessSettings() {
 
   return (
     <section aria-labelledby="settings-access" className="mt-7">
-      <SectionLabel id="settings-access">Access</SectionLabel>
+      <SectionLabel id="settings-access">Admin · who can sign in</SectionLabel>
       <div className="overflow-hidden rounded-[1.25rem] border border-line bg-surface">
         <form onSubmit={(event) => void onAdd(event)} className="border-b border-line p-4">
           <label htmlFor="allow-email" className="text-xs font-medium tracking-[0.06em] text-subtle uppercase">

@@ -16,6 +16,7 @@ import {
   routineNameOrThrow,
 } from "./lib/routineRecords";
 import { withStoredSuperset } from "./lib/superset";
+import { pickNextRoutine } from "./lib/nextRoutine";
 
 const targetFields = {
   targetSets: v.optional(v.number()),
@@ -90,6 +91,35 @@ export const list = authedQuery({
       }),
     );
     return presented;
+  },
+});
+
+/** How many finished workouts to look back through for the last routine used. */
+const NEXT_UP_LOOKBACK = 20;
+
+/** The routine that comes next in rotation, for Home's "Next up". Null with no routines. */
+export const nextUp = authedQuery({
+  args: {},
+  returns: v.union(v.object({ _id: v.id("routines"), name: v.string() }), v.null()),
+  handler: async (ctx) => {
+    const routines = await listOwnedRoutines(ctx, ctx.userId);
+    if (routines.length === 0) {
+      return null;
+    }
+    const recent = await ctx.db
+      .query("sessions")
+      .withIndex("by_user_status_and_started", (q) =>
+        q.eq("userId", ctx.userId).eq("status", "completed"),
+      )
+      .order("desc")
+      .take(NEXT_UP_LOOKBACK);
+    const last = recent.find((session) => session.routineId !== undefined)?.routineId ?? null;
+    const nextId = pickNextRoutine(
+      routines.map((routine) => routine._id),
+      last,
+    );
+    const next = routines.find((routine) => routine._id === nextId);
+    return next ? { _id: next._id, name: next.name } : null;
   },
 });
 

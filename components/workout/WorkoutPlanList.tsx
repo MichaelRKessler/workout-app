@@ -541,6 +541,8 @@ function GuidedCard({
   const detail = [target, setProgress.label].filter((part) => part !== null).join(" · ");
   const progressHref = exerciseLink(row.exerciseId, "/");
   const last = row.sets[row.sets.length - 1];
+  // Planned sets still to do, drawn as empty chips. Capped so a typo can't fill the card.
+  const remaining = row.skipped ? 0 : Math.min(Math.max((row.targetSets ?? 0) - row.sets.length, 0), 10);
   const percent = progress.setsPlanned > 0 ? Math.round((progress.setsDone / progress.setsPlanned) * 100) : 0;
 
   return (
@@ -588,22 +590,33 @@ function GuidedCard({
         </div>
         <GuidedDemo key={row.exerciseId} exerciseId={progressHref ? row.exerciseId : null} name={row.name} />
 
-        {row.sets.length > 0 ? (
-          <div className="mt-2 flex flex-wrap gap-x-3 font-mono text-sm text-muted">
+        {row.sets.length > 0 || remaining > 0 ? (
+          <ul aria-label={`Sets of ${row.name}`} className="mt-3 flex flex-wrap gap-2">
             {row.sets.map((set, setIndex) => (
-              <button
-                key={set._id}
-                type="button"
-                onClick={() => onEditSet(set)}
-                aria-label={`Edit set ${setIndex + 1} of ${row.name}, ${describeSet(set, unit)}`}
-                className="min-h-11 text-left"
-              >
-                {formatSetShort(set, unit)}
-                <SetTypeTag setType={set.setType} />
-                {set.pending ? <span className="ml-1 font-sans text-xs">· pending</span> : null}
-              </button>
+              <li key={set._id}>
+                <button
+                  type="button"
+                  onClick={() => onEditSet(set)}
+                  aria-label={`Edit set ${setIndex + 1} of ${row.name}, ${describeSet(set, unit)}`}
+                  className="inline-flex min-h-11 items-center gap-1.5 rounded-full bg-fill-2 px-3 font-mono text-sm font-medium text-foreground hover:bg-fill"
+                >
+                  <span aria-hidden="true" className="font-sans text-accent-ink">✓</span>
+                  {formatSetShort(set, unit)}
+                  <SetTypeTag setType={set.setType} />
+                  {set.pending ? <span className="font-sans text-xs text-muted">· pending</span> : null}
+                </button>
+              </li>
             ))}
-          </div>
+            {Array.from({ length: remaining }, (_, index) => (
+              <li
+                key={`todo-${index}`}
+                aria-hidden="true"
+                className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-full border border-dashed border-line px-3 text-sm text-subtle"
+              >
+                {row.sets.length + index + 1}
+              </li>
+            ))}
+          </ul>
         ) : null}
 
         {last ? (
@@ -614,7 +627,7 @@ function GuidedCard({
             aria-label={`Log set ${row.sets.length + 1} of ${row.name}, ${describeSet(last, unit)}`}
             className="mt-3 min-h-12 w-full rounded-full bg-inverse px-4 text-left text-lg font-semibold text-inverse-ink disabled:opacity-60"
           >
-            {repeating ? "Logging…" : `Set ${row.sets.length + 1} · ${formatSetShort(last, unit)}`}
+            {repeating ? "Logging…" : `Log set ${row.sets.length + 1} · ${formatSetShort(last, unit)}`}
           </button>
         ) : (
           <PlanLogButton

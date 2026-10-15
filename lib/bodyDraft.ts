@@ -165,6 +165,11 @@ export function measuresFromDraft(
   };
 }
 
+/** A weight as the form shows it, used as the hint in an empty weight field. */
+export function weightHint(weightLb: number | null | undefined, unit: WeightUnit): string | undefined {
+  return weightLb == null ? undefined : amount(fromPounds(weightLb, unit));
+}
+
 function amount(value: number): string {
   return String(value);
 }
@@ -254,7 +259,8 @@ export function formatBodySummary(
   ];
   for (const [label, cm] of lengths) {
     if (cm !== null) {
-      parts.push(`${label} ${amount(fromCentimeters(cm, lengthUnit))} ${lengthUnit}`);
+      // A tenth is as fine as a tape measure reads; cm-to-inch conversion leaves noise past that.
+      parts.push(`${label} ${amount(Math.round(fromCentimeters(cm, lengthUnit) * 10) / 10)} ${lengthUnit}`);
     }
   }
   return parts.join(" · ");

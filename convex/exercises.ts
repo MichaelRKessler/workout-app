@@ -481,7 +481,55 @@ const libraryItemValidator = v.object({
   muscleSource: v.union(v.literal("saved"), v.literal("suggested")),
   // The kept exercise's name while a merge is still moving this one's sets.
   mergingInto: v.union(v.string(), v.null()),
+  // When it was last done, and its headline best, for the Exercises list.
+  lastLoggedAt: v.union(v.number(), v.null()),
+  best: v.union(
+    v.object({
+      reps: v.union(v.number(), v.null()),
+      weightLb: v.number(),
+      durationSec: v.union(v.number(), v.null()),
+      distanceM: v.union(v.number(), v.null()),
+      epleyLb: v.union(v.number(), v.null()),
+    }),
+    v.null(),
+  ),
 });
+
+/**
+ * Last done and the best to show in the list: the best estimated max for
+ * loaded sets, else the most reps, the longest hold, or the longest distance.
+ * Falls back to the newest set's time while the stats are rebuilding.
+ */
+async function libraryProgress(
+  ctx: QueryCtx,
+  userId: Id<"users">,
+  exerciseId: Id<"exercises">,
+) {
+  const stats = await findExerciseStats(ctx, userId, exerciseId);
+  if (stats?.ready && !stats.drop) {
+    const snap = stats.bestEpley ?? stats.bestReps ?? stats.bestDuration ?? stats.bestDistance;
+    return {
+      lastLoggedAt: stats.lastLoggedAt,
+      best: snap
+        ? {
+            reps: snap.reps,
+            weightLb: snap.weightLb,
+            durationSec: snap.durationSec,
+            distanceM: snap.distanceM,
+            epleyLb: snap.epleyLb,
+          }
+        : null,
+    };
+  }
+  const newest = await ctx.db
+    .query("sets")
+    .withIndex("by_user_exercise_and_logged", (q) =>
+      q.eq("userId", userId).eq("exerciseId", exerciseId),
+    )
+    .order("desc")
+    .first();
+  return { lastLoggedAt: newest?.loggedAt ?? null, best: null };
+}
 
 async function countSets(
   ctx: QueryCtx | MutationCtx,
@@ -530,6 +578,7 @@ export const browse = authedQuery({
           setCountCapped: counts.setCountCapped,
           ...presentMuscle(exercise),
           mergingInto: await mergingIntoName(ctx, exercise),
+          ...(await libraryProgress(ctx, ctx.userId, exercise._id)),
         };
       }),
     );
@@ -563,6 +612,7 @@ export const byMuscle = authedQuery({
         ...(await countSets(ctx, ctx.userId, exercise._id)),
         ...presentMuscle(exercise),
         mergingInto: await mergingIntoName(ctx, exercise),
+        ...(await libraryProgress(ctx, ctx.userId, exercise._id)),
       })),
     );
     return { exercises, truncated };

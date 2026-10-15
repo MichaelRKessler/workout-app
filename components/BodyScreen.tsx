@@ -23,6 +23,7 @@ import {
   emptyBodyDraft,
   formatBodySummary,
   measuresFromDraft,
+  weightHint,
   type BodyDraft,
   type BodySave,
 } from "@/lib/bodyDraft";
@@ -350,17 +351,16 @@ export function BodyScreen() {
       </PageHeader>
 
       {latest ? (
-        <section aria-label="Latest" className="mt-6 rounded-[1.25rem] border border-line bg-surface p-4">
-          <p className="text-xs font-medium tracking-[0.06em] text-subtle uppercase">Latest</p>
-          <p className="mt-1 text-base font-medium text-pretty" suppressHydrationWarning>
-            {formatBodySummary(latest, weightUnit, lengthUnit)}
-          </p>
-          <p className="mt-0.5 text-sm text-muted" suppressHydrationWarning>
+        <p aria-label="Latest" className="mt-4 text-base text-pretty" suppressHydrationWarning>
+          <span className="font-medium">Latest · </span>
+          {formatBodySummary(latest, weightUnit, lengthUnit)}
+          <span className="text-muted">
+            {" · "}
             {formatShortDate(latest.loggedAt)}
             {"syncError" in latest && latest.syncError ? ` · ${latest.syncError}` : ""}
             {"echoed" in latest ? " · on this phone" : ""}
-          </p>
-        </section>
+          </span>
+        </p>
       ) : summary === undefined ? (
         <p className="mt-8 text-base text-muted">Loading body log…</p>
       ) : (
@@ -391,6 +391,7 @@ export function BodyScreen() {
         {draft && today ? (
           <MeasureFields
             idPrefix="new"
+            weightPlaceholder={weightHint(latest?.weightLb, weightUnit)}
             draft={draft}
             maxDate={today}
             weightUnit={weightUnit}
@@ -430,7 +431,7 @@ export function BodyScreen() {
           </button>
         </div>
         <p className="mt-2 text-sm text-subtle">
-          {offline ? OFFLINE_VOICE_MESSAGE : "Say “weight 232”. Nothing is saved until you confirm."}
+          {offline ? OFFLINE_VOICE_MESSAGE : `Say “weight ${weightHint(latest?.weightLb, weightUnit) ?? (weightUnit === "kg" ? "80" : "180")}”. Nothing is saved until you confirm.`}
         </p>
       </form>
 
@@ -674,6 +675,7 @@ function MeasureFields({
   weightUnit,
   lengthUnit,
   extraOpen = false,
+  weightPlaceholder,
   onChange,
 }: {
   idPrefix: string;
@@ -682,6 +684,8 @@ function MeasureFields({
   weightUnit: WeightUnit;
   lengthUnit: LengthUnit;
   extraOpen?: boolean;
+  /** Your last weight, so the empty field hints at a real number. */
+  weightPlaceholder?: string;
   onChange: (patch: Partial<BodyDraft>) => void;
 }) {
   return (
@@ -702,7 +706,7 @@ function MeasureFields({
           id={`${idPrefix}-weight`}
           inputMode="decimal"
           autoComplete="off"
-          placeholder="232"
+          placeholder={weightPlaceholder ?? (weightUnit === "kg" ? "80" : "180")}
           value={draft.weight}
           onChange={(event) => onChange({ weight: event.target.value })}
           className={fieldClass}
