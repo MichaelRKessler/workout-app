@@ -89,9 +89,11 @@ export async function handleImportParse(input: {
       schema: IMPORT_RESPONSE_SCHEMA,
       logLabel: "Gemini import parse",
       logContext: text.length > 0 ? { kind: "text" } : { kind: "file" },
-      unavailable: "The file reader did not answer. Try again in a minute.",
+      unavailable: "Reading that part of the file took too long, or the reader did not answer. Try again.",
       rejected: "The file reader could not read that file. Try another file.",
       invalid: "That file could not be turned into workouts. Try another file.",
+      // The route may run 120 seconds. Answering first gives the phone a message instead of a dropped request.
+      timeoutMs: 100_000,
     });
     const proposal = normalizeImport(structured, {
       weightUnit: input.weightUnit,

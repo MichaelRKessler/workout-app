@@ -19,11 +19,12 @@ import {
   type ExistingDay,
   type ImportReview,
 } from "@/lib/import/review";
+import { useWakeLock } from "@/components/workout/useWakeLock";
 import { useConvex } from "convex/react";
 import Link from "next/link";
 import { useId, useRef, useState } from "react";
 
-const READ_AT_ONCE = 3;
+const READ_AT_ONCE = 4;
 const CHECK_DAYS_PER_QUERY = 40;
 const LIST_PREVIEW = 30;
 
@@ -262,6 +263,7 @@ function ImportSheet({ onClose }: { onClose: () => void }) {
 
       {stage.name === "reading" || stage.name === "saving" ? (
         <div className="mt-4" role="status">
+          <KeepAwake />
           <p className="text-base">
             {stage.name === "reading"
               ? stage.total > 1
@@ -275,6 +277,7 @@ function ImportSheet({ onClose }: { onClose: () => void }) {
               style={{ width: `${stage.total === 0 ? 0 : Math.round((stage.done / stage.total) * 100)}%` }}
             />
           </div>
+          <p className="mt-3 text-sm text-muted">Keep this screen open until it finishes.</p>
           {stage.name === "reading" ? (
             <Button variant="secondary" onClick={close} className="mt-5 w-full">
               Cancel
@@ -551,7 +554,9 @@ async function requestPart(
         const message =
           typeof payload === "object" && payload !== null && "error" in payload && typeof payload.error === "string"
             ? payload.error
-            : "That file could not be read. Try another file.";
+            : response.status === 504
+              ? "Reading that part of the file took too long. Try again."
+              : "That file could not be read. Try another file.";
         if (response.status < 500) {
           throw new ImportFileError(message);
         }
@@ -562,7 +567,11 @@ async function requestPart(
       if (caught instanceof ImportFileError || signal.aborted) {
         throw caught;
       }
-      lastError = caught;
+      // fetch throws a bare "Failed to fetch" when the connection drops.
+      lastError =
+        caught instanceof TypeError
+          ? new Error("The connection dropped while reading your file. Check your signal and try again.")
+          : caught;
     }
   }
   throw lastError;
@@ -582,4 +591,10 @@ async function shrinkImage(file: Blob): Promise<{ mimeType: string; bytes: Uint8
   } catch {
     return null;
   }
+}
+
+/** A locked phone drops the reader's request, so the screen stays on while a file is read or saved. */
+function KeepAwake() {
+  useWakeLock();
+  return null;
 }

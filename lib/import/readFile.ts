@@ -1,9 +1,9 @@
 import { INLINE_IMPORT_TYPES, MAX_IMPORT_FILE_BYTES } from "./proposal";
 
 /** Characters of text per request. Gemini returns every set as JSON, so parts stay small. */
-export const IMPORT_PART_LENGTH = 12_000;
+export const IMPORT_PART_LENGTH = 6_000;
 /** Parts per import, about a megabyte of text. */
-export const MAX_IMPORT_PARTS = 80;
+export const MAX_IMPORT_PARTS = 160;
 const MAX_UNZIPPED_BYTES = 40_000_000;
 
 export type ImportPart =
@@ -172,7 +172,7 @@ function decodeText(bytes: Uint8Array): string | null {
 export function splitSections(sections: readonly Section[], limit = IMPORT_PART_LENGTH): string[] {
   const parts: string[] = [];
   for (const section of sections) {
-    const lines = section.lines.map((line) => line.trimEnd()).filter((line) => line.trim().length > 0);
+    const lines = compactTable(section.lines.map((line) => line.trimEnd()).filter((line) => line.trim().length > 0));
     if (lines.length === 0) {
       continue;
     }
@@ -200,6 +200,79 @@ export function splitSections(sections: readonly Section[], limit = IMPORT_PART_
     parts.push(current.join("\n"));
   }
   return parts;
+}
+
+const DELIMITERS = [",", "\t", ";"] as const;
+
+/** Splits one delimited line, honoring double quotes. Null when a quote is left open. */
+function splitRow(line: string, delimiter: string): string[] | null {
+  const cells: string[] = [];
+  let cell = "";
+  let quoted = false;
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index];
+    if (quoted) {
+      if (char === '"' && line[index + 1] === '"') {
+        cell += '"';
+        index += 1;
+      } else if (char === '"') {
+        quoted = false;
+      } else {
+        cell += char;
+      }
+    } else if (char === '"' && cell.length === 0) {
+      quoted = true;
+    } else if (char === delimiter) {
+      cells.push(cell);
+      cell = "";
+    } else {
+      cell += char;
+    }
+  }
+  cells.push(cell);
+  return quoted ? null : cells;
+}
+
+/**
+ * An app export often has dozens of columns, most of them empty. Dropping the
+ * columns no row fills, and the rows with nothing past their first cell, keeps
+ * each request small, so the reader answers sooner. Text that isn't a table,
+ * or has a quoted cell running onto another line, is returned as is.
+ */
+export function compactTable(lines: readonly string[]): string[] {
+  const header = lines[0];
+  if (header === undefined || lines.length < 2) {
+    return [...lines];
+  }
+  for (const delimiter of DELIMITERS) {
+    const width = splitRow(header, delimiter)?.length ?? 0;
+    if (width < 3) {
+      continue;
+    }
+    const split = lines.map((line) => splitRow(line, delimiter));
+    if (split.some((row) => row === null)) {
+      return [...lines];
+    }
+    const rows = split as string[][];
+    const sample = rows.slice(0, 50);
+    if (sample.filter((row) => row.length === width).length < sample.length * 0.8) {
+      continue;
+    }
+    const used = Array.from({ length: width }, (_, column) =>
+      rows.slice(1).some((row) => (row[column] ?? "").trim().length > 0),
+    );
+    const keep = used.map((value, column) => (value ? column : -1)).filter((column) => column >= 0);
+    const out: string[] = [];
+    rows.forEach((row, index) => {
+      const cells = keep.map((column) => (row[column] ?? "").trim());
+      if (index > 0 && cells.slice(1).every((cell) => cell.length === 0)) {
+        return;
+      }
+      out.push(cells.map(csvCell).join(","));
+    });
+    return out;
+  }
+  return [...lines];
 }
 
 function startsWith(bytes: Uint8Array, prefix: number[]): boolean {
