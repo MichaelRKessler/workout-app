@@ -231,6 +231,9 @@ describe("reading a file on the phone", () => {
       "Monday: squat 5x5 at 225, felt good",
       "Tuesday: rest",
     ]);
+    // A quoted note running onto a second line keeps every line.
+    const multiline = ["Date,Weight,Notes", '2025-09-13,236.6,"felt', 'fine"', "2025-09-18,231,"];
+    expect(compactTable(multiline)).toEqual(multiline);
   });
 
   test("text, JSON, and a UTF-16 export read as text", async () => {

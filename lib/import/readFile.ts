@@ -204,8 +204,8 @@ export function splitSections(sections: readonly Section[], limit = IMPORT_PART_
 
 const DELIMITERS = [",", "\t", ";"] as const;
 
-/** Splits one delimited line, honoring double quotes. */
-function splitRow(line: string, delimiter: string): string[] {
+/** Splits one delimited line, honoring double quotes. Null when a quote is left open. */
+function splitRow(line: string, delimiter: string): string[] | null {
   const cells: string[] = [];
   let cell = "";
   let quoted = false;
@@ -230,13 +230,14 @@ function splitRow(line: string, delimiter: string): string[] {
     }
   }
   cells.push(cell);
-  return cells;
+  return quoted ? null : cells;
 }
 
 /**
  * An app export often has dozens of columns, most of them empty. Dropping the
  * columns no row fills, and the rows with nothing past their first cell, keeps
- * each request small, so the reader answers sooner. Text that isn't a table is returned as is.
+ * each request small, so the reader answers sooner. Text that isn't a table,
+ * or has a quoted cell running onto another line, is returned as is.
  */
 export function compactTable(lines: readonly string[]): string[] {
   const header = lines[0];
@@ -244,11 +245,15 @@ export function compactTable(lines: readonly string[]): string[] {
     return [...lines];
   }
   for (const delimiter of DELIMITERS) {
-    const width = splitRow(header, delimiter).length;
+    const width = splitRow(header, delimiter)?.length ?? 0;
     if (width < 3) {
       continue;
     }
-    const rows = lines.map((line) => splitRow(line, delimiter));
+    const split = lines.map((line) => splitRow(line, delimiter));
+    if (split.some((row) => row === null)) {
+      return [...lines];
+    }
+    const rows = split as string[][];
     const sample = rows.slice(0, 50);
     if (sample.filter((row) => row.length === width).length < sample.length * 0.8) {
       continue;
