@@ -246,6 +246,13 @@ describe("reading a file on the phone", () => {
         '<worksheet><sheetData><row r="1"><c r="A1" t="s"><v>0</v></c><c r="B1" t="s"><v>1</v></c><c r="D1" t="inlineStr"><is><t>Reps</t></is></c></row>' +
         '<row r="2"><c r="A2" s="1"><v>46023</v></c><c r="B2" t="s"><v>2</v></c><c r="D2" s="2"><v>5</v></c></row></sheetData></worksheet>',
     });
+    const mac = zip({
+      "xl/workbook.xml": '<workbook><workbookPr date1904="1"/><sheets><sheet name="S" r:id="rId1"/></sheets></workbook>',
+      "xl/_rels/workbook.xml.rels": '<Relationships><Relationship Id="rId1" Target="worksheets/sheet1.xml"/></Relationships>',
+      "xl/styles.xml": '<styleSheet><cellXfs><xf numFmtId="0"/><xf numFmtId="14"/></cellXfs></styleSheet>',
+      "xl/worksheets/sheet1.xml": '<worksheet><sheetData><row r="1"><c r="A1" s="1"><v>44561</v></c></row></sheetData></worksheet>',
+    });
+    expect(await prepareImportFiles([file("mac.xlsx", mac)])).toEqual([{ kind: "text", text: "[S]\n2026-01-01" }]);
     const parts = await prepareImportFiles([file("log.xlsx", workbook)]);
     expect(parts).toEqual([
       { kind: "text", text: '[Lifts & weight]\nDate,Exercise,,Reps\n2026-01-01,"Bench, flat",,5' },

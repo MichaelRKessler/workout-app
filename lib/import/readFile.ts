@@ -323,8 +323,9 @@ function isDateFormat(code: string): boolean {
   return /[dmyhs]/i.test(bare) && !/^[#0.,%\s]*$/.test(bare);
 }
 
-function excelDate(serial: number): string {
-  const ms = Math.round(serial * 86_400_000) + Date.UTC(1899, 11, 30);
+function excelDate(serial: number, date1904: boolean): string {
+  // Old Mac workbooks count days from 1904. 1462 days separate the two systems.
+  const ms = Math.round((serial + (date1904 && serial >= 1 ? 1462 : 0)) * 86_400_000) + Date.UTC(1899, 11, 30);
   const date = new Date(ms);
   const pad = (value: number) => String(value).padStart(2, "0");
   const day = `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())}`;
@@ -376,8 +377,10 @@ function xlsxSections(entries: Map<string, Uint8Array>): Section[] {
     }
   }
 
+  const workbook = text(entries.get("xl/workbook.xml"));
+  const date1904 = /<workbookPr\s[^>]*date1904="(1|true)"/.test(workbook);
   const sections: Section[] = [];
-  for (const match of text(entries.get("xl/workbook.xml")).matchAll(/<sheet\s[^>]*>/g)) {
+  for (const match of workbook.matchAll(/<sheet\s[^>]*>/g)) {
     const title = attribute(match[0], "name") ?? "Sheet";
     const relation = attribute(match[0], "r:id");
     const path = relation ? targets.get(relation) : undefined;
@@ -405,7 +408,7 @@ function xlsxSections(entries: Map<string, Uint8Array>): Section[] {
           const style = Number(attribute(tag, "s") ?? 0);
           const number = Number(value);
           if (type !== "str" && dateStyles[style] && Number.isFinite(number)) {
-            value = excelDate(number);
+            value = excelDate(number, date1904);
           }
         }
         const column = columnIndex(attribute(tag, "r")) ?? cells.length;
