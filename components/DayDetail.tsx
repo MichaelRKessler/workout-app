@@ -435,6 +435,14 @@ export function DayDetail({ dayKey }: { dayKey: string }) {
       const renamed = await changeExercise({ setIds, exerciseName: name });
       setExerciseTarget(null);
       const previous = target.name;
+      if (renamed.merged) {
+        // Undo can't split the merged exercise back apart, so none is offered.
+        showToast({
+          tone: "info",
+          message: `Moved ${pluralize(setIds.length, "set")} into ${renamed.exerciseName}`,
+        });
+        return;
+      }
       showToast({
         tone: "info",
         message: `Changed ${previous} to ${renamed.exerciseName}`,

@@ -48,7 +48,7 @@ describe("changing the exercise on a finished workout", () => {
       setIds: chinIds,
       exerciseName: "Pull up",
     });
-    expect(changed.exerciseName).toBe("Pull up");
+    expect(changed).toEqual({ exerciseName: "Pull up", merged: false });
     await t.finishAllScheduledFunctions(vi.runAllTimers);
 
     const after = await asUser.query(api.sessions.get, { sessionId: later.sessionId });
@@ -62,6 +62,17 @@ describe("changing the exercise on a finished workout", () => {
     const library = await asUser.query(api.exercises.list, {});
     const chin = library.exercises.filter((exercise) => exercise.name === "Chin up");
     expect(chin).toHaveLength(1);
+
+    const dipIds = (after?.sets ?? [])
+      .filter((set) => set.exerciseName === "Dip")
+      .map((set) => set._id);
+    const joined = await asUser.mutation(api.sets.changeExercise, {
+      setIds: dipIds,
+      exerciseName: "chin up",
+    });
+    expect(joined).toEqual({ exerciseName: "Chin up", merged: true });
+    await asUser.mutation(api.sets.changeExercise, { setIds: dipIds, exerciseName: "Dip" });
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
 
     const dipId = after?.sets.find((set) => set.exerciseName === "Dip")?._id;
     if (!dipId) {

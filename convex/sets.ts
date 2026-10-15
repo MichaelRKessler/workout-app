@@ -18,6 +18,7 @@ import { resolvedSetType } from "./lib/setType";
 import { setTypeValidator } from "./lib/setTypeValidator";
 import {
   MAX_SETS_PER_BATCH,
+  MAX_SETS_PER_SESSION,
   assertSessionCanAcceptSets,
   getOrCreateExercise,
   getOwnedSession,
@@ -382,13 +383,14 @@ export const update = authedMutation({
  */
 export const changeExercise = authedMutation({
   args: { setIds: v.array(v.id("sets")), exerciseName: v.string() },
-  returns: v.object({ exerciseName: v.string() }),
+  returns: v.object({ exerciseName: v.string(), merged: v.boolean() }),
   handler: async (ctx, args) => {
     if (args.setIds.length === 0) {
       throw userError("Choose at least one set");
     }
-    if (args.setIds.length > MAX_SETS_PER_BATCH) {
-      throw userError(`Change up to ${MAX_SETS_PER_BATCH} sets at a time`);
+    // One exercise can hold every set in a workout.
+    if (args.setIds.length > MAX_SETS_PER_SESSION) {
+      throw userError(`Change up to ${MAX_SETS_PER_SESSION} sets at a time`);
     }
     const sets: Array<Doc<"sets">> = [];
     for (const setId of new Set(args.setIds)) {
@@ -417,13 +419,22 @@ export const changeExercise = authedMutation({
       throw userError("Exercise not found");
     }
     if (intoId === fromId) {
-      return { exerciseName: into.name };
+      return { exerciseName: into.name, merged: false };
     }
     for (const exercise of [from, into]) {
       if (exercise?.mergingInto !== undefined) {
         throw userError(`${exercise.name} is still being merged. Try again when it finishes.`);
       }
     }
+    // Joining an exercise already in this workout folds the plan rows into
+    // one, which moving the sets back can't split again.
+    const merged =
+      (await ctx.db
+        .query("sets")
+        .withIndex("by_session_and_exercise", (q) =>
+          q.eq("sessionId", session._id).eq("exerciseId", intoId),
+        )
+        .first()) !== null;
     for (const set of sets) {
       await ctx.db.patch("sets", set._id, { exerciseId: intoId });
     }
@@ -438,7 +449,7 @@ export const changeExercise = authedMutation({
       await repointSessionPlan(ctx, ctx.userId, session, fromId, intoId);
     }
     await invalidateExercises(ctx, ctx.userId, [fromId, intoId]);
-    return { exerciseName: into.name };
+    return { exerciseName: into.name, merged };
   },
 });
 
