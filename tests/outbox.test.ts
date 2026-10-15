@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { isOffline } from "../lib/offline/connectivity.ts";
+import { isOffline, SOCKET_GRACE_MS } from "../lib/offline/connectivity.ts";
 import {
   OFFLINE_BATCH_LIMIT,
   applySyncResult,
@@ -473,6 +473,7 @@ test("connectivity follows the browser and a dropped Convex socket", () => {
       hasEverConnected: false,
       isWebSocketConnected: false,
       connectionRetries: 0,
+      socketDownForMs: SOCKET_GRACE_MS,
     }),
     false,
   );
@@ -482,6 +483,7 @@ test("connectivity follows the browser and a dropped Convex socket", () => {
       hasEverConnected: true,
       isWebSocketConnected: true,
       connectionRetries: 0,
+      socketDownForMs: SOCKET_GRACE_MS,
     }),
     true,
   );
@@ -491,6 +493,7 @@ test("connectivity follows the browser and a dropped Convex socket", () => {
       hasEverConnected: true,
       isWebSocketConnected: false,
       connectionRetries: 0,
+      socketDownForMs: SOCKET_GRACE_MS,
     }),
     true,
   );
@@ -500,6 +503,7 @@ test("connectivity follows the browser and a dropped Convex socket", () => {
       hasEverConnected: false,
       isWebSocketConnected: false,
       connectionRetries: 2,
+      socketDownForMs: SOCKET_GRACE_MS,
     }),
     true,
   );
@@ -509,6 +513,19 @@ test("connectivity follows the browser and a dropped Convex socket", () => {
       hasEverConnected: true,
       isWebSocketConnected: true,
       connectionRetries: 4,
+      socketDownForMs: 0,
+    }),
+    false,
+  );
+  // A socket that only just dropped (a backgrounded tab, a phone waking up)
+  // is not offline until the grace period runs out.
+  assert.equal(
+    isOffline({
+      browserOnline: true,
+      hasEverConnected: true,
+      isWebSocketConnected: false,
+      connectionRetries: 1,
+      socketDownForMs: SOCKET_GRACE_MS - 1,
     }),
     false,
   );
