@@ -11,6 +11,7 @@ import { Toast, type ToastMessage } from "@/components/Toast";
 import { useBrowserTimeZone } from "@/components/useBrowserTimeZone";
 import { useWeightUnit } from "@/components/WeightUnit";
 import { DeleteWorkoutSheet } from "@/components/workout/DeleteWorkoutSheet";
+import { ExerciseEditSheet } from "@/components/workout/ExerciseEditSheet";
 import { ExerciseRow } from "@/components/workout/ExerciseRow";
 import { ManualEntrySheet } from "@/components/workout/ManualEntrySheet";
 import { api } from "@/convex/_generated/api";
@@ -67,6 +68,13 @@ type ManualState =
       sessionId: Id<"sessions">;
     };
 
+type ExerciseTarget = {
+  key: number;
+  sessionId: Id<"sessions">;
+  exerciseId: string;
+  name: string;
+};
+
 type DeleteTarget =
   | { kind: "day" }
   | {
@@ -95,6 +103,7 @@ export function DayDetail({ dayKey }: { dayKey: string }) {
   const deleteDay = useMutation(api.sessions.removeDay);
   const deleteSession = useMutation(api.sessions.remove);
   const setNote = useMutation(api.sessions.setNote);
+  const changeExercise = useMutation(api.sets.changeExercise);
   const createFromSessions = useMutation(api.routines.createFromSessions);
   const begin = useBeginWorkout();
   const unit = useWeightUnit();
@@ -108,6 +117,9 @@ export function DayDetail({ dayKey }: { dayKey: string }) {
   const [noteDrafts, setNoteDrafts] = useState<Record<string, string>>({});
   const [savingNoteId, setSavingNoteId] = useState<string | null>(null);
   const [manual, setManual] = useState<ManualState | null>(null);
+  const [exerciseTarget, setExerciseTarget] = useState<ExerciseTarget | null>(null);
+  const [exercisePending, setExercisePending] = useState(false);
+  const [exerciseError, setExerciseError] = useState<string | null>(null);
   const [saveRoutineOpen, setSaveRoutineOpen] = useState(false);
   const [saveRoutineError, setSaveRoutineError] = useState<string | null>(null);
   const [saveRoutinePending, setSaveRoutinePending] = useState(false);
@@ -324,29 +336,30 @@ export function DayDetail({ dayKey }: { dayKey: string }) {
     );
   }
 
-  async function restoreRemovedSet(set: SetLine, sessionId: string, sessionStartedAt: number) {
+  async function restoreRemovedSets(sets: SetLine[], sessionId: string, sessionStartedAt: number) {
     setToast(null);
     const saved = await log.saveSets({
       placement: "completed",
       sessionId,
       sessionStartedAt,
       note: null,
-      sets: [
-        {
-          exerciseName: set.exerciseName,
-          weightLb: set.weightLb,
-          reps: set.reps,
-          durationSec: set.durationSec,
-          distanceM: set.distanceM,
-          calories: set.calories ?? null,
-          rpe: set.rpe,
-          ...(set.setType !== undefined ? { setType: set.setType } : {}),
-          loggedAt: set.loggedAt,
-        },
-      ],
+      sets: sets.map((set) => ({
+        exerciseName: set.exerciseName,
+        weightLb: set.weightLb,
+        reps: set.reps,
+        durationSec: set.durationSec,
+        distanceM: set.distanceM,
+        calories: set.calories ?? null,
+        rpe: set.rpe,
+        ...(set.setType !== undefined ? { setType: set.setType } : {}),
+        loggedAt: set.loggedAt,
+      })),
     });
     if (saved.status === "rejected") {
-      showToast({ tone: "error", message: saved.error ?? "That set could not be put back" });
+      showToast({
+        tone: "error",
+        message: saved.error ?? (sets.length > 1 ? "Those sets could not be put back" : "That set could not be put back"),
+      });
     }
   }
 
@@ -377,8 +390,102 @@ export function DayDetail({ dayKey }: { dayKey: string }) {
           : `Removed ${snapshot.exerciseName}`,
       action: {
         label: "Undo",
-        onClick: () => void restoreRemovedSet(snapshot, owner._id, owner.startedAt),
+        onClick: () => void restoreRemovedSets([snapshot], owner._id, owner.startedAt),
       },
+    });
+  }
+
+  function editingGroup(target: ExerciseTarget | null) {
+    if (!target) {
+      return null;
+    }
+    return (
+      groupsBySession.get(target.sessionId)?.find((group) => group.exerciseId === target.exerciseId) ??
+      null
+    );
+  }
+
+  function openExercise(sessionId: Id<"sessions">, group: { exerciseId: string; name: string }) {
+    setExerciseError(null);
+    setExerciseTarget({ key: Date.now(), sessionId, exerciseId: group.exerciseId, name: group.name });
+  }
+
+  function editSetFrom(sessionId: Id<"sessions">, set: SetLine) {
+    setManual({
+      key: Date.now(),
+      mode: "edit",
+      setId: set._id,
+      sessionId,
+      exerciseName: set.exerciseName,
+      reps: set.reps,
+      weightLb: set.weightLb,
+      durationSec: set.durationSec,
+      distanceM: set.distanceM,
+      calories: set.calories ?? null,
+      rpe: set.rpe,
+      setType: set.setType,
+    });
+  }
+
+  async function renameExercise(target: ExerciseTarget, sets: SetLine[], name: string) {
+    const setIds = sets.map((set) => set._id as Id<"sets">);
+    setExercisePending(true);
+    setExerciseError(null);
+    try {
+      const renamed = await changeExercise({ setIds, exerciseName: name });
+      setExerciseTarget(null);
+      const previous = target.name;
+      if (renamed.merged) {
+        // Undo can't split the merged exercise back apart, so none is offered.
+        showToast({
+          tone: "info",
+          message: `Moved ${pluralize(setIds.length, "set")} into ${renamed.exerciseName}`,
+        });
+        return;
+      }
+      showToast({
+        tone: "info",
+        message: `Changed ${previous} to ${renamed.exerciseName}`,
+        action: {
+          label: "Undo",
+          onClick: () => {
+            setToast(null);
+            changeExercise({ setIds, exerciseName: previous }).catch((caught: unknown) =>
+              showToast({ tone: "error", message: readableError(caught) }),
+            );
+          },
+        },
+      });
+    } catch (caught) {
+      setExerciseError(readableError(caught));
+    } finally {
+      setExercisePending(false);
+    }
+  }
+
+  async function deleteExercise(target: ExerciseTarget, sets: SetLine[]) {
+    const owner = orderedSessions.find((session) => session._id === target.sessionId);
+    setExercisePending(true);
+    setExerciseError(null);
+    const removed = await log.removeMany(sets.map((set) => set._id));
+    setExercisePending(false);
+    if (removed.status === "rejected") {
+      setExerciseError(removed.error ?? "That exercise could not be removed");
+      return;
+    }
+    setExerciseTarget(null);
+    const message = `Removed ${target.name}, ${pluralize(sets.length, "set")}`;
+    showToast({
+      tone: "info",
+      message: removed.status === "queued" ? `${message}. ${QUEUED_SAVE_MESSAGE}` : message,
+      ...(owner
+        ? {
+            action: {
+              label: "Undo",
+              onClick: () => void restoreRemovedSets(sets, owner._id, owner.startedAt),
+            },
+          }
+        : {}),
     });
   }
 
@@ -452,6 +559,7 @@ export function DayDetail({ dayKey }: { dayKey: string }) {
     })),
   );
   const dateLabel = formatDayTitle(anchor.startedAt);
+  const editingExercise = editingGroup(exerciseTarget);
   const serverSetCount = orderedSessions.reduce((sum, session) => sum + session.sets.length, 0);
 
   return (
@@ -495,22 +603,8 @@ export function DayDetail({ dayKey }: { dayKey: string }) {
                 <DayExerciseList
                   groups={sessionGroups}
                   from={`/history/day/${dayKey}`}
-                  onEdit={(set) =>
-                    setManual({
-                      key: Date.now(),
-                      mode: "edit",
-                      setId: set._id,
-                      sessionId: session._id,
-                      exerciseName: set.exerciseName,
-                      reps: set.reps,
-                      weightLb: set.weightLb,
-                      durationSec: set.durationSec,
-                      distanceM: set.distanceM,
-                      calories: set.calories ?? null,
-                      rpe: set.rpe,
-                      setType: set.setType,
-                    })
-                  }
+                  onEdit={(set) => editSetFrom(session._id, set)}
+                  onEditExercise={(group) => openExercise(session._id, group)}
                 />
                 <div className="mt-3 flex flex-wrap gap-2">
                   <Button
@@ -557,22 +651,8 @@ export function DayDetail({ dayKey }: { dayKey: string }) {
         <DayExerciseList
           groups={groups}
           from={`/history/day/${dayKey}`}
-          onEdit={(set) =>
-            setManual({
-              key: Date.now(),
-              mode: "edit",
-              setId: set._id,
-              sessionId: anchor._id,
-              exerciseName: set.exerciseName,
-              reps: set.reps,
-              weightLb: set.weightLb,
-              durationSec: set.durationSec,
-              distanceM: set.distanceM,
-              calories: set.calories ?? null,
-              rpe: set.rpe,
-              setType: set.setType,
-            })
-          }
+          onEdit={(set) => editSetFrom(anchor._id, set)}
+          onEditExercise={(group) => openExercise(anchor._id, group)}
         />
       )}
 
@@ -649,6 +729,39 @@ export function DayDetail({ dayKey }: { dayKey: string }) {
           </Button>
         )}
       </div>
+
+      {exerciseTarget && editingExercise ? (
+        <ExerciseEditSheet
+          key={exerciseTarget.key}
+          open
+          name={editingExercise.name}
+          sets={editingExercise.sets}
+          offline={log.offline}
+          pending={exercisePending}
+          error={exerciseError}
+          onClose={() => setExerciseTarget(null)}
+          onEditSet={(set) => {
+            setExerciseTarget(null);
+            editSetFrom(exerciseTarget.sessionId, set);
+          }}
+          onRemoveSet={(setId) => void deleteSet(setId)}
+          onAddSet={() => {
+            const owner = orderedSessions.find((session) => session._id === exerciseTarget.sessionId);
+            setExerciseTarget(null);
+            if (owner) {
+              setManual({
+                key: Date.now(),
+                mode: "add",
+                exerciseName: editingExercise.name,
+                sessionId: owner._id,
+                sessionStartedAt: owner.startedAt,
+              });
+            }
+          }}
+          onRename={(name) => void renameExercise(exerciseTarget, editingExercise.sets, name)}
+          onDelete={() => void deleteExercise(exerciseTarget, editingExercise.sets)}
+        />
+      ) : null}
 
       {manual ? (
         <ManualEntrySheet
@@ -773,6 +886,7 @@ function DayExerciseList({
   groups,
   from,
   onEdit,
+  onEditExercise,
 }: {
   groups: Array<{
     exerciseId: string;
@@ -782,6 +896,7 @@ function DayExerciseList({
   }>;
   from: string;
   onEdit: (set: SetLine) => void;
+  onEditExercise: (group: { exerciseId: string; name: string }) => void;
 }) {
   if (groups.length === 0) {
     return <p className="mt-4 text-base text-muted">No sets were logged.</p>;
@@ -806,6 +921,7 @@ function DayExerciseList({
                 sets={group.sets}
                 exerciseHref={exerciseLink(group.exerciseId, from) ?? undefined}
                 onEditSet={onEdit}
+                onEditExercise={() => onEditExercise(group)}
               />
             ))}
           </ul>
