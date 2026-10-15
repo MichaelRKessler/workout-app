@@ -319,7 +319,7 @@ function normalizeNote(value: unknown): string | null {
   return note;
 }
 
-function normalizeSet(
+export function normalizeSet(
   value: unknown,
   subject: "recording" | "note",
   assumedUnit: WeightUnit,
