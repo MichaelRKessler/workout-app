@@ -1,7 +1,7 @@
 import type { MetadataRoute } from "next";
 
-export const pwaName = "Workout";
-export const pwaShortName = "Workout";
+export const pwaName = "Spotter";
+export const pwaShortName = "Spotter";
 export const pwaDescription =
   "Log sets, reps, and weight, then come back to the history.";
 export const pwaThemeColor = "#f7f7f5";

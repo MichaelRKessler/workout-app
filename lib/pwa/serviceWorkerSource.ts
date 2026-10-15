@@ -122,7 +122,7 @@ async function networkFirst(request) {
   } catch {
     const cached = await cache.match(request);
     if (cached) return cached;
-    return new Response("You're offline. Reconnect, then open Workout again.", {
+    return new Response("You're offline. Reconnect, then open Spotter again.", {
       status: 503,
       headers: { "Content-Type": "text/plain; charset=utf-8" },
     });

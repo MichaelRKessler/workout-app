@@ -41,7 +41,7 @@ export function SignInScreen() {
     <main className="mx-auto flex min-h-dvh w-full max-w-lg flex-col px-5 pt-3 pb-[calc(24px+env(safe-area-inset-bottom))]">
       <div className="flex min-h-11 items-center gap-2.5">
         <BrandMark />
-        <span className="text-lg font-semibold tracking-[-0.01em]">Workout</span>
+        <span className="text-lg font-semibold tracking-[-0.01em]">Spotter</span>
       </div>
       <div className="flex flex-1 flex-col justify-center py-10">
         <h1 className="text-4xl leading-[1.1] font-semibold tracking-[-0.03em] text-balance">

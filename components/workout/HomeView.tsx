@@ -82,7 +82,7 @@ export function HomeView({
       <header className="flex min-h-11 items-center justify-between gap-3">
         <div className="flex items-center gap-2.5">
           <BrandMark />
-          <span className="text-lg font-semibold tracking-[-0.01em]">Workout</span>
+          <span className="text-lg font-semibold tracking-[-0.01em]">Spotter</span>
         </div>
         <TopActions />
       </header>

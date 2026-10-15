@@ -84,7 +84,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <main className="mx-auto flex min-h-dvh w-full max-w-lg flex-col justify-center gap-3 px-5">
           <BrandMark className="size-8" />
           <p className="text-base leading-normal text-muted">
-            You&apos;re offline. Open Workout once with a connection before logging here.
+            You&apos;re offline. Open Spotter once with a connection before logging here.
           </p>
         </main>
       );

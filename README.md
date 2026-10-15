@@ -1,4 +1,4 @@
-# Workout
+# Spotter
 
 A mobile-friendly workout log. Sign in with Google, record sets for any exercise, and open the history later. A set can be reps and weight, a time (a plank), or a distance (a row), with an optional RPE. Weights are stored in pounds and shown in the unit you pick in Settings, pounds or kilograms. The home screen shows this week against last week. Under it, a front and back body shades each muscle group by this week's working sets and lists the groups you have not trained yet. Tapping a muscle opens your exercises for it, and the Exercises list in Settings has the same filter. Each exercise has its own history, with your best set, an estimated one-rep max, and a trend. A finished workout can be corrected or deleted, and a workout you forgot can be logged for the day it happened. Settings also lists your exercises so you can rename one, or merge a duplicate into the name you want to keep.
 
