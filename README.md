@@ -45,7 +45,7 @@ Spotter is a web app you can install. It gets its own icon, opens full screen li
 
 ### iPhone and iPad
 
-1. Open the site in **Safari**. (Other browsers on iPhone cannot install apps.)
+1. Open the site in **Safari** (or Chrome, on iOS 16.4 and later).
 2. Tap the **Share** button.
 3. Tap **Add to Home Screen**, then **Add**.
 
@@ -154,7 +154,7 @@ Tap your avatar in the top right.
 ## Tips and troubleshooting
 
 - **The mic doesn't work.** Allow microphone access for the site in your browser settings. You can always type the set instead.
-- **No Install app button.** On iPhone use Safari's Share menu. Elsewhere, check that you are in Chrome or Edge and that Spotter isn't already installed.
+- **No Install app button.** On iPhone use the browser's Share menu. Elsewhere, check that you are in Chrome or Edge and that Spotter isn't already installed.
 - **An exercise shows up twice** ("Pull-up" and "Pull ups"). Go to **Exercises > Edit** and rename one to the other's name; their sets merge.
 - **A set is marked pending.** It is saved on your phone and syncs when you are back online.
 
@@ -169,6 +169,6 @@ npx convex dev     # first terminal: backend
 npm run dev        # second terminal: http://localhost:3000
 ```
 
-Before opening a pull request, run `npm run lint`, `npm run typecheck`, and `npm test`.
+Before opening a pull request, run `npm test`, `npm run lint`, `npm run typecheck`, and `npm run build`, the same checks CI runs.
 
 Full setup, required keys, stats audits, manual test checklists, and deployment details are in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
