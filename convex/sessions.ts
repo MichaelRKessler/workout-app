@@ -30,6 +30,7 @@ import {
 } from "./lib/routineRecords";
 import { MAX_ROUTINE_NAME_LENGTH } from "./lib/routinePlan";
 import { normalizeSupersetItems } from "./lib/superset";
+import { setTypeValidator } from "./lib/setTypeValidator";
 import {
   MAX_SETS_PER_SESSION,
   getOrCreateExercise,
@@ -490,9 +491,16 @@ const pastExerciseValidator = v.object({
       distanceM: v.optional(v.number()),
       calories: v.optional(v.number()),
       rpe: v.optional(v.number()),
+      setType: v.optional(setTypeValidator),
     }),
   ),
 });
+
+const pastWorkoutArgs = {
+  startedAt: v.number(),
+  note: v.optional(v.string()),
+  exercises: v.array(pastExerciseValidator),
+};
 
 /**
  * Saves a workout that already happened. It is completed immediately, so it
@@ -500,124 +508,142 @@ const pastExerciseValidator = v.object({
  * Start and end are the same moment: the length was not recorded.
  */
 export const logPast = authedMutation({
-  args: {
-    startedAt: v.number(),
-    note: v.optional(v.string()),
-    exercises: v.array(pastExerciseValidator),
-  },
+  args: pastWorkoutArgs,
   returns: v.object({
     sessionId: v.id("sessions"),
     personalRecords: v.array(personalRecordValidator),
   }),
-  handler: async (ctx, args) => {
-    if (!Number.isFinite(args.startedAt)) {
-      throw userError("Pick a date and time");
-    }
-    const now = Date.now();
-    if (args.startedAt > now + FUTURE_SKEW_MS) {
-      throw userError("Pick a time that has already happened");
-    }
-    if (args.startedAt < EARLIEST_WORKOUT_AT) {
-      throw userError("Pick a date after 1999");
-    }
-    if (args.exercises.length === 0) {
-      throw userError("Add at least one exercise");
-    }
-    if (args.exercises.length > MAX_PAST_EXERCISES) {
-      throw userError(`Log up to ${MAX_PAST_EXERCISES} exercises at a time`);
-    }
+  handler: async (ctx, args) => await savePastWorkout(ctx, ctx.userId, args),
+});
 
-    const note = normalizeNote(args.note);
-    let totalSets = 0;
-    const validated: Array<{
+/** logPast's work, shared with file import. */
+export async function savePastWorkout(
+  ctx: MutationCtx,
+  userId: Id<"users">,
+  args: {
+    startedAt: number;
+    note?: string;
+    exercises: Array<{
       name: string;
-      sets: ReturnType<typeof normalizeSetInput>[];
-    }> = [];
-    for (const exercise of args.exercises) {
-      const formatted = formatExerciseName(exercise.name);
-      if (!formatted) {
-        throw userError("Exercise name must be 1 to 80 characters");
-      }
-      if (exercise.sets.length === 0) {
-        throw userError("Add at least one set");
-      }
-      totalSets += exercise.sets.length;
-      if (totalSets > MAX_PAST_SETS) {
-        throw userError(`Log up to ${MAX_PAST_SETS} sets at a time`);
-      }
-      validated.push({
-        name: formatted.name,
-        sets: exercise.sets.map((set) => normalizeSetInput(set)),
-      });
-    }
-
-    const startedAt = Math.min(args.startedAt, now);
-    const sessionId = await ctx.db.insert("sessions", {
-      userId: ctx.userId,
-      status: "completed",
-      startedAt,
-      completedAt: startedAt,
-      setCount: 0,
-      ...(note ? { note } : {}),
-    });
-
-    let offset = 0;
-    const personalRecords: PersonalRecord[] = [];
-    for (const exercise of validated) {
-      const exerciseId = await getOrCreateExercise(ctx, ctx.userId, exercise.name);
-      const stored = await ctx.db.get("exercises", exerciseId);
-      const created: Array<{
-        _id: Id<"sets">;
-        sessionId: Id<"sessions">;
-        loggedAt: number;
+      sets: Array<{
         reps?: number;
-        weightLb: number;
+        weightLb?: number;
         durationSec?: number;
         distanceM?: number;
         calories?: number;
+        rpe?: number;
         setType?: "warmup" | "working" | "drop" | "failure";
-      }> = [];
-      for (const set of exercise.sets) {
-        const loggedAt = startedAt + offset;
-        const setId = await ctx.db.insert("sets", {
-          userId: ctx.userId,
-          sessionId,
-          exerciseId,
-          weightLb: set.weightLb,
-          loggedAt,
-          ...(set.reps !== undefined ? { reps: set.reps } : {}),
-          ...(set.durationSec !== undefined ? { durationSec: set.durationSec } : {}),
-          ...(set.distanceM !== undefined ? { distanceM: set.distanceM } : {}),
-          ...(set.calories !== undefined ? { calories: set.calories } : {}),
-          ...(set.rpe !== undefined ? { rpe: set.rpe } : {}),
-          ...persistedSetType(set.setType),
-        });
-        offset += 1;
-        created.push({
-          _id: setId,
-          sessionId,
-          loggedAt,
-          weightLb: set.weightLb,
-          ...(set.reps !== undefined ? { reps: set.reps } : {}),
-          ...(set.durationSec !== undefined ? { durationSec: set.durationSec } : {}),
-          ...(set.distanceM !== undefined ? { distanceM: set.distanceM } : {}),
-          ...(set.calories !== undefined ? { calories: set.calories } : {}),
-          setType: set.setType,
-        });
-      }
-      const recorded = await recordInsertedSets(
-        ctx,
-        ctx.userId,
-        exerciseId,
-        stored?.name ?? exercise.name,
-        created,
-      );
-      personalRecords.push(...recorded.records);
-    }
-
-    return { sessionId, personalRecords };
+      }>;
+    }>;
   },
-});
+): Promise<{ sessionId: Id<"sessions">; personalRecords: PersonalRecord[] }> {
+  if (!Number.isFinite(args.startedAt)) {
+    throw userError("Pick a date and time");
+  }
+  const now = Date.now();
+  if (args.startedAt > now + FUTURE_SKEW_MS) {
+    throw userError("Pick a time that has already happened");
+  }
+  if (args.startedAt < EARLIEST_WORKOUT_AT) {
+    throw userError("Pick a date after 1999");
+  }
+  if (args.exercises.length === 0) {
+    throw userError("Add at least one exercise");
+  }
+  if (args.exercises.length > MAX_PAST_EXERCISES) {
+    throw userError(`Log up to ${MAX_PAST_EXERCISES} exercises at a time`);
+  }
+
+  const note = normalizeNote(args.note);
+  let totalSets = 0;
+  const validated: Array<{
+    name: string;
+    sets: ReturnType<typeof normalizeSetInput>[];
+  }> = [];
+  for (const exercise of args.exercises) {
+    const formatted = formatExerciseName(exercise.name);
+    if (!formatted) {
+      throw userError("Exercise name must be 1 to 80 characters");
+    }
+    if (exercise.sets.length === 0) {
+      throw userError("Add at least one set");
+    }
+    totalSets += exercise.sets.length;
+    if (totalSets > MAX_PAST_SETS) {
+      throw userError(`Log up to ${MAX_PAST_SETS} sets at a time`);
+    }
+    validated.push({
+      name: formatted.name,
+      sets: exercise.sets.map((set) => normalizeSetInput(set)),
+    });
+  }
+
+  const startedAt = Math.min(args.startedAt, now);
+  const sessionId = await ctx.db.insert("sessions", {
+    userId: userId,
+    status: "completed",
+    startedAt,
+    completedAt: startedAt,
+    setCount: 0,
+    ...(note ? { note } : {}),
+  });
+
+  let offset = 0;
+  const personalRecords: PersonalRecord[] = [];
+  for (const exercise of validated) {
+    const exerciseId = await getOrCreateExercise(ctx, userId, exercise.name);
+    const stored = await ctx.db.get("exercises", exerciseId);
+    const created: Array<{
+      _id: Id<"sets">;
+      sessionId: Id<"sessions">;
+      loggedAt: number;
+      reps?: number;
+      weightLb: number;
+      durationSec?: number;
+      distanceM?: number;
+      calories?: number;
+      setType?: "warmup" | "working" | "drop" | "failure";
+    }> = [];
+    for (const set of exercise.sets) {
+      const loggedAt = startedAt + offset;
+      const setId = await ctx.db.insert("sets", {
+        userId: userId,
+        sessionId,
+        exerciseId,
+        weightLb: set.weightLb,
+        loggedAt,
+        ...(set.reps !== undefined ? { reps: set.reps } : {}),
+        ...(set.durationSec !== undefined ? { durationSec: set.durationSec } : {}),
+        ...(set.distanceM !== undefined ? { distanceM: set.distanceM } : {}),
+        ...(set.calories !== undefined ? { calories: set.calories } : {}),
+        ...(set.rpe !== undefined ? { rpe: set.rpe } : {}),
+        ...persistedSetType(set.setType),
+      });
+      offset += 1;
+      created.push({
+        _id: setId,
+        sessionId,
+        loggedAt,
+        weightLb: set.weightLb,
+        ...(set.reps !== undefined ? { reps: set.reps } : {}),
+        ...(set.durationSec !== undefined ? { durationSec: set.durationSec } : {}),
+        ...(set.distanceM !== undefined ? { distanceM: set.distanceM } : {}),
+        ...(set.calories !== undefined ? { calories: set.calories } : {}),
+        setType: set.setType,
+      });
+    }
+    const recorded = await recordInsertedSets(
+      ctx,
+      userId,
+      exerciseId,
+      stored?.name ?? exercise.name,
+      created,
+    );
+    personalRecords.push(...recorded.records);
+  }
+
+  return { sessionId, personalRecords };
+}
 
 /** Deletes a finished workout and every set that belongs to it. */
 export const remove = authedMutation({

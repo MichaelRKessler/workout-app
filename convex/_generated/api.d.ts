@@ -15,6 +15,7 @@ import type * as exercises from "../exercises.js";
 import type * as exerciseStats from "../exerciseStats.js";
 import type * as exportData from "../exportData.js";
 import type * as http from "../http.js";
+import type * as imports from "../imports.js";
 import type * as lib_accessControl from "../lib/accessControl.js";
 import type * as lib_auth from "../lib/auth.js";
 import type * as lib_clientIds from "../lib/clientIds.js";
@@ -43,6 +44,7 @@ declare const fullApi: ApiFromModules<{
   exercises: typeof exercises;
   exportData: typeof exportData;
   http: typeof http;
+  imports: typeof imports;
   "lib/accessControl": typeof lib_accessControl;
   "lib/auth": typeof lib_auth;
   "lib/clientIds": typeof lib_clientIds;

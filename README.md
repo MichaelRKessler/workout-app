@@ -14,6 +14,8 @@ The installed app’s icon menu has four fixed shortcuts: New workout, Repeat la
 
 Settings can download a zip of three spreadsheets: every set, every body entry, and every routine. Weights are listed in pounds, kilograms, and the unit your account is using.
 
+Settings can also import history from a file: a spreadsheet (.xlsx or .csv), another app's export, a Word or text file, a PDF, or a photo of a notebook. The phone turns spreadsheets and documents into text and splits long ones into parts; `/api/import` sends each part (or the PDF or photo itself) to the same Gemini model as voice and returns workouts and body entries. Nothing is saved until you check the list. An exercise already logged on that day, and a body entry matching one already logged that day, are marked and skipped. Spotter's own export zip imports too.
+
 Push-ups and bench press show up as examples when you have not saved them yet. They are not a fixed exercise list. Type any name to add it. Exercise icons come from words in the name (barbell, dumbbell, kettlebell, bodyweight, cable or machine), with a neutral icon when nothing matches.
 
 Settings sit behind the avatar in the top right: weight unit, the exercise list, dark mode, installing the app, and signing out. The weight unit is saved with your account. The theme is saved in a `theme` cookie on that device, so the server renders the right one on the first paint.

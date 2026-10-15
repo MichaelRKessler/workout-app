@@ -3,6 +3,7 @@
 import { AccessSettings } from "@/components/AccessSettings";
 import { ExerciseRestList } from "@/components/ExerciseRestList";
 import { ExportData } from "@/components/ExportData";
+import { ImportData } from "@/components/ImportData";
 import { InstallOffer } from "@/components/InstallOffer";
 import { PageHeader, SectionLabel } from "@/components/PageHeader";
 import { useOfflineLog } from "@/components/OfflineSync";
@@ -220,6 +221,7 @@ export function SettingsScreen() {
         <SectionLabel id="settings-export">Your data</SectionLabel>
         <div className="overflow-hidden rounded-[1.25rem] border border-line bg-surface">
           <ExportData />
+          <ImportData />
         </div>
       </section>
 
