@@ -2,7 +2,7 @@
 
 import { isOffline, isSocketDown, SOCKET_GRACE_MS } from "@/lib/offline/connectivity";
 import { useConvexConnectionState } from "convex/react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 export function useConnectivity() {
   const connection = useConvexConnectionState();
@@ -24,22 +24,35 @@ export function useConnectivity() {
     };
   }, []);
 
-  // Start the clock when the socket drops, and restart it when the page comes
-  // back into view: a socket the phone closed while the tab was hidden is not
-  // a lost connection.
+  // Start the clock when the socket drops. Convex reconnects at once on an
+  // "online" event instead of waiting out its backoff, and does nothing if the
+  // socket is already connecting, so nudge it whenever a visible page loses
+  // its socket.
   useEffect(() => {
     if (!socketDown) {
       setDownSince(null);
       return;
     }
     setDownSince((since) => since ?? Date.now());
+    if (document.visibilityState === "visible") {
+      window.dispatchEvent(new Event("online"));
+    }
+  }, [socketDown]);
+
+  // Coming back into view restarts the clock and nudges Convex: a socket the
+  // phone closed while the tab was hidden is not a lost connection. This stays
+  // installed all the time, since a frozen tab can wake before React has seen
+  // the socket drop.
+  const socketDownRef = useRef(socketDown);
+  socketDownRef.current = socketDown;
+  useEffect(() => {
     const onVisible = () => {
       if (document.visibilityState !== "visible") {
         return;
       }
-      setDownSince(Date.now());
-      // Convex reconnects at once on an "online" event, instead of waiting out
-      // its backoff, and does nothing if the socket is already connecting.
+      if (socketDownRef.current) {
+        setDownSince(Date.now());
+      }
       window.dispatchEvent(new Event("online"));
     };
     document.addEventListener("visibilitychange", onVisible);
@@ -48,7 +61,7 @@ export function useConnectivity() {
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("pageshow", onVisible);
     };
-  }, [socketDown]);
+  }, []);
 
   // Re-render once the grace period is over, so the banner can appear.
   useEffect(() => {
