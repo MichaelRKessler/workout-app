@@ -13,8 +13,8 @@ import {
 const root = path.resolve(import.meta.dirname, "..");
 
 test("manifest meets Chrome installability criteria", () => {
-  assert.equal(webAppManifest.name, "Workout");
-  assert.equal(webAppManifest.short_name, "Workout");
+  assert.equal(webAppManifest.name, "Spotter");
+  assert.equal(webAppManifest.short_name, "Spotter");
   assert.ok(webAppManifest.name && webAppManifest.short_name);
   assert.equal(webAppManifest.start_url, "/");
   assert.equal(webAppManifest.scope, "/");

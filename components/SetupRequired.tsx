@@ -2,7 +2,7 @@ export function SetupRequired() {
   const code = "rounded bg-fill px-1 py-0.5 font-mono text-[0.9em] text-foreground";
   return (
     <main className="mx-auto flex min-h-dvh w-full max-w-lg flex-col justify-center gap-5 px-5 py-12">
-      <p className="text-xs font-medium tracking-[0.06em] text-subtle uppercase">Workout</p>
+      <p className="text-xs font-medium tracking-[0.06em] text-subtle uppercase">Spotter</p>
       <h1 className="text-3xl leading-tight font-semibold tracking-[-0.025em]">
         Add the Convex URL to run this app.
       </h1>
