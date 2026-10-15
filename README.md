@@ -1,173 +1,174 @@
 # Spotter
 
-A mobile-friendly workout log. Sign in with Google, record sets for any exercise, and open the history later. A set can be reps and weight, a time (a plank), or a distance (a row), with an optional RPE. Weights are stored in pounds and shown in the unit you pick in Settings, pounds or kilograms. The home screen shows this week against last week. Under it, a front and back body shades each muscle group by this week's working sets and lists the groups you have not trained yet. Tapping a muscle opens your exercises for it, and the Exercises list in Settings has the same filter. Each exercise has its own history, with your best set, an estimated one-rep max, and a trend. A finished workout can be corrected or deleted, and a workout you forgot can be logged for the day it happened. Settings also lists your exercises so you can rename one, or merge a duplicate into the name you want to keep.
+**A workout log you can talk to.** Tap the mic, say what you just did, and Spotter turns it into sets. It works on your phone and your computer, keeps working when the gym has no signal, and shows how you are progressing over time.
 
-Voice comes first. Tap the mic and say one or more exercises, for example “bench press, three sets of ten at 135, then rows, three sets of eight at 95” or “plank 60 seconds”. “Superset curls and pushdowns, 3 rounds of 12 at 30 and 50” groups those two exercises. The app shows each exercise as its own block so you can edit the sets, and a superset is labeled before you save. Nothing is written until you confirm, and confirming saves every exercise in one step. The first confirmed set starts the workout. During a workout you can also type a set in the bar at the bottom (“squat 3x5 225”), tap `+` for the manual form, or tap `+` on an exercise to log its last set again. Each add shows an Undo. A workout can carry a short note.
+**Open the app:** [repsandsets.vercel.app](https://repsandsets.vercel.app)
 
-A workout started from a routine opens one exercise at a time: “Exercise 2 of 5”, a bar of planned sets done, the next exercise’s log buttons, Skip, and what comes after. “Show full plan” switches to the whole list, and the phone remembers which view you picked. A suggested weight says why, for example “All 3 sets reached 8 reps last time, so 5 lb more.”
+![Spotter's Home, Exercises, and History screens](docs/images/screens.png)
 
-An exercise’s page shows a demo: start and end photos that swap about once a second, and the steps under “How to do it”. The demo is matched from the name (“OHP” finds the standing military press). “Wrong demo?” lets you search for the right one or turn it off, and the choice stays with the exercise. In a guided workout, “Show demo” opens the same photos on the card. “Watch a video” searches YouTube for the exercise, including when nothing matched. Photos and steps come from [free-exercise-db](https://github.com/yuhonas/free-exercise-db), a public domain (Unlicense) dataset. `node scripts/generate-exercise-demos.mjs` rebuilds `lib/demos/catalogue.json` from the commit pinned there and in `lib/demos/match.ts`. The photos are served by jsDelivr, so they need a connection.
+## Contents
 
-Two or more adjacent exercises can be a superset, in a routine or during a workout. The checklist points at the exercise that is behind in the round. Rest starts after the whole round, using the longest rest in the group. History shows the group as “Curl + Pushdown”.
+- [What Spotter does](#what-spotter-does)
+- [Getting started](#getting-started)
+- [Install it on your phone or computer](#install-it-on-your-phone-or-computer)
+- [Logging a workout](#logging-a-workout)
+- [Finding your way around](#finding-your-way-around)
+- [Routines and supersets](#routines-and-supersets)
+- [Import your history from a file](#import-your-history-from-a-file)
+- [Export your data](#export-your-data)
+- [Using it without a connection](#using-it-without-a-connection)
+- [Settings](#settings)
+- [Tips and troubleshooting](#tips-and-troubleshooting)
+- [For developers](#for-developers)
 
-The installed app’s icon menu has four fixed shortcuts: New workout, Repeat last workout, Routines, and Log body weight. A shortcut cannot be one of your named routines, because the list is part of the app manifest. A specific routine can still be opened with `/start?routine=<id>`. If you are signed out, that link waits on the sign-in page and comes back. If a workout is already open, the shortcut continues it instead of starting a second one.
+## What Spotter does
 
-Settings can download a zip of three spreadsheets: every set, every body entry, and every routine. Weights are listed in pounds, kilograms, and the unit your account is using.
+- **Log by voice or by typing.** Say "bench press, three sets of ten at 135" and check the result before it is saved.
+- **Any kind of exercise.** Reps and weight, a time (a plank), or a distance (a row), with an optional RPE. There is no fixed exercise list; type any name.
+- **See your progress.** Each exercise has its best set, an estimated one-rep max, and a trend. Home compares this week with last week.
+- **See what you have trained.** A front and back body map shades each muscle group by this week's sets and lists the groups you have skipped.
+- **Routines.** Save a plan, start it in one tap, and get a suggested weight with the reason behind it.
+- **Bring your history with you.** Import from a spreadsheet, another app's export, a PDF, or a photo of a notebook.
+- **Your data is yours.** Download everything as spreadsheets at any time.
 
-Settings can also import history from a file: a spreadsheet (.xlsx or .csv), another app's export, a Word or text file, a PDF, or a photo of a notebook. The phone turns spreadsheets and documents into text and splits long ones into parts; `/api/import` sends each part (or the PDF or photo itself) to the same Gemini model as voice and returns workouts and body entries. Nothing is saved until you check the list. An exercise already logged on that day, and a body entry matching one already logged that day, are marked and skipped. Spotter's own export zip imports too.
+## Getting started
 
-Push-ups and bench press show up as examples when you have not saved them yet. They are not a fixed exercise list. Type any name to add it. Exercise icons come from words in the name (barbell, dumbbell, kettlebell, bodyweight, cable or machine), with a neutral icon when nothing matches.
+1. Open [repsandsets.vercel.app](https://repsandsets.vercel.app) in your browser.
+2. Sign in with your Google account.
+3. Tap the mic in the middle of the bottom bar and say your first set. The first set you confirm starts the workout.
 
-Settings sit behind the avatar in the top right: weight unit, the exercise list, dark mode, installing the app, and signing out. The weight unit is saved with your account. The theme is saved in a `theme` cookie on that device, so the server renders the right one on the first paint.
+Spotter works in pounds by default. To use kilograms, open **Settings** (your avatar in the top right) and change **Weight**.
 
-## Run it locally
+## Install it on your phone or computer
 
-You need Node.js 24 and a Convex account. The Next.js app and the Convex backend run as two processes.
+Spotter is a web app you can install. It gets its own icon, opens full screen like any other app, and updates itself. There is nothing to download from an app store.
+
+### iPhone and iPad
+
+1. Open the site in **Safari** (or Chrome, on iOS 16.4 and later).
+2. Tap the **Share** button.
+3. Tap **Add to Home Screen**, then **Add**.
+
+### Android
+
+1. Open the site in **Chrome**.
+2. Go to **Settings > App > Install app**, or open Chrome's **⋮** menu and choose **Install app** (or **Add to Home screen**).
+3. Confirm, and Spotter appears in your app drawer.
+
+### Windows, Mac, and Linux
+
+1. Open the site in **Chrome** or **Edge**.
+2. Go to **Settings > App > Install app**, or click the install icon at the right end of the address bar.
+3. Spotter opens in its own window and can be pinned to your taskbar or Dock.
+
+Once installed, press and hold the app icon (or right-click it on a computer) for shortcuts: **New workout**, **Repeat last workout**, **Routines**, and **Log body weight**.
+
+## Logging a workout
+
+### By voice
+
+Tap the mic and speak naturally. You can describe several exercises at once:
+
+| Say | You get |
+| --- | --- |
+| "Bench press, three sets of ten at 135, then rows, three sets of eight at 95" | Two exercises, three sets each |
+| "Plank 60 seconds" | A timed set |
+| "Superset curls and pushdowns, 3 rounds of 12 at 30 and 50" | Two exercises grouped as a superset |
+
+Each exercise appears as its own block so you can fix anything that was misheard. Nothing is saved until you confirm.
+
+### By typing or by hand
+
+- Tap **Type it instead** and write it the short way, for example `squat 3x5 225`.
+- Use the manual form to fill in a set field by field.
+- Tap **+** on an exercise to log its last set again.
+
+Every add shows **Undo**, and a workout can carry a short note.
+
+### During and after a workout
+
+- A rest timer starts after each set, and it chimes when rest is over.
+- Each exercise page shows a demo with photos and steps. **Wrong demo?** lets you pick the right one, and **Watch a video** searches YouTube.
+- When you finish, a recap shows your highlights, personal bests, and any badges you earned.
+- Forgot to log one? Go to **History > Log a past workout** and pick the day.
+
+## Finding your way around
+
+The bar at the bottom of every screen:
+
+| Tab | What's there |
+| --- | --- |
+| **Home** | Your next routine, your last workout with a **Repeat** button, this week against last week, and the body map. It becomes **Workout** while a workout is running. |
+| **History** | Every workout as a list or a calendar. Open a day to edit sets, rename or remove an exercise, or delete the workout. |
+| **Log** (mic) | Log by voice. With no connection it turns into **+** so you can add a set by hand. |
+| **Exercises** | Every exercise with its last date and best set, filtered by muscle group. **Edit** renames an exercise or merges a duplicate into the one you keep. |
+| **Body** | Body weight, body fat, and measurements such as waist, chest, and hips, with their history. You can log these by voice too. |
+
+## Routines and supersets
+
+Create a routine from **Home > Routines**. Starting a routine shows one exercise at a time ("Exercise 2 of 5") with what comes next, a **Skip** button, and **Show full plan** if you prefer the whole list. Spotter suggests the next weight and says why, for example "All 3 sets reached 8 reps last time, so 5 lb more."
+
+Two or more neighbouring exercises can be a superset, either in a routine or during a workout. Rest starts after the whole round, and History shows the group as "Curl + Pushdown".
+
+## Import your history from a file
+
+Moving from another app or a paper log? Spotter can read it.
+
+1. Go to **Settings > Your data > Import from a file**.
+2. Pick a file. These all work:
+   - a spreadsheet (`.xlsx` or `.csv`) or another app's export
+   - a Word, text, or PDF file
+   - a photo of a notebook page
+   - a Spotter export zip
+3. Wait while Spotter reads it. Keep the screen open until it finishes; long files are read in parts.
+4. Review what was found. Untick anything you don't want. Anything already in Spotter for that day is marked and skipped, so importing the same file twice is safe.
+5. Tap **Save**.
+
+<img src="docs/images/import-review.png" alt="The import review screen listing found workouts, with one already logged and skipped" width="320">
+
+Workouts and body entries (weight, body fat, measurements) can come from the same file. Import needs a connection.
+
+## Export your data
+
+Go to **Settings > Your data > Download spreadsheet**. You get a zip with three spreadsheets: every set, every body entry, and every routine. Weights are listed in pounds, kilograms, and the unit you use. Export needs a connection.
+
+## Using it without a connection
+
+Gym signal is often weak, so sets you log by hand are saved on your phone first and marked as pending until they sync. Nothing is lost or doubled when you reconnect. Voice and typed logging need a connection; the manual form does not. Open Spotter at least once with a connection so it can work offline afterwards.
+
+## Settings
+
+Tap your avatar in the top right.
+
+| Section | What you can change |
+| --- | --- |
+| **Weight** | Pounds or kilograms |
+| **Measurements** | The unit for body measurements |
+| **Rest** | Your default rest time |
+| **Next weight** | How big a step suggested weights take |
+| **Your data** | Download spreadsheet, Import from a file |
+| **Appearance** | Light, dark, or match your phone |
+| **App** | Install app (shown when your browser supports it) |
+| **Account** | Sign out |
+
+## Tips and troubleshooting
+
+- **The mic doesn't work.** Allow microphone access for the site in your browser settings. You can always type the set instead.
+- **No Install app button.** On iPhone use the browser's Share menu. Elsewhere, check that you are in Chrome or Edge and that Spotter isn't already installed.
+- **An exercise shows up twice** ("Pull-up" and "Pull ups"). Go to **Exercises > Edit** and rename one to the other's name; their sets merge.
+- **A set is marked pending.** It is saved on your phone and syncs when you are back online.
+
+## For developers
+
+Spotter is a Next.js app with a [Convex](https://www.convex.dev/) backend, Google sign-in through Convex Auth, and Gemini for voice and import parsing. It is hosted on Vercel; every push to `main` deploys to production.
 
 ```bash
 npm install
 cp .env.example .env.local
-npx convex dev
+npx convex dev     # first terminal: backend
+npm run dev        # second terminal: http://localhost:3000
 ```
 
-`npx convex dev` logs you into Convex, creates a dev deployment, and writes these into `.env.local`:
+Before opening a pull request, run `npm test`, `npm run lint`, `npm run typecheck`, and `npm run build`, the same checks CI runs.
 
-- `CONVEX_DEPLOYMENT`
-- `NEXT_PUBLIC_CONVEX_URL`
-- `NEXT_PUBLIC_CONVEX_SITE_URL` (the HTTP actions origin; the Google redirect URI is this origin plus `/api/auth/callback/google`)
-
-Leave `.env.local` gitignored. The app code reads `NEXT_PUBLIC_CONVEX_URL`. You do not set `NEXT_PUBLIC_CONVEX_SITE_URL` by hand.
-
-In a second terminal:
-
-```bash
-npm run dev
-```
-
-Open [http://localhost:3000](http://localhost:3000).
-
-Google sign-in stays broken until the Convex deployment variables and the Google OAuth client below are set. The rest of the app builds without them.
-
-## Required keys and dashboard settings
-
-Nothing secret belongs in the repo. `.env.example` only has placeholders.
-
-### Next.js: `.env.local`, and the Vercel project environment
-
-| Name | Where it comes from |
-| --- | --- |
-| `NEXT_PUBLIC_CONVEX_URL` | Printed by `npx convex dev`. Same value as the deployment URL in the Convex dashboard under Settings → URL & Deploy Key. It looks like `https://<name>.convex.cloud`. |
-| `CONVEX_DEPLOYMENT` | Written by `npx convex dev`. The CLI uses it to find the dev deployment. Do not invent this yourself. |
-| `GEMINI_API_KEY` | A Gemini API key from Google AI Studio. Server-only: `.env.local` locally, and the Vercel project environment when you deploy. Do not put it on the Convex deployment, and do not prefix it with `NEXT_PUBLIC_`. Voice logging shows a clear message and the manual form still works when it is missing. |
-| `GEMINI_MODEL` | Optional. Overrides the Flash model id in `lib/voice/model.ts` (`gemini-3.8-flash`). Same Next.js server environment as `GEMINI_API_KEY`. |
-
-### Convex deployment environment
-
-Set these in the Convex dashboard for the dev deployment (Settings → Environment Variables), or with `npx convex env set`. They are not Next.js variables.
-
-| Name | Value |
-| --- | --- |
-| `SITE_URL` | `http://localhost:3000` while you run locally. On the **production** Convex deployment it is the site's origin, `https://repsandsets.vercel.app`. |
-| `JWT_PRIVATE_KEY` | Generated locally. Run `node scripts/generateAuthKeys.mjs` and paste the printed value. Do not commit the output. |
-| `JWKS` | Printed by the same script. Paste the whole JSON object. |
-| `AUTH_GOOGLE_ID` | OAuth client ID from Google Cloud. |
-| `AUTH_GOOGLE_SECRET` | OAuth client secret from Google Cloud. |
-
-`CONVEX_SITE_URL` is provided by Convex. Do not set it yourself.
-
-Example:
-
-```bash
-npx convex env set SITE_URL http://localhost:3000
-npx convex env set AUTH_GOOGLE_ID your-client-id
-npx convex env set AUTH_GOOGLE_SECRET your-client-secret
-npx convex env set JWT_PRIVATE_KEY -- "paste the generated PKCS8 key"
-npx convex env set JWKS -- 'paste the generated JSON'
-```
-
-Quote the JWT and JWKS values so the shell does not split them.
-
-### Google Cloud OAuth client
-
-In Google Cloud Console, configure the OAuth consent screen, then create an OAuth client ID of type **Web application**.
-
-- Authorized JavaScript origin: `http://localhost:3000`
-- Authorized redirect URI: `https://<your-deployment>.convex.site/api/auth/callback/google`
-
-The host is the Convex HTTP Actions URL (the deployment URL with `.convex.site` instead of `.convex.cloud`). Find it in the Convex dashboard under Settings → URL & Deploy Key. If the consent screen is in testing, add the Google account you sign in with as a test user.
-
-Sign-in uses [Convex Auth](https://labs.convex.dev/auth) with the Google provider, so there is no second auth vendor.
-
-## Voice logging
-
-The mic records a short clip in the browser (up to 20 seconds) and sends it to `POST /api/voice`. That route checks the Convex Auth session, then calls Gemini Flash (`gemini-3.8-flash` unless `GEMINI_MODEL` is set) with structured output. The key is read on the server from `GEMINI_API_KEY`.
-
-A typed set goes to the same route as `{ "text": "..." }` (up to 300 characters) and gets the same preview. The audio and text paths share the response schema and the confirm step.
-
-Mobile Safari records `audio/mp4`, which the server sends to Gemini as `audio/m4a`. Mobile Chrome records `audio/webm`. The microphone needs a secure page, so use localhost or HTTPS. If permission is denied, recording is unavailable, or the key is missing, the message says so and you can still type the set.
-
-## Offline
-
-Gym signal is often too weak for voice or for Convex. A set logged by hand is written to this phone first, with an id generated here, and shown as pending until it syncs. Sending it again uses that same id, so reconnecting cannot create a second copy. Finish, keep going, discard, edits, and a past workout use the same queue. Voice and typed parsing need a connection; the manual form does not. The installed app keeps a network-first copy of its shell so it can open offline, then picks up the live site the next time it loads. History and the weekly summary wait for the network.
-
-## Check the project
-
-```bash
-npm test
-npm run lint
-npm run typecheck
-npm run build
-```
-
-`npm run build` succeeds before the Convex URL and Google keys exist. Signing in and saving workouts needs those values and `npx convex dev` running (or a deployed Convex backend).
-
-Pull requests and pushes to `main` run these same commands in GitHub Actions. That workflow does not use a Convex URL, a Gemini key, or any other secret.
-
-`tests/statsFuzz.vitest.ts` runs random mixes of logging, edits, deletes, offline batches, merges, cron ticks, and repeated or late rebuild pages, and checks the stats after every step. It uses a few fixed seeds. To search longer, run `STATS_FUZZ_SEEDS=1-200 STATS_FUZZ_STEPS=300 npx vitest run tests/statsFuzz.vitest.ts`. A failure names its seed, step, and the operations before it.
-
-### Checking exercise stats
-
-Each exercise keeps a stats row (its bests, set count, and newest set), and each set keeps the records it set. Writes update them in place or rebuild them in the background. Two internal queries recompute them from the sets and list what disagrees. They only read, and they are not callable from the app.
-
-```bash
-npx convex run --prod exerciseStats:auditUser '{"userId":"<user id>","cursor":null}'
-npx convex run --prod exerciseStats:auditExercise '{"userId":"<user id>","exerciseId":"<exercise id>"}'
-```
-
-The user id is the `_id` of your row in the `users` table: Convex dashboard → the production deployment → Data → `users`. Exercise ids are in the `exercises` table. The dashboard's Functions page can run the same queries.
-
-`auditUser` checks up to ten exercises per call, fewer when their histories are long. Pass its `continueCursor` back as `cursor` until it is `null`. `clean` counts exercises that match their sets, and `flagged` lists the rest with their mismatches:
-
-- `"rebuilding"`: a rebuild is still running. Run it again in a minute; the cron restarts a rebuild that stalls.
-- `"2 stats rows"`: left by older code. The next set logged, edited, or deleted for that exercise keeps one row and rebuilds it.
-- `"too many sets"` or `"too many marks"`: more than 4,000 sets, or 2,000 record marks, which is more than one query should read. It is not checked.
-- Anything else, such as a wrong best or a set's record stamps, is a bug. Open an issue with the output.
-
-### Before merging changes to logging, sync, or stats
-
-The tests run against a simulated backend, so check these on a phone too. Use a dev deployment where you can: previews write to the live data.
-
-- Offline, then reconnect: in airplane mode, log three sets and undo one, then reconnect. Each set shows once, nothing stays pending, and the workout shows two sets.
-- Two tabs: log a set in one tab and edit or delete it in the other. Both show the same sets, and the exercise page shows the same best.
-- Finish, then log a past workout: finish today's workout, then log one for an earlier day with a heavier set. The exercise page shows the heavier best, and today's lighter set no longer shows as a record.
-- Merge in a superset: during a superset, merge one of its exercises into another in Settings. The workout, History, and the kept exercise's best all show the merged sets.
-- Delete, then log again: delete the set that holds an exercise's best, then log it again. The record is announced once and the exercise page matches.
-- Rest timer on iPhone: log a set and wait out the rest with the app open. It chimes. Switch to another app and back, log again, and it still chimes.
-
-## Deployment
-
-Production is the Vercel project `workout-app` at [repsandsets.vercel.app](https://repsandsets.vercel.app). It is linked to this GitHub repo, so every push to `main` deploys to production, and other branches get preview deployments. Do not commit a `.vercel` directory.
-
-The production build runs `npx convex deploy` first. That pushes the functions in `convex/` to the production Convex deployment (`honorable-tern-770`), then builds the site. Backend and site changes ship together, so there is no separate Convex push. If the Convex step fails, the build fails and the previous version stays live. The build command is set in Vercel under Project Settings → Build and Deployment.
-
-Vercel environment variables:
-
-| Name | Environments | What it is |
-| --- | --- | --- |
-| `NEXT_PUBLIC_CONVEX_URL` | Production, Preview | `https://honorable-tern-770.convex.cloud` |
-| `CONVEX_DEPLOY_KEY` | Production | A production deploy key from the Convex dashboard, used by the build. Keep it secret. |
-| `GEMINI_API_KEY` | Production | Server-only Gemini key for voice and typed sets. Do not expose it to the browser. |
-
-Preview deployments point at the same Convex deployment, so they read and write the live data. Voice and typed sets do not work in previews, because `GEMINI_API_KEY` is set for production only.
-
-On the production Convex deployment, `SITE_URL` must be the site's origin (`https://repsandsets.vercel.app`), and the Google OAuth client needs `https://honorable-tern-770.convex.site/api/auth/callback/google` as an authorized redirect URI. Dev and production Convex deployments do not share environment variables, so set these on production separately.
+Full setup, required keys, stats audits, manual test checklists, and deployment details are in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
