@@ -27,6 +27,8 @@ export function RoutineManager() {
   const [cached, setCached] = useState<CachedRoutine[] | null>(null);
   const [orderError, setOrderError] = useState<string | null>(null);
   const [moving, setMoving] = useState(false);
+  // Moving routines is occasional, so the arrows only show in Reorder mode.
+  const [reordering, setReordering] = useState(false);
 
   useEffect(() => {
     const email = loadCachedAccess(cacheStore())?.email ?? null;
@@ -63,10 +65,24 @@ export function RoutineManager() {
 
   return (
     <div className="px-5 pt-3 pb-[calc(32px+var(--page-inset))]">
-      <PageHeader backHref="/" backLabel="Back to workout" title="Routines">
-        <p className="mt-1.5 text-base leading-normal text-muted">
-          Start one in a tap. Edit the order, the name, or the targets whenever you want.
-        </p>
+      <PageHeader
+        backHref="/"
+        backLabel="Back to workout"
+        title="Routines"
+        action={
+          routines.length > 1 ? (
+            <button
+              type="button"
+              aria-pressed={reordering}
+              onClick={() => setReordering((current) => !current)}
+              className="min-h-11 rounded-full px-3 text-base font-semibold hover:bg-fill-2"
+            >
+              {reordering ? "Done" : "Reorder"}
+            </button>
+          ) : null
+        }
+      >
+        <p className="mt-1.5 text-base leading-normal text-muted">Tap a name to edit it.</p>
       </PageHeader>
 
       <Link
@@ -85,41 +101,41 @@ export function RoutineManager() {
       ) : (
         <ul className="mt-4 flex flex-col">
           {routines.map((routine, index) => (
-            <li key={routine._id} className="flex flex-col gap-1 border-b border-line py-3">
-              <div className="flex items-start justify-between gap-3">
-                <span className="min-w-0">
-                  <span className="block truncate text-base font-semibold">{routine.name}</span>
-                  <span className="mt-0.5 block truncate text-sm text-muted">
-                    {routine.exercises.length > 0
-                      ? formatSupersetNames(routine.exercises)
-                      : pluralize(routine.exerciseCount, "exercise")}
-                  </span>
+            <li key={routine._id} className="flex items-center justify-between gap-3 border-b border-line py-3">
+              <Link href={`/routines/${routine._id}`} className="min-w-0 flex-1 hover:opacity-80">
+                <span className="block truncate text-base font-semibold">{routine.name}</span>
+                <span className="mt-0.5 block truncate text-sm text-muted">
+                  {routine.exercises.length > 0
+                    ? formatSupersetNames(routine.exercises)
+                    : pluralize(routine.exerciseCount, "exercise")}
                 </span>
-                <Button
-                  disabled={begin.pending}
-                  onClick={() => void begin.startRoutine(routine._id)}
-                >
+              </Link>
+              {reordering ? (
+                <span className="flex shrink-0 gap-1">
+                  <button
+                    type="button"
+                    aria-label={`Move ${routine.name} up`}
+                    disabled={moving || index === 0}
+                    onClick={() => void move(index, -1)}
+                    className="flex size-11 items-center justify-center rounded-full border border-line text-lg disabled:opacity-40"
+                  >
+                    ↑
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={`Move ${routine.name} down`}
+                    disabled={moving || index === routines.length - 1}
+                    onClick={() => void move(index, 1)}
+                    className="flex size-11 items-center justify-center rounded-full border border-line text-lg disabled:opacity-40"
+                  >
+                    ↓
+                  </button>
+                </span>
+              ) : (
+                <Button disabled={begin.pending} onClick={() => void begin.startRoutine(routine._id)}>
                   Start
                 </Button>
-              </div>
-              <div className="flex flex-wrap gap-1">
-                <Button variant="ghost" disabled={moving || index === 0} onClick={() => void move(index, -1)}>
-                  Up
-                </Button>
-                <Button
-                  variant="ghost"
-                  disabled={moving || index === routines.length - 1}
-                  onClick={() => void move(index, 1)}
-                >
-                  Down
-                </Button>
-                <Link
-                  href={`/routines/${routine._id}`}
-                  className="inline-flex min-h-11 items-center rounded-full px-5 text-base font-semibold hover:bg-fill-2"
-                >
-                  Edit
-                </Link>
-              </div>
+              )}
             </li>
           ))}
         </ul>

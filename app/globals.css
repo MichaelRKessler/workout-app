@@ -48,6 +48,34 @@
   color-scheme: dark;
 }
 
+/* "Match phone": the same dark tokens, applied when the phone is in dark mode. Keep in step with the block above. */
+@media (prefers-color-scheme: dark) {
+  :root[data-theme="system"] {
+    --background: #0e0f11;
+    --surface: #17181b;
+    --foreground: #f3f3f1;
+    /* Brighter than the light-mode greys so secondary text holds up on near-black. */
+    --muted: #c0c3c8;
+    --subtle: #aeb1b8;
+    --line: #2a2c31;
+    --line-soft: #1f2125;
+    --fill: #1c1d21;
+    --fill-2: #232428;
+    /* The body map needs more lift off the card than hairlines do, or the figure disappears. */
+    --body-base: #33363c;
+    --body-idle: #474b53;
+    --inverse: #f3f3f1;
+    --inverse-ink: #0e0f11;
+    --accent: #f06a43;
+    --accent-ink: #f06a43;
+    --input-line: #686b73;
+    --danger: #ff8a75;
+    --scrim: rgb(0 0 0 / 0.55);
+    --shadow-ink: 0 0 0;
+    color-scheme: dark;
+  }
+}
+
 /*
   Readability scale for phone and laptop Chrome.
   Body copy is 19px. Labels, captions, timestamps, and badges floor at 16px

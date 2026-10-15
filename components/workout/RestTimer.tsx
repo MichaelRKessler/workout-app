@@ -28,9 +28,9 @@ import { useEffect, useRef, useState } from "react";
 import { readLocal, readSession, writeLocal, writeSession } from "@/lib/localValue";
 
 /**
- * Rest controls above the composer. Changing the time during a rest does not
- * save it. "Save for <exercise>" stores it for that exercise only. Before any
- * set, the buttons change the device default, which Settings also edits.
+ * Rest controls above the composer, on one row. Changing the time during a rest
+ * does not save it. "Save for <exercise>" stores it for that exercise only.
+ * Before any set the bar is hidden; Settings edits the device default.
  * With a workout key, a running rest survives a trip to a progress page.
  */
 export function RestTimer({
@@ -304,21 +304,38 @@ export function RestTimer({
   const savedLength = setCount > 0 ? (exerciseRestSeconds ?? globalSeconds) : globalSeconds;
   const canSave = setCount > 0 && Boolean(onExerciseRest) && displaySeconds !== savedLength;
   const buttonClass =
-    "min-h-11 rounded-full border border-input bg-surface px-3 text-base font-semibold text-foreground hover:bg-fill-2";
+    "min-h-11 shrink-0 rounded-full border border-input bg-surface px-3 text-base font-semibold text-foreground hover:bg-fill-2";
+
+  // Before the first set there is nothing to rest from. Settings holds the default.
+  if (setCount === 0 && endsAt === null) {
+    return (
+      <p className="sr-only" aria-live="polite">
+        {announcement}
+      </p>
+    );
+  }
 
   return (
     <div className="border-t border-line bg-background px-4 pt-2 pb-1">
-      <div className="mx-auto flex max-w-lg flex-wrap items-center gap-2">
+      <div className="mx-auto flex max-w-lg items-center gap-1.5">
         <p className="mr-auto min-w-0" title={restLabel ? `Rest follows ${restLabel}` : undefined}>
-          <span className="block text-xs font-medium tracking-[0.06em] text-subtle uppercase">
-            Rest{restLabel && !hold ? ` · ${restLabel}` : setCount === 0 ? " · default" : ""}
+          <span className="block truncate text-xs font-medium tracking-[0.06em] text-subtle uppercase">
+            Rest{restLabel && !hold ? ` · ${restLabel}` : ""}
           </span>
           <span className="font-mono text-2xl leading-none font-medium tabular-nums">{readout}</span>
         </p>
-        <button type="button" onClick={() => adjust(-1)} className={buttonClass}>
+        <button
+          type="button"
+          onClick={() => adjust(-1)}
+          className={buttonClass}
+        >
           −{REST_STEP_SECONDS}s
         </button>
-        <button type="button" onClick={() => adjust(1)} className={buttonClass}>
+        <button
+          type="button"
+          onClick={() => adjust(1)}
+          className={buttonClass}
+        >
           +{REST_STEP_SECONDS}s
         </button>
         {running ? (
@@ -326,12 +343,18 @@ export function RestTimer({
             Skip
           </button>
         ) : null}
-        {canSave ? (
-          <button type="button" onClick={saveDefault} className={buttonClass}>
+      </div>
+      {canSave ? (
+        <div className="mx-auto mt-1 flex max-w-lg justify-end">
+          <button
+            type="button"
+            onClick={saveDefault}
+            className="min-h-11 rounded-full px-3 text-sm font-medium text-muted hover:bg-fill-2"
+          >
             {savedFlash ? "Saved" : `Save for ${restLabel ?? "this exercise"}`}
           </button>
-        ) : null}
-      </div>
+        </div>
+      ) : null}
       <p className="sr-only" aria-live="polite">
         {announcement}
       </p>

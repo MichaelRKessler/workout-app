@@ -9,6 +9,7 @@ import { useWeightUnit } from "@/components/WeightUnit";
 import { api } from "@/convex/_generated/api";
 import { exerciseLink } from "@/lib/exerciseLink";
 import { formatLongDate, formatMonthHeading, monthKey } from "@/lib/format";
+import { MetaLine } from "@/components/MetaLine";
 import { formatHistoryDayMeta, visibleHistoryDays, type HistoryDay, type HistoryExercise } from "@/lib/historyDays";
 import { supersetBlocks } from "@/convex/lib/superset";
 import { usePaginatedQuery } from "convex/react";
@@ -161,7 +162,7 @@ export function HistoryList() {
                         {day.exercises.length === 0 ? "No sets" : <HistoryNames exercises={day.exercises} />}
                       </span>
                       <Link href={href} className="text-sm text-pretty text-muted hover:underline">
-                        {formatHistoryDayMeta(day, unit)}
+                        <MetaLine text={formatHistoryDayMeta(day, unit)} />
                       </Link>
                     </span>
                     <Link

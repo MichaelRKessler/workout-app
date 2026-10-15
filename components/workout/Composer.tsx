@@ -35,7 +35,7 @@ export function Composer({
   }
 
   return (
-    <div className="bg-background px-4 pt-3 pb-[calc(16px+var(--dock-inset))]">
+    <div className="bg-background px-4 pt-2 pb-[calc(10px+var(--dock-inset))]">
       {onClose ? (
         <div className="mx-auto mb-2 flex max-w-lg justify-end">
           <button
@@ -49,7 +49,7 @@ export function Composer({
         </div>
       ) : null}
       <form onSubmit={onSubmit} className="mx-auto flex max-w-lg items-center gap-2.5">
-        <div className="flex h-14 min-w-0 flex-1 items-center gap-1 rounded-full border border-input bg-surface px-1.5 shadow-float focus-within:border-foreground">
+        <div className="flex h-13 min-w-0 flex-1 items-center gap-1 rounded-full border border-input bg-surface px-1.5 shadow-float focus-within:border-foreground">
           <button
             type="button"
             onClick={() => onManual()}
@@ -85,7 +85,7 @@ export function Composer({
             type="submit"
             disabled={parsingText || offline}
             aria-label={parsingText ? "Reading that" : "Send"}
-            className="flex size-16 shrink-0 items-center justify-center rounded-full bg-inverse text-inverse-ink shadow-lift disabled:opacity-80"
+            className="flex size-13 shrink-0 items-center justify-center rounded-full bg-inverse text-inverse-ink shadow-lift disabled:opacity-80"
           >
             {parsingText ? <Spinner className="size-6" /> : <ArrowUpIcon className="size-7" strokeWidth={2} />}
           </button>

@@ -105,14 +105,6 @@ export function ExerciseHistory({
   return (
     <div className="px-5 pt-3 pb-[calc(32px+var(--page-inset))]">
       <PageHeader backHref={backHref} backLabel={backLabel} title={detail.name}>
-        <MuscleGroupField
-          exerciseId={detail._id}
-          exerciseName={detail.name}
-          muscleGroup={detail.muscleGroup}
-          muscleSource={detail.muscleSource}
-          offline={offline}
-        />
-        <ExerciseDemo exerciseId={detail._id} name={detail.name} offline={offline} />
         <Records detail={detail} unit={unit} />
         <TrendChart
           points={detail.trend}
@@ -128,6 +120,8 @@ export function ExerciseHistory({
           </p>
         ) : null}
       </PageHeader>
+
+      <ExerciseDemo exerciseId={detail._id} name={detail.name} offline={offline} />
 
       {workouts.length === 0 ? (
         <p className="mt-8 text-base text-muted">No sets logged for this exercise yet.</p>
@@ -168,6 +162,17 @@ export function ExerciseHistory({
       {status === "LoadingMore" ? (
         <p className="mt-6 text-center text-sm text-muted">Loading more…</p>
       ) : null}
+
+      {/* Setup lives at the end: the page is for progress first. */}
+      <div className="mt-8">
+        <MuscleGroupField
+          exerciseId={detail._id}
+          exerciseName={detail.name}
+          muscleGroup={detail.muscleGroup}
+          muscleSource={detail.muscleSource}
+          offline={offline}
+        />
+      </div>
     </div>
   );
 }

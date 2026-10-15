@@ -9,7 +9,11 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { exerciseLink, muscleFilterHref } from "@/lib/exerciseLink";
 import { readableError } from "@/lib/errors";
-import { pluralize } from "@/lib/format";
+import { formatSetShort, formatShortDate, formatVolumeLb, pluralize } from "@/lib/format";
+import { MetaLine } from "@/components/MetaLine";
+import { useWeightUnit } from "@/components/WeightUnit";
+import { ChevronRightIcon } from "@/components/icons";
+import type { WeightUnit } from "@/convex/lib/units";
 import { isMuscleGroup, MUSCLE_GROUPS, MUSCLE_LABELS, type MuscleGroup } from "@/convex/lib/muscleGroup";
 import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
 import Link from "next/link";
@@ -24,7 +28,33 @@ type LibraryItem = {
   muscleGroup: MuscleGroup;
   muscleSource: "saved" | "suggested";
   mergingInto: string | null;
+  lastLoggedAt?: number | null;
+  best?: {
+    reps: number | null;
+    weightLb: number;
+    durationSec: number | null;
+    distanceM: number | null;
+    epleyLb: number | null;
+  } | null;
 };
+
+/** "Tue, Oct 13 · Best 8×185 · est. 1RM 228 lb" */
+function progressLine(exercise: LibraryItem, unit: WeightUnit): string {
+  const parts: string[] = [];
+  if (exercise.lastLoggedAt) {
+    parts.push(formatShortDate(exercise.lastLoggedAt));
+  }
+  if (exercise.best) {
+    parts.push(`Best ${formatSetShort(exercise.best, unit)}`);
+    if (exercise.best.epleyLb !== null && exercise.best.weightLb > 0 && (exercise.best.reps ?? 0) > 1) {
+      parts.push(`est. 1RM ${formatVolumeLb(exercise.best.epleyLb, unit)}`);
+    }
+  }
+  if (parts.length === 0) {
+    parts.push(exercise.setCountCapped ? `${exercise.setCount}+ sets` : pluralize(exercise.setCount, "set"));
+  }
+  return parts.join(" · ");
+}
 
 type Conflict = {
   fromId: Id<"exercises">;
@@ -57,6 +87,9 @@ export function ExerciseLibrary() {
   const [error, setError] = useState<string | null>(null);
   const [conflict, setConflict] = useState<Conflict | null>(null);
   const [mergeNotice, setMergeNotice] = useState<string | null>(null);
+  // Rename and muscle groups sit behind Edit, so the tab reads as a list of your lifts.
+  const [managing, setManaging] = useState(false);
+  const unit = useWeightUnit();
 
   function openRename(id: Id<"exercises">, name: string) {
     setEditing({ id, name });
@@ -114,12 +147,23 @@ export function ExerciseLibrary() {
         backHref={fromHome ? "/" : undefined}
         backLabel="Back to home"
         title="Exercises"
+        action={
+          <button
+            type="button"
+            aria-pressed={managing}
+            onClick={() => setManaging((current) => !current)}
+            className="min-h-11 rounded-full px-3 text-base font-semibold hover:bg-fill-2"
+          >
+            {managing ? "Done" : "Edit"}
+          </button>
+        }
       >
-        <p className="mt-1.5 text-base leading-normal text-muted">
-          Rename a duplicate, or merge it into the exercise you want to keep. Merging moves every
-          set. History and personal records follow those sets. The muscle group is a suggestion
-          until you change it.
-        </p>
+        {managing ? (
+          <p className="mt-1.5 text-base leading-normal text-muted">
+            Rename a duplicate to the name you keep and its sets merge in. Muscle groups are
+            suggestions until you pick one.
+          </p>
+        ) : null}
       </PageHeader>
 
       {mergeNotice ? (
@@ -157,16 +201,39 @@ export function ExerciseLibrary() {
         </p>
       ) : (
         <>
-        {offline ? (
+        {offline && managing ? (
           <p className="mt-4 text-sm text-muted">Changing a muscle group needs a connection.</p>
         ) : null}
-        <ul className="mt-6 flex flex-col border-t border-line">
-          {results.map((exercise) => (
+        <ul className="mt-5 flex flex-col border-t border-line">
+          {results.map((exercise) => {
+            const href =
+              exerciseLink(exercise._id, muscleFilterHref(muscle, fromHome)) ?? `/exercises/${exercise._id}`;
+            if (!managing) {
+              return (
+                <li key={exercise._id} className="border-b border-line">
+                  <Link href={href} className="flex min-h-16 items-center gap-3 py-3 hover:opacity-80">
+                    <span className="flex min-w-0 flex-1 flex-col">
+                      <span className="truncate text-base font-medium">{exercise.name}</span>
+                      <MetaLine
+                        className="text-sm text-muted"
+                        text={
+                          exercise.mergingInto
+                            ? `Moving sets onto ${exercise.mergingInto}…`
+                            : progressLine(exercise, unit)
+                        }
+                      />
+                    </span>
+                    <ChevronRightIcon className="size-5 shrink-0 text-subtle" />
+                  </Link>
+                </li>
+              );
+            }
+            return (
             <li key={exercise._id} className="flex flex-col gap-2 border-b border-line py-3">
               <span className="flex min-h-11 items-center justify-between gap-3">
                 <span className="min-w-0">
                   <Link
-                    href={exerciseLink(exercise._id, muscleFilterHref(muscle, fromHome)) ?? `/exercises/${exercise._id}`}
+                    href={href}
                     className="block truncate text-base font-medium underline decoration-line underline-offset-4 hover:decoration-current"
                   >
                     {exercise.name}
@@ -197,7 +264,8 @@ export function ExerciseLibrary() {
                 offline={offline}
               />
             </li>
-          ))}
+            );
+          })}
         </ul>
         </>
       )}

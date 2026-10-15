@@ -375,6 +375,7 @@ export function visibleHistoryDays(
 export function formatHistoryDayMeta(
   day: Pick<HistoryDay, "workoutCount" | "exercises" | "setCount" | "volumeLb" | "durationMs">,
   unit: WeightUnit,
+  { volume = true }: { volume?: boolean } = {},
 ): string {
   const parts: string[] = [];
   if (day.workoutCount > 1) {
@@ -382,7 +383,9 @@ export function formatHistoryDayMeta(
   }
   parts.push(pluralize(day.exercises.length, "exercise"));
   parts.push(pluralize(day.setCount, "set"));
-  parts.push(formatVolumeLb(day.volumeLb, unit));
+  if (volume) {
+    parts.push(formatVolumeLb(day.volumeLb, unit));
+  }
   if (day.durationMs > 0) {
     parts.push(formatDuration(day.durationMs));
   }

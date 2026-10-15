@@ -123,9 +123,8 @@ test("another workout does not pick up the saved rest", () => {
   view.unmount();
 
   render(<RestTimer setCount={0} loading={false} workoutKey="w2" />);
-  expect(screen.getByText("1:30")).toBeInstanceOf(HTMLElement);
   advance(5_000);
-  expect(screen.getByText("1:30")).toBeInstanceOf(HTMLElement);
+  expect(screen.queryByText(/\d:\d\d/)).toBeNull();
 });
 
 test("a key that arrives after loading still restores the rest", () => {
@@ -145,14 +144,10 @@ test("a superset round that holds the rest forgets the saved one", () => {
   expect(window.sessionStorage.getItem("workout-rest-run")).toBeNull();
 });
 
-test("before the first set the bar says it changes the default", () => {
+test("before the first set the bar stays out of the way", () => {
   render(<RestTimer setCount={0} loading={false} />);
-  expect(screen.getByText("Rest · default")).toBeInstanceOf(HTMLElement);
-  act(() => {
-    screen.getByRole("button", { name: "+30s" }).click();
-  });
-  expect(window.localStorage.getItem("workout-rest-seconds")).toBe("120");
-  expect(screen.getByText("Default rest 2:00")).toBeInstanceOf(HTMLElement);
+  expect(screen.queryByText("1:30")).toBeNull();
+  expect(screen.queryByRole("button", { name: "+30s" })).toBeNull();
 });
 
 test("a rest started while the workout loads is not replaced by an older saved one", () => {

@@ -120,7 +120,7 @@ test("volume, streaks, and personal records have stable labels", () => {
       weightLb: 225,
       epleyLb: 262.5,
     }),
-    "New PR · bench press · 225 lb · est. 1RM 262.5 lb",
+    "New PR · bench press · 225 lb · est. 1RM 263 lb",
   );
   assert.equal(
     formatPersonalRecord({

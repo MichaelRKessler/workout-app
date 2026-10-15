@@ -1,5 +1,6 @@
 import { planProgress } from "../convex/lib/routinePlan";
 import { supersetBlocks, supersetNextId } from "../convex/lib/superset";
+import { pluralize } from "./format";
 import type { SetLine } from "./groupSets";
 
 export type VisiblePlanItem = {
@@ -111,4 +112,33 @@ export function guidedNextId(
     }
   }
   return null;
+}
+
+/** "3 planned exercises not started · 9 planned sets left", or null when the plan is done. */
+export function planLeftNote(
+  rows: ReadonlyArray<{ sets: readonly unknown[]; targetSets?: number | null; skipped?: boolean }> | undefined,
+): string | null {
+  if (!rows) {
+    return null;
+  }
+  let notStarted = 0;
+  let setsLeft = 0;
+  for (const row of rows) {
+    if (row.skipped) {
+      continue;
+    }
+    if (row.sets.length === 0) {
+      notStarted += 1;
+    }
+    setsLeft += Math.max((row.targetSets ?? 1) - row.sets.length, 0);
+  }
+  if (setsLeft === 0) {
+    return null;
+  }
+  const parts = [];
+  if (notStarted > 0) {
+    parts.push(`${pluralize(notStarted, "planned exercise")} not started`);
+  }
+  parts.push(`${pluralize(setsLeft, "planned set")} left`);
+  return parts.join(" · ");
 }

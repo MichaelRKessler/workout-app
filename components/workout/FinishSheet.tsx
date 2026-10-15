@@ -7,6 +7,7 @@ export function FinishSheet({
   open,
   summary,
   note,
+  planNote,
   pending,
   error,
   workoutNote,
@@ -17,6 +18,8 @@ export function FinishSheet({
   open: boolean;
   summary: string;
   note?: string | null;
+  /** What's left of a routine, so finishing early is a choice. */
+  planNote?: string | null;
   pending: boolean;
   error: string | null;
   workoutNote?: string;
@@ -30,6 +33,9 @@ export function FinishSheet({
         Finish workout?
       </h2>
       <p className="mt-1.5 text-base text-muted">{summary}. It moves to History.</p>
+      {planNote ? (
+        <p className="mt-2 rounded-xl bg-fill-2 px-3 py-2 text-base leading-normal font-medium">{planNote}</p>
+      ) : null}
       {note ? <p className="mt-2 text-base leading-normal text-muted">{note}</p> : null}
       {onWorkoutNoteChange ? (
         <label className="mt-4 block">

@@ -60,7 +60,17 @@ export default async function RootLayout({
           href="/icons/apple-touch-icon.png"
           sizes="180x180"
         />
-        <meta name="theme-color" content={THEME_COLORS[theme]} />
+        {/* Always one tag per scheme, so switching to "Match phone" can retarget each. */}
+        <meta
+          name="theme-color"
+          media="(prefers-color-scheme: light)"
+          content={THEME_COLORS[theme === "system" ? "light" : theme]}
+        />
+        <meta
+          name="theme-color"
+          media="(prefers-color-scheme: dark)"
+          content={THEME_COLORS[theme === "system" ? "dark" : theme]}
+        />
         <meta name="mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-title" content={pwaName} />

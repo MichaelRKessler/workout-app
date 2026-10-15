@@ -21,7 +21,7 @@ import { exerciseLink } from "@/lib/exerciseLink";
 import { readableError } from "@/lib/errors";
 import { EXAMPLE_EXERCISES } from "@/lib/examples";
 import {
-  formatLongDate,
+  formatDayTitle,
   formatPersonalRecord,
   formatTimeOfDay,
   pluralize,
@@ -451,7 +451,7 @@ export function DayDetail({ dayKey }: { dayKey: string }) {
       sets: mergeVisibleSets(session.sets, log.outbox, { kind: "session", sessionId: session._id }),
     })),
   );
-  const dateLabel = formatLongDate(anchor.startedAt);
+  const dateLabel = formatDayTitle(anchor.startedAt);
   const serverSetCount = orderedSessions.reduce((sum, session) => sum + session.sets.length, 0);
 
   return (
@@ -468,75 +468,8 @@ export function DayDetail({ dayKey }: { dayKey: string }) {
           <p className="mt-1 text-sm text-pretty text-muted" suppressHydrationWarning>
             {orderedSessions.map((session) => formatTimeOfDay(session.startedAt)).join(" · ")}
           </p>
-        ) : (
-          <div className="mt-3">
-            <SessionNote
-              note={anchor.note}
-              draft={noteDrafts[anchor._id]}
-              saving={savingNoteId === anchor._id}
-              onDraft={(value) =>
-                setNoteDrafts((current) => ({ ...current, [anchor._id]: value }))
-              }
-              onSave={() => void saveNote(anchor._id, anchor.note ?? "")}
-            />
-          </div>
-        )}
-      </PageHeader>
-
-      <div className="mt-5 flex flex-wrap gap-2">
-        {orderedSessions.length === 1 ? (
-          <Button
-            variant="secondary"
-            onClick={() =>
-              setManual({
-                key: Date.now(),
-                mode: "add",
-                exerciseName: groups[groups.length - 1]?.name ?? "",
-                sessionId: latest._id,
-                sessionStartedAt: latest.startedAt,
-              })
-            }
-          >
-            Add a set
-          </Button>
         ) : null}
-        <Button
-          variant="secondary"
-          disabled={begin.pending}
-          onClick={() => void begin.repeatWorkouts(orderedSessions.map((session) => session._id))}
-        >
-          {orderedSessions.length > 1 ? "Repeat this day" : "Repeat this workout"}
-        </Button>
-        <Button
-          variant="secondary"
-          onClick={() => {
-            setSaveRoutineError(null);
-            setSaveRoutineOpen(true);
-          }}
-        >
-          Save as routine
-        </Button>
-        {day.truncated ? (
-          <p className="text-sm text-pretty text-muted">
-            This day has more workouts than can be deleted from here.
-          </p>
-        ) : (
-          <Button
-            variant="danger"
-            onClick={() => {
-              setDeleteError(null);
-              setDeleteTarget({ kind: "day" });
-            }}
-          >
-            Delete day
-          </Button>
-        )}
-      </div>
-      {begin.error ? (
-        <p role="alert" className="mt-3 text-sm text-danger">
-          {begin.error}
-        </p>
-      ) : null}
+      </PageHeader>
 
       {orderedSessions.length > 1 ? (
         <div className="mt-6 flex flex-col gap-8">
@@ -642,6 +575,80 @@ export function DayDetail({ dayKey }: { dayKey: string }) {
           }
         />
       )}
+
+      {orderedSessions.length === 1 ? (
+        <div className="mt-6">
+          <SessionNote
+            note={anchor.note}
+            draft={noteDrafts[anchor._id]}
+            saving={savingNoteId === anchor._id}
+            onDraft={(value) =>
+              setNoteDrafts((current) => ({ ...current, [anchor._id]: value }))
+            }
+            onSave={() => void saveNote(anchor._id, anchor.note ?? "")}
+          />
+        </div>
+      ) : null}
+
+      <div className="mt-6 flex flex-wrap gap-2">
+        {orderedSessions.length === 1 ? (
+          <Button
+            variant="secondary"
+            onClick={() =>
+              setManual({
+                key: Date.now(),
+                mode: "add",
+                exerciseName: groups[groups.length - 1]?.name ?? "",
+                sessionId: latest._id,
+                sessionStartedAt: latest.startedAt,
+              })
+            }
+          >
+            Add a set
+          </Button>
+        ) : null}
+        <Button
+          variant="secondary"
+          disabled={begin.pending}
+          onClick={() => void begin.repeatWorkouts(orderedSessions.map((session) => session._id))}
+        >
+          {orderedSessions.length > 1 ? "Repeat this day" : "Repeat this workout"}
+        </Button>
+        <Button
+          variant="secondary"
+          onClick={() => {
+            setSaveRoutineError(null);
+            setSaveRoutineOpen(true);
+          }}
+        >
+          Save as routine
+        </Button>
+      </div>
+      {begin.error ? (
+        <p role="alert" className="mt-3 text-sm text-danger">
+          {begin.error}
+        </p>
+      ) : null}
+
+
+      {/* Delete sits apart from the everyday actions so it is never a mis-tap away. */}
+      <div className="mt-10 border-t border-line pt-4">
+        {day.truncated ? (
+          <p className="text-sm text-pretty text-muted">
+            This day has more workouts than can be deleted from here.
+          </p>
+        ) : (
+          <Button
+            variant="danger"
+            onClick={() => {
+              setDeleteError(null);
+              setDeleteTarget({ kind: "day" });
+            }}
+          >
+            Delete day
+          </Button>
+        )}
+      </div>
 
       {manual ? (
         <ManualEntrySheet
