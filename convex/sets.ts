@@ -4,11 +4,13 @@ import type { MutationCtx } from "./_generated/server";
 import { authedMutation, authedQuery } from "./lib/customFunctions";
 import { userError } from "./lib/errors";
 import {
+  invalidateExercises,
   recordEditedSet,
   recordInsertedSets,
   recordRemovedSets,
   type InsertedSet,
 } from "./lib/exerciseStats";
+import { repointSessionPlan } from "./lib/routineRecords";
 import { personalRecordValidator, type PersonalRecord } from "./lib/records";
 import { newestLoggedAt, noteSetsRemoved } from "./lib/sessionActivity";
 import { combineNotes, normalizeNote } from "./lib/measures";
@@ -370,6 +372,73 @@ export const update = authedMutation({
       set,
       recordPoint({ ...normalized, sessionId: set.sessionId }),
     );
+  },
+});
+
+/**
+ * Moves one exercise's sets in one workout onto another exercise, found or
+ * created by name. Renames the exercise for that workout only; the library
+ * entry and other workouts keep the old name.
+ */
+export const changeExercise = authedMutation({
+  args: { setIds: v.array(v.id("sets")), exerciseName: v.string() },
+  returns: v.object({ exerciseName: v.string() }),
+  handler: async (ctx, args) => {
+    if (args.setIds.length === 0) {
+      throw userError("Choose at least one set");
+    }
+    if (args.setIds.length > MAX_SETS_PER_BATCH) {
+      throw userError(`Change up to ${MAX_SETS_PER_BATCH} sets at a time`);
+    }
+    const sets: Array<Doc<"sets">> = [];
+    for (const setId of new Set(args.setIds)) {
+      const set = await ctx.db.get("sets", setId);
+      if (!set || set.userId !== ctx.userId) {
+        throw userError("Set not found");
+      }
+      const first = sets[0];
+      if (first && set.sessionId !== first.sessionId) {
+        throw userError("Sets must belong to the same workout");
+      }
+      if (first && set.exerciseId !== first.exerciseId) {
+        throw userError("Sets must be from the same exercise");
+      }
+      sets.push(set);
+    }
+    const first = sets[0];
+    if (!first) {
+      throw userError("Choose at least one set");
+    }
+    const session = await requireWritableSession(ctx, ctx.userId, first.sessionId);
+    const fromId = first.exerciseId;
+    const intoId = await getOrCreateExercise(ctx, ctx.userId, args.exerciseName);
+    const [from, into] = [await ctx.db.get("exercises", fromId), await ctx.db.get("exercises", intoId)];
+    if (!into) {
+      throw userError("Exercise not found");
+    }
+    if (intoId === fromId) {
+      return { exerciseName: into.name };
+    }
+    for (const exercise of [from, into]) {
+      if (exercise?.mergingInto !== undefined) {
+        throw userError(`${exercise.name} is still being merged. Try again when it finishes.`);
+      }
+    }
+    for (const set of sets) {
+      await ctx.db.patch("sets", set._id, { exerciseId: intoId });
+    }
+    const left = await ctx.db
+      .query("sets")
+      .withIndex("by_session_and_exercise", (q) =>
+        q.eq("sessionId", session._id).eq("exerciseId", fromId),
+      )
+      .first();
+    if (!left) {
+      // Every set moved, so the plan follows them and keeps its superset.
+      await repointSessionPlan(ctx, ctx.userId, session, fromId, intoId);
+    }
+    await invalidateExercises(ctx, ctx.userId, [fromId, intoId]);
+    return { exerciseName: into.name };
   },
 });
 

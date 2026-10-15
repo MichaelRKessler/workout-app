@@ -82,6 +82,7 @@ export function ExerciseRow({
   onRemoveSet,
   removingId = null,
   exerciseHref,
+  onEditExercise,
   footer,
 }: {
   name: string;
@@ -95,6 +96,8 @@ export function ExerciseRow({
   onRemoveSet?: (setId: string) => void;
   removingId?: string | null;
   exerciseHref?: string;
+  /** Opens the whole exercise for editing: its sets, its name, or removing it. */
+  onEditExercise?: () => void;
   footer?: ReactNode;
 }) {
   const detailId = useId();
@@ -155,6 +158,16 @@ export function ExerciseRow({
             className="flex size-11 shrink-0 items-center justify-center rounded-full border border-line bg-surface text-foreground hover:bg-fill-2 disabled:opacity-60"
           >
             {repeating ? <Spinner className="size-4" /> : <PlusIcon className="size-5" />}
+          </button>
+        ) : null}
+        {onEditExercise ? (
+          <button
+            type="button"
+            onClick={onEditExercise}
+            aria-label={`Edit ${name}`}
+            className="min-h-11 shrink-0 rounded-full border border-line bg-surface px-4 text-sm font-medium text-foreground hover:bg-fill-2"
+          >
+            Edit
           </button>
         ) : null}
       </div>
