@@ -157,6 +157,9 @@ export function BodyScreen() {
     return waiting;
   }, [pending, summary?.latest]);
 
+  // The newest entry may hold only a measurement, so hint from the newest weigh-in.
+  const weightPlaceholder = weightHint(chartPoints.at(-1)?.value, weightUnit);
+
   async function saveNew(next: BodyDraft) {
     if (!draft) {
       return;
@@ -391,7 +394,7 @@ export function BodyScreen() {
         {draft && today ? (
           <MeasureFields
             idPrefix="new"
-            weightPlaceholder={weightHint(latest?.weightLb, weightUnit)}
+            weightPlaceholder={weightPlaceholder}
             draft={draft}
             maxDate={today}
             weightUnit={weightUnit}
@@ -431,7 +434,7 @@ export function BodyScreen() {
           </button>
         </div>
         <p className="mt-2 text-sm text-subtle">
-          {offline ? OFFLINE_VOICE_MESSAGE : `Say “weight ${weightHint(latest?.weightLb, weightUnit) ?? (weightUnit === "kg" ? "80" : "180")}”. Nothing is saved until you confirm.`}
+          {offline ? OFFLINE_VOICE_MESSAGE : `Say “weight ${weightPlaceholder ?? (weightUnit === "kg" ? "80" : "180")}”. Nothing is saved until you confirm.`}
         </p>
       </form>
 
