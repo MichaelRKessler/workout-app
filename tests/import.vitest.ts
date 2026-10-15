@@ -4,7 +4,7 @@ import { deflateRawSync } from "node:zlib";
 import { describe, expect, test, vi } from "vitest";
 import { handleImportParse } from "../lib/import/handleImportParse";
 import { normalizeImport, readImportResponse, type ImportProposal } from "../lib/import/proposal";
-import { ImportFileError, prepareImportFiles, splitSections, unzip } from "../lib/import/readFile";
+import { compactTable, ImportFileError, prepareImportFiles, splitSections, unzip } from "../lib/import/readFile";
 import {
   importDays,
   mergeProposals,
@@ -213,6 +213,26 @@ describe("reading a file on the phone", () => {
     expect(rows).toEqual(lines.slice(1));
   });
 
+  test("an app export's empty columns and empty rows are dropped before it is sent", () => {
+    expect(
+      compactTable([
+        'Date,Shot,Recorded Weight (lbs),Calories,Nausea,Day Notes',
+        '"2025-05-27","","","",,',
+        '"2025-09-13","Zepbound® 2.5 mg","236.60","",,"felt, fine"',
+        '"2025-09-18","","231.00","",,',
+      ]),
+    ).toEqual([
+      "Date,Shot,Recorded Weight (lbs),Day Notes",
+      '2025-09-13,Zepbound® 2.5 mg,236.60,"felt, fine"',
+      "2025-09-18,,231.00,",
+    ]);
+    // Prose is not a table and stays as written.
+    expect(compactTable(["Monday: squat 5x5 at 225, felt good", "Tuesday: rest"])).toEqual([
+      "Monday: squat 5x5 at 225, felt good",
+      "Tuesday: rest",
+    ]);
+  });
+
   test("text, JSON, and a UTF-16 export read as text", async () => {
     const [csv] = await prepareImportFiles([file("log.csv", "﻿date,weight\r\n2026-01-01,232\r\n")]);
     expect(csv).toEqual({ kind: "text", text: "[log.csv]\ndate,weight\n2026-01-01,232" });
@@ -255,7 +275,7 @@ describe("reading a file on the phone", () => {
     expect(await prepareImportFiles([file("mac.xlsx", mac)])).toEqual([{ kind: "text", text: "[S]\n2026-01-01" }]);
     const parts = await prepareImportFiles([file("log.xlsx", workbook)]);
     expect(parts).toEqual([
-      { kind: "text", text: '[Lifts & weight]\nDate,Exercise,,Reps\n2026-01-01,"Bench, flat",,5' },
+      { kind: "text", text: '[Lifts & weight]\nDate,Exercise,Reps\n2026-01-01,"Bench, flat",5' },
     ]);
   });
 

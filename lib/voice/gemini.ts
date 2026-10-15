@@ -12,6 +12,8 @@ export async function requestGeminiObject(options: {
   unavailable: string;
   rejected: string;
   invalid: string;
+  /** Gives up after this long, so the route answers before its host cuts it off. */
+  timeoutMs?: number;
 }): Promise<unknown> {
   const model = options.model?.trim() || GEMINI_FLASH_MODEL;
   const fetchImpl = options.fetchImpl ?? fetch;
@@ -20,6 +22,7 @@ export async function requestGeminiObject(options: {
   try {
     response = await fetchImpl(GEMINI_GENERATE_CONTENT_URL(model), {
       method: "POST",
+      ...(options.timeoutMs ? { signal: AbortSignal.timeout(options.timeoutMs) } : {}),
       headers: {
         "Content-Type": "application/json",
         "x-goog-api-key": options.apiKey,
