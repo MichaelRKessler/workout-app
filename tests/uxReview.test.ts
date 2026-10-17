@@ -56,6 +56,14 @@ test("body lengths read to a tenth and the weight hint is the last weight", () =
     "in",
   );
   assert.equal(summary, "waist 34.4 in");
+  assert.equal(
+    formatBodySummary(
+      { weightLb: 184, bodyFatPct: null, waistCm: null, chestCm: null, armCm: null, hipsCm: null, thighCm: null },
+      "lb",
+      "in",
+    ),
+    "184.0 lb",
+  );
   assert.equal(weightHint(183.2, "lb"), "183.2");
   assert.equal(weightHint(null, "lb"), undefined);
 });

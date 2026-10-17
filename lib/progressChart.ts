@@ -1,5 +1,5 @@
 import { M_PER_KM, M_PER_MI, formatCalories, formatClock } from "../convex/lib/measures";
-import { fromPounds, type WeightUnit } from "../convex/lib/units";
+import { formatBodyWeightAmount, fromPounds, type WeightUnit } from "../convex/lib/units";
 import { formatVolumeLb, pluralize } from "./format";
 import { calendarDayBounds, calendarDayKey, parseDayKey } from "./historyDays";
 
@@ -492,6 +492,11 @@ function roundChartWeight(weightLb: number, unit: WeightUnit): number {
   return Math.round(display);
 }
 
+/** Body weight reads to a tenth, like the scale: "183.8 lb". */
+function formatBodyWeight(weightLb: number, unit: WeightUnit): string {
+  return `${formatBodyWeightAmount(Math.abs(weightLb), unit)} ${unit}`;
+}
+
 function formatChartWeight(weightLb: number, unit: WeightUnit): string {
   if (weightLb === 0) return "bodyweight";
   const rounded = roundChartWeight(weightLb, unit);
@@ -515,7 +520,8 @@ function formatChartDistance(meters: number): string {
 
 /** Magnitude used for a change, where 0 lb is zero rather than bodyweight. */
 function formatChartMagnitude(value: number, metric: ChartMetric, unit: WeightUnit): string {
-  if (metric === "epley" || metric === "weight" || metric === "body") {
+  if (metric === "body") return formatBodyWeight(value, unit);
+  if (metric === "epley" || metric === "weight") {
     const rounded = roundChartWeight(value, unit);
     if (rounded === 0) return `0 ${unit}`;
     const text = Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
@@ -527,7 +533,8 @@ function formatChartMagnitude(value: number, metric: ChartMetric, unit: WeightUn
 export function formatChartValue(value: number, metric: ChartMetric, unit: WeightUnit): string {
   if (!Number.isFinite(value)) return "";
   if (metric === "volume") return formatVolumeLb(value, unit);
-  if (metric === "epley" || metric === "weight" || metric === "body") return formatChartWeight(value, unit);
+  if (metric === "body") return formatBodyWeight(value, unit);
+  if (metric === "epley" || metric === "weight") return formatChartWeight(value, unit);
   if (metric === "reps") return pluralize(Math.round(value), "rep");
   if (metric === "time") return formatClock(value);
   if (metric === "calories") return formatCalories(value);

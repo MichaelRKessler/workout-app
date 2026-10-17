@@ -20,6 +20,12 @@ export function fromPounds(weightLb: number, unit: WeightUnit): number {
   return roundWeight(unit === "kg" ? weightLb / LB_PER_KG : weightLb);
 }
 
+/** Body weight to the nearest tenth with one decimal always shown: "183.8", "184.0". */
+export function formatBodyWeightAmount(weightLb: number, unit: WeightUnit): string {
+  const display = unit === "kg" ? weightLb / LB_PER_KG : weightLb;
+  return (Math.round(display * 10) / 10).toFixed(1);
+}
+
 /** Largest load the form can accept in the display unit. Storage stays 0–2000 lb. */
 export function maxDisplayWeight(unit: WeightUnit): number {
   return unit === "kg" ? fromPounds(2000, "kg") : 2000;
