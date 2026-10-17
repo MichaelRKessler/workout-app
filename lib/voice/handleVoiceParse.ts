@@ -3,19 +3,20 @@ import type { WeightUnit } from "../../convex/lib/units";
 import { parseBodyAudio, parseBodyText } from "./parseBody";
 import { parseWorkoutAudio, parseWorkoutText } from "./parseWorkout";
 import type { BodyProposal } from "./bodyProposal";
-import { voiceErrorStatus, type VoiceProposal } from "./proposal";
+import { voiceErrorStatus, type VoiceLogResult } from "./proposal";
 
 export type VoiceParseResult = {
   status: number;
   body:
     | { error: string }
-    | { proposal: VoiceProposal; persisted: false }
+    | (VoiceLogResult & { persisted: false })
     | { proposal: BodyProposal; persisted: false };
 };
 
 /**
  * Parses a recording, or a typed note when `text` is given, into a preview.
- * Nothing is stored here: the client writes sets only after the person confirms.
+ * The main log can hear sets, a body weigh-in, or both. Nothing is stored
+ * here: the client writes only after the person confirms.
  */
 export async function handleVoiceParse(input: {
   token: string | null | undefined;
@@ -78,13 +79,14 @@ export async function handleVoiceParse(input: {
           });
       return { status: 200, body: { proposal, persisted: false } };
     }
-    const proposal = typed
+    const result = typed
       ? await parseWorkoutText({
           apiKey: input.apiKey,
           model: input.model,
           text: input.text ?? "",
           knownExerciseNames: input.knownExerciseNames,
           weightUnit: input.weightUnit,
+          lengthUnit: input.lengthUnit,
           fetchImpl: input.fetchImpl,
         })
       : await parseWorkoutAudio({
@@ -94,9 +96,10 @@ export async function handleVoiceParse(input: {
           mimeType: input.mimeType,
           knownExerciseNames: input.knownExerciseNames,
           weightUnit: input.weightUnit,
+          lengthUnit: input.lengthUnit,
           fetchImpl: input.fetchImpl,
         });
-    return { status: 200, body: { proposal, persisted: false } };
+    return { status: 200, body: { ...result, persisted: false } };
   } catch (error) {
     const mapped = voiceErrorStatus(error);
     return { status: mapped.status, body: { error: mapped.error } };

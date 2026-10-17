@@ -1,16 +1,17 @@
 import { knownExercisePrompt } from "./knownExercises";
 import { isBase64, normalizeBase64, requestGeminiObject } from "./gemini";
+import type { LengthUnit } from "../../convex/lib/bodyMeasures";
 import type { WeightUnit } from "../../convex/lib/units";
 import {
   geminiAudioMimeType,
   MAX_WORKOUT_TEXT_LENGTH,
-  normalizeGeminiWorkout,
+  normalizeVoiceLog,
   VoiceParseError,
   weightUnitPrompt,
   WORKOUT_PARSE_PROMPT,
   WORKOUT_RESPONSE_SCHEMA,
   WORKOUT_TEXT_PROMPT,
-  type VoiceProposal,
+  type VoiceLogResult,
 } from "./proposal";
 
 const MAX_AUDIO_BASE64_LENGTH = 2_000_000;
@@ -22,8 +23,9 @@ export async function parseWorkoutAudio(options: {
   model?: string;
   knownExerciseNames?: readonly string[];
   weightUnit?: WeightUnit;
+  lengthUnit?: LengthUnit;
   fetchImpl?: typeof fetch;
-}): Promise<VoiceProposal> {
+}): Promise<VoiceLogResult> {
   const apiKey = requireApiKey(options.apiKey);
 
   const audioBase64 = normalizeBase64(options.audioBase64);
@@ -45,24 +47,26 @@ export async function parseWorkoutAudio(options: {
     apiKey,
     model: options.model,
     fetchImpl: options.fetchImpl,
-    parts: promptParts(WORKOUT_PARSE_PROMPT, options.knownExerciseNames, options.weightUnit, [
+    parts: promptParts(WORKOUT_PARSE_PROMPT, options, [
       { inlineData: { mimeType, data: audioBase64 } },
     ]),
     subject: "recording",
     weightUnit: options.weightUnit,
+    lengthUnit: options.lengthUnit,
     logContext: { mimeType },
   });
 }
 
-/** Parses a typed note such as "squat 3x5 225" the same way a recording is parsed. */
+/** Parses a typed note such as "squat 3x5 225" or "weight 232" the same way a recording is parsed. */
 export async function parseWorkoutText(options: {
   apiKey: string | undefined;
   text: string;
   model?: string;
   knownExerciseNames?: readonly string[];
   weightUnit?: WeightUnit;
+  lengthUnit?: LengthUnit;
   fetchImpl?: typeof fetch;
-}): Promise<VoiceProposal> {
+}): Promise<VoiceLogResult> {
   const apiKey = requireApiKey(options.apiKey);
 
   const text = options.text.trim().replace(/\s+/g, " ");
@@ -83,26 +87,30 @@ export async function parseWorkoutText(options: {
     apiKey,
     model: options.model,
     fetchImpl: options.fetchImpl,
-    parts: promptParts(WORKOUT_TEXT_PROMPT, options.knownExerciseNames, options.weightUnit, [
+    parts: promptParts(WORKOUT_TEXT_PROMPT, options, [
       { text },
     ]),
     subject: "note",
     weightUnit: options.weightUnit,
+    lengthUnit: options.lengthUnit,
     logContext: {},
   });
 }
 
 function promptParts(
   instructions: string,
-  knownExerciseNames: readonly string[] | undefined,
-  weightUnit: WeightUnit | undefined,
+  options: {
+    knownExerciseNames?: readonly string[];
+    weightUnit?: WeightUnit;
+    lengthUnit?: LengthUnit;
+  },
   rest: Array<Record<string, unknown>>,
 ): Array<Record<string, unknown>> {
   const parts: Array<Record<string, unknown>> = [
     { text: instructions },
-    { text: weightUnitPrompt(weightUnit ?? "lb") },
+    { text: weightUnitPrompt(options.weightUnit ?? "lb", options.lengthUnit ?? "in") },
   ];
-  const known = knownExercisePrompt(knownExerciseNames ?? []);
+  const known = knownExercisePrompt(options.knownExerciseNames ?? []);
   if (known) {
     parts.push({ text: known });
   }
@@ -149,8 +157,9 @@ async function requestWorkout(options: {
   parts: Array<Record<string, unknown>>;
   subject: Subject;
   weightUnit: WeightUnit | undefined;
+  lengthUnit: LengthUnit | undefined;
   logContext: Record<string, string>;
-}): Promise<VoiceProposal> {
+}): Promise<VoiceLogResult> {
   const messages = MESSAGES[options.subject];
   const structured = await requestGeminiObject({
     apiKey: options.apiKey,
@@ -164,5 +173,10 @@ async function requestWorkout(options: {
     rejected: messages.rejected,
     invalid: messages.invalid,
   });
-  return normalizeGeminiWorkout(structured, options.subject, options.weightUnit ?? "lb");
+  return normalizeVoiceLog(
+    structured,
+    options.subject,
+    options.weightUnit ?? "lb",
+    options.lengthUnit ?? "in",
+  );
 }

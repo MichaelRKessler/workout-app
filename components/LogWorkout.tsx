@@ -1,6 +1,7 @@
 "use client";
 
 import { FinishedWorkout } from "@/components/WorkoutSummaryCard";
+import { BodyConfirmSheet } from "@/components/body/BodyConfirmSheet";
 import { useOfflineLog } from "@/components/OfflineSync";
 import { Toast } from "@/components/Toast";
 import { OpenWorkoutSheet } from "@/components/routines/OpenWorkoutSheet";
@@ -25,8 +26,11 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { formatExerciseName } from "@/convex/lib/exerciseName";
 import { plannedCompletedAt } from "@/convex/lib/sessionTiming";
 import { EXAMPLE_EXERCISES } from "@/lib/examples";
-import { useWeightUnit } from "@/components/WeightUnit";
+import { useLengthUnit, useWeightUnit } from "@/components/WeightUnit";
+import { formatBodySummary } from "@/lib/bodyDraft";
 import { formatDuration, pluralize } from "@/lib/format";
+import { QUEUED_SAVE_MESSAGE } from "@/lib/offline/messages";
+import type { BodyProposal } from "@/lib/voice/bodyProposal";
 import { planLeftNote } from "@/lib/workoutPlan";
 import { summarizeSessions, type WorkoutSummary } from "@/lib/workoutSummary";
 import type { PersonalRecord } from "@/convex/lib/records";
@@ -154,9 +158,11 @@ export function LogWorkout() {
   }, [history, latestDay, latestDaySessions, offline, timeZone]);
 
   const unit = useWeightUnit();
+  const lengthUnit = useLengthUnit();
   // Kept while an exercise's progress page is open.
   const [text, setText] = useSessionText(composerTextKey(log.accountEmail));
   const [homeTyping, setHomeTyping] = useState(false);
+  const [heardBody, setHeardBody] = useState<BodyProposal | null>(null);
   const [finishNote, setFinishNote] = useState("");
   const [finishOpen, setFinishOpen] = useState(false);
   const [finishError, setFinishError] = useState<string | null>(null);
@@ -288,6 +294,7 @@ export function LogWorkout() {
       });
     },
     onSaved: showSaved,
+    onBody: setHeardBody,
   });
   const { voice } = voiceLog;
   const planView = useMemo(
@@ -749,6 +756,33 @@ export function LogWorkout() {
         onDiscard={voiceLog.discardDraft}
         onConfirm={() => void voiceLog.confirmDraft()}
         onRecordAgain={() => void voiceLog.startVoice()}
+      />
+
+      <BodyConfirmSheet
+        proposal={heardBody}
+        onClose={() => setHeardBody(null)}
+        onSaved={(outcome, save) => {
+          setHeardBody(null);
+          showToast({
+            tone: "info",
+            message:
+              outcome.status === "queued"
+                ? QUEUED_SAVE_MESSAGE
+                : `Logged weigh-in · ${formatBodySummary(
+                    {
+                      weightLb: save.weightLb ?? null,
+                      bodyFatPct: save.bodyFatPct ?? null,
+                      waistCm: save.waistCm ?? null,
+                      chestCm: save.chestCm ?? null,
+                      armCm: save.armCm ?? null,
+                      hipsCm: save.hipsCm ?? null,
+                      thighCm: save.thighCm ?? null,
+                    },
+                    unit,
+                    lengthUnit,
+                  )}`,
+          });
+        }}
       />
 
       {manual ? (

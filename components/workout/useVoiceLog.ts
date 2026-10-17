@@ -13,13 +13,14 @@ import {
   reduceVoiceLog,
   type VoiceDraft,
 } from "@/lib/voice/confirm";
+import type { BodyProposal } from "@/lib/voice/bodyProposal";
 import type { VoiceProposal } from "@/lib/voice/proposal";
 import { useEffect, useReducer, useRef, useState } from "react";
 
 /**
  * Voice and typed logging: record or send text, parse it into a draft, let
  * the person edit it in the confirm sheet, then save it. Nothing is written
- * until they confirm.
+ * until they confirm. A weigh-in goes to onBody, after any sets are saved.
  */
 export function useVoiceLog({
   offline,
@@ -29,6 +30,7 @@ export function useVoiceLog({
   clearToast,
   save,
   onSaved,
+  onBody,
 }: {
   offline: boolean;
   unit: WeightUnit;
@@ -37,12 +39,15 @@ export function useVoiceLog({
   clearToast: () => void;
   save: (proposal: VoiceProposal) => Promise<SyncOutcome>;
   onSaved: (saved: SyncOutcome, exerciseNames: string) => void;
+  onBody: (body: BodyProposal) => void;
 }) {
   const [voice, dispatch] = useReducer(reduceVoiceLog, { status: "idle" });
   const [source, setSource] = useState<"voice" | "text">("voice");
   const [draft, setDraft] = useState<VoiceDraft | null>(null);
   const [sheetNotice, setSheetNotice] = useState<string | null>(null);
   const parseAbortRef = useRef<AbortController | null>(null);
+  // A weigh-in said alongside sets waits until those sets are saved.
+  const pendingBodyRef = useRef<BodyProposal | null>(null);
 
   const recorder = useRecorder({
     onAudio: (blob) => void parseAudio(blob),
@@ -118,11 +123,19 @@ export function useVoiceLog({
     parseAbortRef.current?.abort();
     const controller = new AbortController();
     parseAbortRef.current = controller;
+    pendingBodyRef.current = null;
     try {
-      const proposal = await requestProposal(body, controller.signal);
+      const { proposal, body: heardBody } = await requestProposal(body, controller.signal);
       if (controller.signal.aborted) {
         return false;
       }
+      if (!proposal) {
+        setDraft(null);
+        dispatch({ type: "parsed-body" });
+        onBody(heardBody);
+        return true;
+      }
+      pendingBodyRef.current = heardBody ?? null;
       setDraft(proposalToDraft(proposal, unit));
       setSheetNotice(null);
       dispatch({ type: "parsed", proposal });
@@ -160,9 +173,15 @@ export function useVoiceLog({
     dispatch({ type: "saved" });
     setDraft(null);
     onSaved(saved, toSave.exercises.map((exercise) => exercise.exerciseName).join(", "));
+    const heardBody = pendingBodyRef.current;
+    pendingBodyRef.current = null;
+    if (heardBody) {
+      onBody(heardBody);
+    }
   }
 
   function discardDraft() {
+    pendingBodyRef.current = null;
     setDraft(null);
     setSheetNotice(null);
     dispatch({ type: "discard" });

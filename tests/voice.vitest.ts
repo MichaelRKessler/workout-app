@@ -8,6 +8,7 @@ import { microphoneErrorMessage, preferredRecorderMimeType } from "../lib/voice/
 import {
   draftToProposal,
   proposalToSave,
+  readVoiceLogResponse,
   readVoiceResponse,
   reduceVoiceLog,
   type VoiceLogEvent,
@@ -21,6 +22,7 @@ import { knownExercisePrompt } from "../lib/voice/knownExercises";
 import {
   geminiAudioMimeType,
   normalizeGeminiWorkout,
+  normalizeVoiceLog,
   weightUnitPrompt,
   WORKOUT_PARSE_PROMPT,
   WORKOUT_RESPONSE_SCHEMA,
@@ -350,12 +352,15 @@ describe("gemini request", () => {
       );
     });
 
-    const proposal = await parseWorkoutAudio({
+    const { proposal } = await parseWorkoutAudio({
       apiKey: "test-gemini-key",
       audioBase64: "AAAA",
       mimeType: "audio/mp4",
       fetchImpl,
     });
+    if (!proposal) {
+      throw new Error("expected sets");
+    }
 
     expect(proposal.exercises[0]?.sets).toHaveLength(3);
     expect(proposal.exercises[0]?.sets[0]).toEqual(voiceSet(10, 135));
@@ -398,11 +403,14 @@ describe("gemini request", () => {
       );
     });
 
-    const proposal = await parseWorkoutText({
+    const { proposal } = await parseWorkoutText({
       apiKey: "test-gemini-key",
       text: "  bench   3x10 135 ",
       fetchImpl,
     });
+    if (!proposal) {
+      throw new Error("expected sets");
+    }
 
     expect(proposal.exercises[0]?.sets).toHaveLength(3);
     expect(proposal.exercises[0]?.sets[2]).toEqual(voiceSet(10, 135));
@@ -545,7 +553,7 @@ describe("gemini request", () => {
       );
     });
 
-    const proposal = await parseWorkoutAudio({
+    const { proposal } = await parseWorkoutAudio({
       apiKey: "test-gemini-key",
       audioBase64: "AAAA",
       mimeType: "audio/webm;codecs=opus",
@@ -883,6 +891,146 @@ describe("body measurements by voice", () => {
       throw new Error("expected a body proposal");
     }
     expect(result.body.proposal.weightLb).toBe(232);
+  });
+});
+
+describe("body weight from the main log", () => {
+  const noBody = {
+    weight: 0,
+    weightUnit: "lb",
+    bodyFatPct: 0,
+    waist: 0,
+    chest: 0,
+    arm: 0,
+    hips: 0,
+    thigh: 0,
+    lengthUnit: "in",
+    dayOffset: 0,
+    note: "",
+  };
+
+  function geminiReply(structured: unknown) {
+    return vi.fn<typeof fetch>(async () => {
+      return new Response(
+        JSON.stringify({ candidates: [{ content: { parts: [{ text: JSON.stringify(structured) }] } }] }),
+        { status: 200 },
+      );
+    });
+  }
+
+  test("typed weight 232 with no kind is a weigh-in preview, not an error", async () => {
+    const fetchImpl = geminiReply({ note: "", exercises: [], body: { ...noBody, weight: 232 } });
+    const result = await handleVoiceParse({
+      token: "session-token",
+      signedIn: true,
+      allowed: true,
+      apiKey: "test-gemini-key",
+      audioBase64: "",
+      mimeType: "",
+      text: "weight 232",
+      weightUnit: "lb",
+      lengthUnit: "in",
+      fetchImpl,
+    });
+    expect(result.status).toBe(200);
+    expect(result.body).toEqual({
+      persisted: false,
+      body: {
+        weightLb: 232,
+        bodyFatPct: null,
+        waistCm: null,
+        chestCm: null,
+        armCm: null,
+        hipsCm: null,
+        thighCm: null,
+        dayOffset: 0,
+        note: null,
+      },
+    });
+    expect(readVoiceLogResponse(result.body)).toEqual({ body: expect.objectContaining({ weightLb: 232 }) });
+
+    const [, init] = fetchImpl.mock.calls[0] ?? [];
+    const sent = JSON.parse(String(init?.body)) as {
+      contents: Array<{ parts: Array<{ text?: string }> }>;
+      generationConfig: { responseFormat: { text: { schema: typeof WORKOUT_RESPONSE_SCHEMA } } };
+    };
+    expect(sent.generationConfig.responseFormat.text.schema.required).toContain("body");
+    expect(sent.contents[0]?.parts[0]?.text).toMatch(/I weigh 232/);
+    expect(sent.contents[0]?.parts[1]?.text).toMatch(/Default length unit: in/);
+  });
+
+  test("a recording of 105 kilos converts to pounds", () => {
+    const result = normalizeVoiceLog(
+      { note: "", exercises: [], body: { ...noBody, weight: 105, weightUnit: "kg" } },
+      "recording",
+      "lb",
+      "in",
+    );
+    expect(result.proposal).toBeUndefined();
+    expect(result.body?.weightLb).toBeCloseTo(231.49, 1);
+  });
+
+  test("a weigh-in the model also filed as an exercise is not a set", () => {
+    const result = normalizeVoiceLog(
+      {
+        note: "feeling flat",
+        exercises: [{ exerciseName: "Body Weight", sets: [{ reps: 0, weight: 232, unit: "lb" }], superset: "" }],
+        body: { ...noBody, weight: 232 },
+      },
+      "note",
+      "lb",
+      "in",
+    );
+    expect(result.proposal).toBeUndefined();
+    expect(result.body).toMatchObject({ weightLb: 232, note: "feeling flat" });
+  });
+
+  test("sets and a weigh-in together keep both", () => {
+    const result = normalizeVoiceLog(
+      { ...benchThreeSets, note: "", body: { ...noBody, weight: 232, waist: 34 } },
+      "recording",
+      "lb",
+      "in",
+    );
+    expect(result.proposal?.exercises[0]?.sets).toHaveLength(3);
+    expect(result.body).toMatchObject({ weightLb: 232, waistCm: 86.36 });
+  });
+
+  test("sets with an empty body stay a plain set preview", () => {
+    const result = normalizeVoiceLog({ ...benchThreeSets, note: "", body: noBody }, "recording", "lb", "in");
+    expect(result.body).toBeUndefined();
+    expect(result.proposal?.exercises).toHaveLength(1);
+  });
+
+  test("nothing at all still says no exercise was heard", () => {
+    expect(() => normalizeVoiceLog({ note: "", exercises: [], body: noBody }, "note", "lb", "in")).toThrow(
+      /did not include an exercise name/,
+    );
+  });
+
+  test("a bad weigh-in fails alone but does not block sets", () => {
+    expect(() =>
+      normalizeVoiceLog({ note: "", exercises: [], body: { ...noBody, weight: 5000 } }, "note", "lb", "in"),
+    ).toThrow(/outside 1 to 2000/);
+    const result = normalizeVoiceLog(
+      { ...benchThreeSets, note: "", body: { ...noBody, weight: 5000 } },
+      "note",
+      "lb",
+      "in",
+    );
+    expect(result.body).toBeUndefined();
+    expect(result.proposal?.exercises).toHaveLength(1);
+  });
+
+  test("a weigh-in response that claims it was saved is rejected", () => {
+    expect(() =>
+      readVoiceLogResponse({ body: { weightLb: 232 }, persisted: true }),
+    ).toThrow(/Nothing was saved/);
+  });
+
+  test("a weigh-in-only parse leaves the log idle so its own sheet can open", () => {
+    expect(reduceVoiceLog({ status: "parsing" }, { type: "parsed-body" })).toEqual({ status: "idle" });
+    expect(reduceVoiceLog({ status: "recording" }, { type: "parsed-body" })).toEqual({ status: "recording" });
   });
 });
 
