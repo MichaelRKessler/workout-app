@@ -116,6 +116,9 @@ export function ExerciseLibrary() {
 
   async function onAdd(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (offline) {
+      return;
+    }
     setPending(true);
     setError(null);
     setExisting(null);
@@ -452,6 +455,9 @@ export function ExerciseLibrary() {
               </option>
             ))}
           </select>
+          {offline ? (
+            <p className="mt-3 text-sm text-muted">Adding an exercise needs a connection.</p>
+          ) : null}
           {existing ? (
             <p role="alert" className="mt-3 text-base leading-normal">
               You already have {existing.name}.{" "}
@@ -483,7 +489,12 @@ export function ExerciseLibrary() {
             >
               Cancel
             </Button>
-            <Button type="submit" size="lg" className="flex-1" disabled={pending || newName.trim() === ""}>
+            <Button
+              type="submit"
+              size="lg"
+              className="flex-1"
+              disabled={pending || offline || newName.trim() === ""}
+            >
               {pending ? "Adding…" : "Add"}
             </Button>
           </div>
