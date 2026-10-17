@@ -985,6 +985,21 @@ describe("body weight from the main log", () => {
     expect(result.body).toMatchObject({ weightLb: 232, note: "feeling flat" });
   });
 
+  test("a weigh-in filed only as an exercise, with an empty body, is still a weigh-in", () => {
+    const result = normalizeVoiceLog(
+      {
+        note: "",
+        exercises: [{ exerciseName: "Body weight", sets: [{ reps: 1, weight: 232, unit: "lb" }], superset: "" }],
+        body: noBody,
+      },
+      "recording",
+      "lb",
+      "in",
+    );
+    expect(result.proposal).toBeUndefined();
+    expect(result.body?.weightLb).toBe(232);
+  });
+
   test("sets and a weigh-in together keep both", () => {
     const result = normalizeVoiceLog(
       { ...benchThreeSets, note: "", body: { ...noBody, weight: 232, waist: 34 } },

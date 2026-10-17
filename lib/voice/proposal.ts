@@ -248,27 +248,36 @@ export function normalizeVoiceLog(
     return { proposal: normalizeGeminiWorkout(value, subject, assumedUnit) };
   }
   const listed = exerciseList(value);
+  const isWeighIn = (raw: unknown) =>
+    isRecord(raw) && typeof raw.exerciseName === "string" && BODY_WEIGHT_NAMES.test(raw.exerciseName.trim());
+  const exercises = listed.filter((raw) => !isWeighIn(raw));
   let body: BodyProposal | null = null;
   try {
-    body = optionalBodyProposal(value.body, assumedUnit, lengthUnit);
+    // A weigh-in filed only as a "Body weight" exercise still counts as a weigh-in.
+    body =
+      optionalBodyProposal(value.body, assumedUnit, lengthUnit) ??
+      optionalBodyProposal(weighInFromExercise(listed.find(isWeighIn)), assumedUnit, lengthUnit);
   } catch (error) {
     // A bad weigh-in only blocks the parse when there are no sets to save instead.
-    if (listed.length === 0) {
+    if (exercises.length === 0) {
       throw error;
     }
   }
-  if (!body) {
-    return { proposal: normalizeGeminiWorkout(value, subject, assumedUnit) };
+  if (!body || exercises.length > 0) {
+    const proposal = normalizeGeminiWorkout({ ...value, exercises }, subject, assumedUnit);
+    return body ? { proposal, body } : { proposal };
   }
-  const exercises = listed.filter(
-    (raw) => !(isRecord(raw) && typeof raw.exerciseName === "string" && BODY_WEIGHT_NAMES.test(raw.exerciseName.trim())),
-  );
-  if (exercises.length === 0) {
-    // "Weight 232, feeling flat": the remark lands in the top-level note.
-    const note = body.note ?? normalizeBodyNote(value.note);
-    return { body: { ...body, note } };
+  // "Weight 232, feeling flat": the remark lands in the top-level note.
+  const note = body.note ?? normalizeBodyNote(value.note);
+  return { body: { ...body, note } };
+}
+
+function weighInFromExercise(raw: unknown): Record<string, unknown> | null {
+  if (!isRecord(raw) || !Array.isArray(raw.sets)) {
+    return null;
   }
-  return { proposal: normalizeGeminiWorkout({ ...value, exercises }, subject, assumedUnit), body };
+  const set = raw.sets.find((item) => isRecord(item) && typeof item.weight === "number" && item.weight > 0);
+  return isRecord(set) ? { weight: set.weight, weightUnit: set.unit } : null;
 }
 
 export function normalizeGeminiWorkout(
