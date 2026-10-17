@@ -14,10 +14,16 @@ import { MetaLine } from "@/components/MetaLine";
 import { useWeightUnit } from "@/components/WeightUnit";
 import { ChevronRightIcon } from "@/components/icons";
 import type { WeightUnit } from "@/convex/lib/units";
-import { isMuscleGroup, MUSCLE_GROUPS, MUSCLE_LABELS, type MuscleGroup } from "@/convex/lib/muscleGroup";
+import {
+  isMuscleGroup,
+  MUSCLE_GROUPS,
+  MUSCLE_LABELS,
+  suggestMuscleGroup,
+  type MuscleGroup,
+} from "@/convex/lib/muscleGroup";
 import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { FormEvent, useState } from "react";
 
 type LibraryItem = {
@@ -80,6 +86,8 @@ export function ExerciseLibrary() {
   const status = muscle ? (filtered === undefined ? "LoadingFirstPage" : "Exhausted") : pageStatus;
   const renameExercise = useMutation(api.exercises.rename);
   const mergeExercises = useMutation(api.exercises.merge);
+  const createExercise = useMutation(api.exercises.create);
+  const router = useRouter();
   const { offline } = useOfflineLog();
   const [editing, setEditing] = useState<{ id: Id<"exercises">; name: string } | null>(null);
   const [draftName, setDraftName] = useState("");
@@ -90,6 +98,44 @@ export function ExerciseLibrary() {
   // Rename and muscle groups sit behind Edit, so the tab reads as a list of your lifts.
   const [managing, setManaging] = useState(false);
   const unit = useWeightUnit();
+  const [adding, setAdding] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newMuscle, setNewMuscle] = useState<MuscleGroup | "auto">("auto");
+  const [existing, setExisting] = useState<{ id: Id<"exercises">; name: string } | null>(null);
+  const [addedNotice, setAddedNotice] = useState<{ id: Id<"exercises">; name: string } | null>(null);
+  const backHere = muscleFilterHref(muscle, fromHome);
+
+  function openAdd() {
+    setNewName("");
+    // A muscle filter is the likely group for a new exercise.
+    setNewMuscle(muscle ?? "auto");
+    setExisting(null);
+    setError(null);
+    setAdding(true);
+  }
+
+  async function onAdd(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setPending(true);
+    setError(null);
+    setExisting(null);
+    try {
+      const result = await createExercise({
+        name: newName,
+        muscleGroup: newMuscle === "auto" ? null : newMuscle,
+      });
+      if (result.status === "exists") {
+        setExisting({ id: result.exerciseId, name: result.name });
+        return;
+      }
+      setAdding(false);
+      setAddedNotice({ id: result.exerciseId, name: result.name });
+    } catch (caught) {
+      setError(readableError(caught));
+    } finally {
+      setPending(false);
+    }
+  }
 
   function openRename(id: Id<"exercises">, name: string) {
     setEditing({ id, name });
@@ -148,14 +194,26 @@ export function ExerciseLibrary() {
         backLabel="Back to home"
         title="Exercises"
         action={
-          <button
-            type="button"
-            aria-pressed={managing}
-            onClick={() => setManaging((current) => !current)}
-            className="min-h-11 rounded-full px-3 text-base font-semibold hover:bg-fill-2"
-          >
-            {managing ? "Done" : "Edit"}
-          </button>
+          <span className="flex items-center gap-1">
+            {managing ? null : (
+              <button
+                type="button"
+                onClick={openAdd}
+                disabled={offline}
+                className="min-h-11 rounded-full px-3 text-base font-semibold hover:bg-fill-2 disabled:opacity-50"
+              >
+                Add
+              </button>
+            )}
+            <button
+              type="button"
+              aria-pressed={managing}
+              onClick={() => setManaging((current) => !current)}
+              className="min-h-11 rounded-full px-3 text-base font-semibold hover:bg-fill-2"
+            >
+              {managing ? "Done" : "Edit"}
+            </button>
+          </span>
         }
       >
         {managing ? (
@@ -165,6 +223,19 @@ export function ExerciseLibrary() {
           </p>
         ) : null}
       </PageHeader>
+
+      {addedNotice ? (
+        <p role="status" className="mt-4 text-base leading-normal text-muted">
+          Added{" "}
+          <Link
+            href={exerciseLink(addedNotice.id, backHere) ?? `/exercises/${addedNotice.id}`}
+            className="font-medium text-foreground underline decoration-line underline-offset-4"
+          >
+            {addedNotice.name}
+          </Link>
+          .
+        </p>
+      ) : null}
 
       {mergeNotice ? (
         <p role="status" className="mt-4 text-base leading-normal text-muted">
@@ -197,7 +268,7 @@ export function ExerciseLibrary() {
         <p className="mt-8 text-base text-muted">
           {muscle
             ? `No ${MUSCLE_LABELS[muscle].toLowerCase()} exercises yet. Log one, or change an exercise's muscle group under All.`
-            : "Exercises appear after you log a set."}
+            : "Exercises appear after you log a set, or tap Add to save one now."}
         </p>
       ) : (
         <>
@@ -329,6 +400,91 @@ export function ExerciseLibrary() {
             </Button>
             <Button type="submit" size="lg" className="flex-1" disabled={pending}>
               {pending ? "Saving…" : "Rename"}
+            </Button>
+          </div>
+        </form>
+      </Sheet>
+
+      <Sheet
+        open={adding}
+        onClose={() => {
+          if (!pending) {
+            setAdding(false);
+          }
+        }}
+        labelledBy="add-title"
+        dismissible={!pending}
+      >
+        <form onSubmit={(event) => void onAdd(event)}>
+          <h2 id="add-title" className="mt-2 text-xl font-semibold tracking-[-0.02em]">
+            Add an exercise
+          </h2>
+          <label htmlFor="add-name" className="mt-4 block text-xs font-medium tracking-[0.06em] text-subtle uppercase">
+            Name
+          </label>
+          <input
+            id="add-name"
+            value={newName}
+            onChange={(event) => {
+              setNewName(event.target.value);
+              setExisting(null);
+            }}
+            maxLength={80}
+            autoComplete="off"
+            placeholder="Lat pulldown"
+            className="mt-2 h-12 w-full rounded-xl border border-input bg-background px-3 text-base outline-none placeholder:text-subtle focus:border-foreground"
+          />
+          <label htmlFor="add-muscle" className="mt-4 block text-xs font-medium tracking-[0.06em] text-subtle uppercase">
+            Muscle group
+          </label>
+          <select
+            id="add-muscle"
+            value={newMuscle}
+            onChange={(event) => setNewMuscle(event.target.value as MuscleGroup | "auto")}
+            className="mt-2 h-12 w-full rounded-xl border border-input bg-background px-3 text-base outline-none focus:border-foreground"
+          >
+            <option value="auto">
+              {newName.trim() ? `Auto · ${MUSCLE_LABELS[suggestMuscleGroup(newName)]}` : "Auto"}
+            </option>
+            {MUSCLE_GROUPS.map((group) => (
+              <option key={group} value={group}>
+                {MUSCLE_LABELS[group]}
+              </option>
+            ))}
+          </select>
+          {existing ? (
+            <p role="alert" className="mt-3 text-base leading-normal">
+              You already have {existing.name}.{" "}
+              <button
+                type="button"
+                onClick={() => {
+                  setAdding(false);
+                  router.push(exerciseLink(existing.id, backHere) ?? `/exercises/${existing.id}`);
+                }}
+                className="font-medium underline decoration-line underline-offset-4"
+              >
+                Open it
+              </button>
+            </p>
+          ) : null}
+          {error ? (
+            <p role="alert" className="mt-3 text-sm text-danger">
+              {error}
+            </p>
+          ) : null}
+          <div className="mt-6 flex gap-2.5">
+            <Button
+              type="button"
+              variant="secondary"
+              size="lg"
+              className="flex-1"
+              disabled={pending}
+              onClick={() => setAdding(false)}
+            >
+              Cancel
+            </Button>
+            <Button type="submit" size="lg" className="flex-1" disabled={pending || newName.trim() === ""}>
+              {pending ? "Adding…" : "Add"}
             </Button>
           </div>
         </form>

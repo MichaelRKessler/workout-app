@@ -197,3 +197,35 @@ describe("rename and merge", () => {
     expect(history.page.map((set) => set.weightLb).sort()).toEqual([135, 185]);
   });
 });
+
+describe("adding an exercise from the Exercises tab", () => {
+  test("a new name is saved with its muscle group, and a near-duplicate returns the existing one", async () => {
+    const t = testBackend();
+    const { asUser } = await signIn(t, "Michael");
+    const created = await asUser.mutation(api.exercises.create, { name: "  Lat pulldown ", muscleGroup: "back" });
+    expect(created).toMatchObject({ status: "created", name: "Lat pulldown" });
+    const auto = await asUser.mutation(api.exercises.create, { name: "Push-ups", muscleGroup: null });
+    expect(auto.status).toBe("created");
+
+    for (const name of ["LAT PULLDOWN", "Lat-pulldowns", "lat  pull down"]) {
+      const again = await asUser.mutation(api.exercises.create, { name, muscleGroup: "biceps" });
+      expect(again).toEqual({ status: "exists", exerciseId: created.exerciseId, name: "Lat pulldown" });
+    }
+
+    const page = await asUser.query(api.exercises.browse, { paginationOpts: { numItems: 10, cursor: null } });
+    const byName = Object.fromEntries(page.page.map((item) => [item.name, item]));
+    expect(byName["Lat pulldown"]).toMatchObject({ muscleGroup: "back", muscleSource: "saved", setCount: 0 });
+    expect(byName["Push-ups"]).toMatchObject({ muscleSource: "suggested", setCount: 0 });
+
+    await expect(asUser.mutation(api.exercises.create, { name: "   ", muscleGroup: null })).rejects.toThrow(/80 characters/);
+  });
+
+  test("another person's exercise with the same name does not block yours", async () => {
+    const t = testBackend();
+    const michael = await signIn(t, "Michael");
+    const other = await signIn(t, "Other");
+    await other.asUser.mutation(api.exercises.create, { name: "Dips", muscleGroup: null });
+    const mine = await michael.asUser.mutation(api.exercises.create, { name: "dips", muscleGroup: null });
+    expect(mine.status).toBe("created");
+  });
+});

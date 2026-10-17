@@ -190,6 +190,41 @@ export const restOverrides = authedQuery({
 });
 
 /**
+ * Adds an exercise before any set is logged. A name that matches one already
+ * saved, across case, spacing, hyphens and plurals, changes nothing and
+ * returns that exercise instead. Null muscle group follows the name.
+ */
+export const create = authedMutation({
+  args: {
+    name: v.string(),
+    muscleGroup: v.union(muscleGroupValidator, v.null()),
+  },
+  returns: v.object({
+    status: v.union(v.literal("created"), v.literal("exists")),
+    exerciseId: v.id("exercises"),
+    name: v.string(),
+  }),
+  handler: async (ctx, args) => {
+    const formatted = formatExerciseName(args.name);
+    if (!formatted) {
+      throw userError("Exercise name must be 1 to 80 characters");
+    }
+    const existing = await findExerciseByName(ctx, ctx.userId, formatted);
+    if (existing) {
+      return { status: "exists" as const, exerciseId: existing._id, name: existing.name };
+    }
+    const exerciseId = await ctx.db.insert("exercises", {
+      userId: ctx.userId,
+      name: formatted.name,
+      normalizedName: formatted.normalizedName,
+      createdAt: Date.now(),
+      ...(args.muscleGroup ? { muscleGroup: args.muscleGroup } : {}),
+    });
+    return { status: "created" as const, exerciseId, name: formatted.name };
+  },
+});
+
+/**
  * Saves the primary muscle, or clears it so the name's suggestion is used.
  * The weekly summary counts working sets toward this group.
  */
