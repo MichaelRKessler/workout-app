@@ -4,7 +4,7 @@ import {
   type LengthUnit,
 } from "../convex/lib/bodyMeasures.ts";
 import { normalizeNote } from "../convex/lib/measures.ts";
-import { fromPounds, parseDisplayWeight, toPounds, type WeightUnit } from "../convex/lib/units.ts";
+import { formatBodyWeightAmount, fromPounds, parseDisplayWeight, toPounds, type WeightUnit } from "../convex/lib/units.ts";
 import type { BodyProposal } from "./voice/bodyProposal.ts";
 import { formatDateInput, loggedAtFromDateInput, shiftDateInput } from "./bodyDate.ts";
 
@@ -245,7 +245,7 @@ export function formatBodySummary(
 ): string {
   const parts: string[] = [];
   if (entry.weightLb !== null) {
-    parts.push(`${amount(fromPounds(entry.weightLb, weightUnit))} ${weightUnit}`);
+    parts.push(`${formatBodyWeightAmount(entry.weightLb, weightUnit)} ${weightUnit}`);
   }
   if (entry.bodyFatPct !== null) {
     parts.push(`${amount(entry.bodyFatPct)}% fat`);

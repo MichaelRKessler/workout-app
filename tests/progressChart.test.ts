@@ -432,8 +432,10 @@ test("a layoff splits the line, and the curve and trend stay defined", () => {
 test("chart values round onto one line and keep a sign on the change", () => {
   assert.equal(formatChartValue(800 / 3, "epley", "lb"), "267 lb");
   assert.equal(formatChartValue(180, "weight", "lb"), "180 lb");
-  assert.equal(formatChartValue(180, "body", "kg"), "81.5 kg");
-  assert.equal(formatChartValue(220.46, "body", "kg"), "100 kg");
+  assert.equal(formatChartValue(183.8, "body", "lb"), "183.8 lb");
+  assert.equal(formatChartValue(184, "body", "lb"), "184.0 lb");
+  assert.equal(formatChartValue(180, "body", "kg"), "81.6 kg");
+  assert.equal(formatChartValue(220.46, "body", "kg"), "100.0 kg");
   assert.equal(formatChartValue(0, "weight", "lb"), "bodyweight");
   assert.equal(formatChartValue(9420.6, "volume", "lb"), "9,421 lb");
   assert.equal(formatChartValue(8.6, "reps", "lb"), "9 reps");
@@ -442,7 +444,8 @@ test("chart values round onto one line and keep a sign on the change", () => {
   assert.equal(formatChartValue(1.25 * 1609.344, "distance", "lb"), "1.25 mi");
 
   assert.equal(formatChartDelta(85.83, "epley", "lb"), "+86 lb");
-  assert.equal(formatChartDelta(-7.2, "body", "lb"), "−7 lb");
+  assert.equal(formatChartDelta(-7.2, "body", "lb"), "−7.2 lb");
+  assert.equal(formatChartDelta(0.04, "body", "lb"), "0.0 lb");
   assert.equal(formatChartDelta(0.2, "weight", "lb"), "0 lb");
   assert.equal(formatChartDelta(1500.4, "volume", "lb"), "+1,500 lb");
   assert.equal(formatChartDelta(-45, "time", "lb"), "−0:45");

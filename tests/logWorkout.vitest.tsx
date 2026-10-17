@@ -146,7 +146,7 @@ test("typing weight 232 in the main log opens the body sheet and saves a weigh-i
   await waitFor(() => expect(saveBody).toHaveBeenCalledOnce());
   expect(saveBody.mock.calls[0]?.[0]).toMatchObject({ weightLb: 232, waistCm: null });
   expect(saveSets).not.toHaveBeenCalled();
-  expect(await screen.findByText("Logged weigh-in · 232 lb")).toBeTruthy();
+  expect(await screen.findByText("Logged weigh-in · 232.0 lb")).toBeTruthy();
 });
 
 test("sets and a weigh-in in one note save the sets first, then ask about the weigh-in", async () => {
