@@ -170,6 +170,8 @@ export function ExerciseHistory({
           exerciseName={detail.name}
           muscleGroup={detail.muscleGroup}
           muscleSource={detail.muscleSource}
+          secondaryMuscles={detail.secondaryMuscles}
+          secondarySource={detail.secondarySource}
           offline={offline}
         />
       </div>

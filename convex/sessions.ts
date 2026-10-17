@@ -11,7 +11,7 @@ import { newestLoggedAt } from "./lib/sessionActivity";
 import { assertDayWindow, assertMonthWindow } from "./lib/dayWindow";
 import { formatExerciseName } from "./lib/exerciseName";
 import { normalizeNote } from "./lib/measures";
-import { muscleCounts, muscleGroupValidator, resolveMuscleGroup, type MuscleGroup } from "./lib/muscleGroup";
+import { addMuscleSets, muscleCounts, muscleGroupValidator, type MuscleGroup } from "./lib/muscleGroup";
 import { countsTowardVolume, persistedSetType } from "./lib/setType";
 import { userError } from "./lib/errors";
 import { personalRecordValidator, volumeLb, type PersonalRecord } from "./lib/records";
@@ -922,7 +922,10 @@ const weeklySummaryValidator = v.object({
   previousVolumeLb: v.number(),
   previousCalories: v.number(),
   streakWeeks: v.number(),
-  /** Working sets this week, warm-ups excluded, one count per exercise's muscle. */
+  /**
+   * Working sets this week, warm-ups excluded: a full set for each exercise's
+   * main muscle and half a set for each group it also works.
+   */
   muscles: v.array(
     v.object({
       group: muscleGroupValidator,
@@ -936,6 +939,7 @@ const weeklySummaryValidator = v.object({
  * The client passes those boundaries so this stays deterministic and follows
  * the viewer's time zone. Bodyweight sets count toward the set total only.
  * Warm-up sets are left out of the set total, the volume, and the muscle counts.
+ * Muscle counts can be halves, from groups an exercise also works.
  */
 export const weeklySummary = authedQuery({
   args: {
@@ -1013,8 +1017,7 @@ export const weeklySummary = authedQuery({
       if (!exercise || exercise.userId !== ctx.userId) {
         continue;
       }
-      const group = resolveMuscleGroup(exercise.muscleGroup, exercise.name);
-      groupCounts.set(group, (groupCounts.get(group) ?? 0) + count);
+      addMuscleSets(groupCounts, exercise, count);
     }
 
     return {

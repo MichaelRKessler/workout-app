@@ -1,6 +1,7 @@
 import { authTables } from "@convex-dev/auth/server";
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
+import { muscleGroupValidator } from "./lib/muscleGroup";
 import { recordStampValidator } from "./lib/records";
 
 const effortSnap = v.object({
@@ -47,6 +48,9 @@ export default defineSchema({
         v.literal("other"),
       ),
     ),
+    // Optional so exercises saved before "also works" groups still validate.
+    // Absent means the name's suggestion; an empty list means none.
+    secondaryMuscles: v.optional(v.array(muscleGroupValidator)),
     // Optional demo override: a free-exercise-db id, or "none" to hide the demo.
     // Absent means the demo matched from the name.
     demoId: v.optional(v.string()),
