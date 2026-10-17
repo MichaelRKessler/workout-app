@@ -1,7 +1,7 @@
 "use client";
 
 import { Button } from "@/components/Button";
-import { MuscleGroupField } from "@/components/MuscleGroupField";
+import { MuscleGroupField, SecondaryMusclePicker } from "@/components/MuscleGroupField";
 import { useOfflineLog } from "@/components/OfflineSync";
 import { PageHeader } from "@/components/PageHeader";
 import { Sheet } from "@/components/Sheet";
@@ -15,10 +15,12 @@ import { useWeightUnit } from "@/components/WeightUnit";
 import { ChevronRightIcon } from "@/components/icons";
 import type { WeightUnit } from "@/convex/lib/units";
 import {
+  cleanSecondaryMuscles,
   isMuscleGroup,
   MUSCLE_GROUPS,
   MUSCLE_LABELS,
   suggestMuscleGroup,
+  suggestSecondaryMuscles,
   type MuscleGroup,
 } from "@/convex/lib/muscleGroup";
 import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
@@ -33,6 +35,8 @@ type LibraryItem = {
   setCountCapped: boolean;
   muscleGroup: MuscleGroup;
   muscleSource: "saved" | "suggested";
+  secondaryMuscles: MuscleGroup[];
+  secondarySource: "saved" | "suggested";
   mergingInto: string | null;
   lastLoggedAt?: number | null;
   best?: {
@@ -101,6 +105,13 @@ export function ExerciseLibrary() {
   const [adding, setAdding] = useState(false);
   const [newName, setNewName] = useState("");
   const [newMuscle, setNewMuscle] = useState<MuscleGroup | "auto">("auto");
+  // Null follows the name, like "auto" for the main group.
+  const [newAlso, setNewAlso] = useState<MuscleGroup[] | null>(null);
+  const newPrimary = newMuscle === "auto" ? suggestMuscleGroup(newName) : newMuscle;
+  const newAlsoShown =
+    newAlso === null
+      ? suggestSecondaryMuscles(newName, newPrimary)
+      : cleanSecondaryMuscles(newAlso, newPrimary);
   const [existing, setExisting] = useState<{ id: Id<"exercises">; name: string } | null>(null);
   const [addedNotice, setAddedNotice] = useState<{ id: Id<"exercises">; name: string } | null>(null);
   const backHere = muscleFilterHref(muscle, fromHome);
@@ -109,6 +120,7 @@ export function ExerciseLibrary() {
     setNewName("");
     // A muscle filter is the likely group for a new exercise.
     setNewMuscle(muscle ?? "auto");
+    setNewAlso(null);
     setExisting(null);
     setError(null);
     setAdding(true);
@@ -126,6 +138,7 @@ export function ExerciseLibrary() {
       const result = await createExercise({
         name: newName,
         muscleGroup: newMuscle === "auto" ? null : newMuscle,
+        secondaryMuscles: newAlso === null ? null : newAlsoShown,
       });
       if (result.status === "exists") {
         setExisting({ id: result.exerciseId, name: result.name });
@@ -293,7 +306,9 @@ export function ExerciseLibrary() {
                         text={
                           exercise.mergingInto
                             ? `Moving sets onto ${exercise.mergingInto}…`
-                            : progressLine(exercise, unit)
+                            : muscle && exercise.muscleGroup !== muscle
+                              ? `Also works ${MUSCLE_LABELS[muscle].toLowerCase()} · ${progressLine(exercise, unit)}`
+                              : progressLine(exercise, unit)
                         }
                       />
                     </span>
@@ -335,6 +350,8 @@ export function ExerciseLibrary() {
                 exerciseName={exercise.name}
                 muscleGroup={exercise.muscleGroup}
                 muscleSource={exercise.muscleSource}
+                secondaryMuscles={exercise.secondaryMuscles}
+                secondarySource={exercise.secondarySource}
                 offline={offline}
               />
             </li>
@@ -455,6 +472,14 @@ export function ExerciseLibrary() {
               </option>
             ))}
           </select>
+          <p className="mt-4 text-xs font-medium tracking-[0.06em] text-subtle uppercase">Also works</p>
+          <SecondaryMusclePicker
+            primary={newPrimary}
+            selected={newAlsoShown}
+            source={newAlso === null ? "suggested" : "saved"}
+            disabled={pending}
+            onChange={setNewAlso}
+          />
           {offline ? (
             <p className="mt-3 text-sm text-muted">Adding an exercise needs a connection.</p>
           ) : null}

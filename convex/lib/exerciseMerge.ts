@@ -2,7 +2,7 @@ import type { Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { invalidateExercises } from "./exerciseStats";
 import { userError } from "./errors";
-import { muscleGroupToCopy } from "./muscleGroup";
+import { muscleGroupToCopy, secondaryMusclesToCopy } from "./muscleGroup";
 import { repointExerciseReferences } from "./routineRecords";
 
 /** Sets moved in one transaction. A larger history continues in a later run. */
@@ -16,7 +16,7 @@ export type MergeBatchResult = {
 
 /**
  * Moves one batch of sets onto the kept exercise and repoints the workouts
- * those sets belong to. When nothing is left, copies rest and muscle group,
+ * those sets belong to. When nothing is left, copies rest and muscle groups,
  * then deletes the merged exercise. Safe to run again: sets already moved
  * are no longer on the source, and a missing source means the merge finished.
  */
@@ -98,6 +98,13 @@ export async function applyMergeBatch(
   const copiedMuscle = muscleGroupToCopy(into, from);
   if (copiedMuscle) {
     await ctx.db.patch("exercises", into._id, { muscleGroup: copiedMuscle });
+  }
+  const copiedSecondary = secondaryMusclesToCopy(
+    { ...into, muscleGroup: copiedMuscle ?? into.muscleGroup },
+    from,
+  );
+  if (copiedSecondary) {
+    await ctx.db.patch("exercises", into._id, { secondaryMuscles: copiedSecondary });
   }
   await ctx.db.delete("exercises", from._id);
   await invalidateExercises(ctx, userId, [from._id, into._id]);

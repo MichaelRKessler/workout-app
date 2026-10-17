@@ -267,6 +267,80 @@ describe("muscle groups on exercises", () => {
     expect((await asUser.query(api.exercises.byMuscle, { muscleGroup: "chest" })).exercises).toEqual([]);
   });
 
+  test("also-works groups save, reset, and show in the muscle filter", async () => {
+    const t = testBackend();
+    const { userId, asUser } = await signIn(t, "Michael");
+    const chinId = await t.run(async (ctx) => {
+      return await ctx.db.insert("exercises", {
+        userId,
+        name: "Chin-up",
+        normalizedName: "chin-up",
+        createdAt: 1,
+      });
+    });
+    expect(await asUser.query(api.exercises.detail, { exerciseId: chinId })).toMatchObject({
+      muscleGroup: "back",
+      secondaryMuscles: ["biceps"],
+      secondarySource: "suggested",
+    });
+    const biceps = await asUser.query(api.exercises.byMuscle, { muscleGroup: "biceps" });
+    expect(biceps.exercises.map((exercise) => exercise.name)).toEqual(["Chin-up"]);
+
+    // The main group is dropped from the saved list.
+    await asUser.mutation(api.exercises.setSecondaryMuscles, {
+      exerciseId: chinId,
+      secondaryMuscles: ["core", "back"],
+    });
+    expect(await asUser.query(api.exercises.detail, { exerciseId: chinId })).toMatchObject({
+      secondaryMuscles: ["core"],
+      secondarySource: "saved",
+    });
+    expect((await asUser.query(api.exercises.byMuscle, { muscleGroup: "biceps" })).exercises).toEqual([]);
+    // Rest and the main group survive the save.
+    await asUser.mutation(api.exercises.setRest, { name: "Chin-up", restSeconds: 120 });
+    await asUser.mutation(api.exercises.setSecondaryMuscles, {
+      exerciseId: chinId,
+      secondaryMuscles: null,
+    });
+    expect(await asUser.query(api.exercises.restForName, { name: "Chin-up" })).toBe(120);
+    expect(await asUser.query(api.exercises.detail, { exerciseId: chinId })).toMatchObject({
+      secondaryMuscles: ["biceps"],
+      secondarySource: "suggested",
+    });
+
+    const created = await asUser.mutation(api.exercises.create, {
+      name: "Ring row",
+      muscleGroup: null,
+      secondaryMuscles: ["shoulders"],
+    });
+    expect(await asUser.query(api.exercises.detail, { exerciseId: created.exerciseId })).toMatchObject({
+      muscleGroup: "back",
+      secondaryMuscles: ["shoulders"],
+      secondarySource: "saved",
+    });
+    // Main-group exercises list before the ones that also work the group.
+    const curlId = await t.run(async (ctx) => {
+      return await ctx.db.insert("exercises", {
+        userId,
+        name: "Ab curl",
+        normalizedName: "ab curl",
+        createdAt: 1,
+        muscleGroup: "biceps" as const,
+      });
+    });
+    expect(curlId).toBeDefined();
+    expect(
+      (await asUser.query(api.exercises.byMuscle, { muscleGroup: "biceps" })).exercises.map(
+        (exercise) => exercise.name,
+      ),
+    ).toEqual(["Ab curl", "Chin-up"]);
+
+    const other = await signIn(t, "Other");
+    await expect(
+      other.asUser.mutation(api.exercises.setSecondaryMuscles, { exerciseId: chinId, secondaryMuscles: [] }),
+    ).rejects.toThrow("Exercise not found");
+  });
+
   test("a merge does not retag a named exercise with a conflicting group", async () => {
     const t = testBackend();
     const { userId, asUser } = await signIn(t, "Michael");

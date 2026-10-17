@@ -464,7 +464,12 @@ describe("weekly summary", () => {
       previousVolumeLb: 1000,
       previousCalories: 0,
       streakWeeks: 3,
-      muscles: [{ group: "back", sets: 1 }],
+      // A deadlift is back first, and also half a set each of hamstrings and glutes.
+      muscles: [
+        { group: "back", sets: 1 },
+        { group: "hamstrings", sets: 0.5 },
+        { group: "glutes", sets: 0.5 },
+      ],
     });
 
     const missedThisWeek = await asUser.query(api.sessions.weeklySummary, {

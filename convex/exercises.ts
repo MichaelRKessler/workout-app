@@ -16,7 +16,13 @@ import { effortsFromStats, findExerciseStats, libraryCount } from "./lib/exercis
 import { exerciseRecord } from "./lib/exerciseFields";
 import { formatExerciseName, MAX_KNOWN_EXERCISE_NAMES } from "./lib/exerciseName";
 import { repointSessionPlan } from "./lib/routineRecords";
-import { muscleGroupValidator, presentMuscle } from "./lib/muscleGroup";
+import {
+  cleanSecondaryMuscles,
+  muscleGroupValidator,
+  presentMuscle,
+  resolveMuscleGroup,
+  worksMuscle,
+} from "./lib/muscleGroup";
 import { summarizeEfforts, trendFromSets, type TrendPoint } from "./lib/records";
 import { setExerciseRest } from "./lib/rest";
 import { setTypeValidator } from "./lib/setTypeValidator";
@@ -111,6 +117,8 @@ const exerciseValidator = v.object({
   restSeconds: v.union(v.number(), v.null()),
   muscleGroup: muscleGroupValidator,
   muscleSource: v.union(v.literal("saved"), v.literal("suggested")),
+  secondaryMuscles: v.array(muscleGroupValidator),
+  secondarySource: v.union(v.literal("saved"), v.literal("suggested")),
 });
 
 const EXERCISE_LIMIT = 200;
@@ -192,12 +200,15 @@ export const restOverrides = authedQuery({
 /**
  * Adds an exercise before any set is logged. A name that matches one already
  * saved, across case, spacing, hyphens and plurals, changes nothing and
- * returns that exercise instead. Null muscle group follows the name.
+ * returns that exercise instead. Null muscle groups follow the name.
  */
 export const create = authedMutation({
   args: {
     name: v.string(),
     muscleGroup: v.union(muscleGroupValidator, v.null()),
+    // Optional so clients from before "also works" groups still validate.
+    // Absent or null follows the name.
+    secondaryMuscles: v.optional(v.union(v.array(muscleGroupValidator), v.null())),
   },
   returns: v.object({
     status: v.union(v.literal("created"), v.literal("exists")),
@@ -219,6 +230,14 @@ export const create = authedMutation({
       normalizedName: formatted.normalizedName,
       createdAt: Date.now(),
       ...(args.muscleGroup ? { muscleGroup: args.muscleGroup } : {}),
+      ...(args.secondaryMuscles
+        ? {
+            secondaryMuscles: cleanSecondaryMuscles(
+              args.secondaryMuscles,
+              resolveMuscleGroup(args.muscleGroup, formatted.name),
+            ),
+          }
+        : {}),
     });
     return { status: "created" as const, exerciseId, name: formatted.name };
   },
@@ -247,6 +266,41 @@ export const setMuscle = authedMutation({
       "exercises",
       exercise._id,
       exerciseRecord(exercise, { muscleGroup: args.muscleGroup }),
+    );
+    return null;
+  },
+});
+
+/**
+ * Saves the groups an exercise also works, or clears them so the name's
+ * suggestion is used. Each counts half a set in the weekly summary.
+ */
+export const setSecondaryMuscles = authedMutation({
+  args: {
+    exerciseId: v.id("exercises"),
+    secondaryMuscles: v.union(v.array(muscleGroupValidator), v.null()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const exercise = await ctx.db.get("exercises", args.exerciseId);
+    if (!exercise || exercise.userId !== ctx.userId) {
+      throw userError("Exercise not found");
+    }
+    const next =
+      args.secondaryMuscles === null
+        ? null
+        : cleanSecondaryMuscles(
+            args.secondaryMuscles,
+            resolveMuscleGroup(exercise.muscleGroup, exercise.name),
+          );
+    const current = exercise.secondaryMuscles ?? null;
+    if (JSON.stringify(current) === JSON.stringify(next)) {
+      return null;
+    }
+    await ctx.db.replace(
+      "exercises",
+      exercise._id,
+      exerciseRecord(exercise, { secondaryMuscles: next }),
     );
     return null;
   },
@@ -343,6 +397,8 @@ export const detail = authedQuery({
       bestCalories: v.union(calorieEffortValidator, v.null()),
       muscleGroup: muscleGroupValidator,
       muscleSource: v.union(v.literal("saved"), v.literal("suggested")),
+      secondaryMuscles: v.array(muscleGroupValidator),
+      secondarySource: v.union(v.literal("saved"), v.literal("suggested")),
       trendUnit: v.union(
         v.literal("lb"),
         v.literal("reps"),
@@ -514,6 +570,8 @@ const libraryItemValidator = v.object({
   setCountCapped: v.boolean(),
   muscleGroup: muscleGroupValidator,
   muscleSource: v.union(v.literal("saved"), v.literal("suggested")),
+  secondaryMuscles: v.array(muscleGroupValidator),
+  secondarySource: v.union(v.literal("saved"), v.literal("suggested")),
   // The kept exercise's name while a merge is still moving this one's sets.
   mergingInto: v.union(v.string(), v.null()),
   // When it was last done, and its headline best, for the Exercises list.
@@ -622,7 +680,8 @@ export const browse = authedQuery({
 });
 
 /**
- * Exercises filed under one muscle group, saved or suggested, sorted by name.
+ * Exercises filed under one muscle group, saved or suggested, as the main
+ * group first and then as a group they also work, each part sorted by name.
  * Scans at most EXERCISE_LIMIT exercises, the same bound as `list`.
  */
 export const byMuscle = authedQuery({
@@ -639,7 +698,13 @@ export const byMuscle = authedQuery({
     const truncated = rows.length > EXERCISE_LIMIT;
     const matching = rows
       .slice(0, EXERCISE_LIMIT)
-      .filter((exercise) => presentMuscle(exercise).muscleGroup === args.muscleGroup);
+      .filter((exercise) => worksMuscle(exercise, args.muscleGroup))
+      // Main-group exercises first, then the ones that also work it.
+      .sort(
+        (left, right) =>
+          Number(presentMuscle(right).muscleGroup === args.muscleGroup) -
+          Number(presentMuscle(left).muscleGroup === args.muscleGroup),
+      );
     const exercises = await Promise.all(
       matching.map(async (exercise) => ({
         _id: exercise._id,

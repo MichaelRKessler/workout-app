@@ -1,8 +1,10 @@
 import { v } from "convex/values";
 
 /**
- * Primary muscle for an exercise. Quads is the "legs/quads" group: hamstrings
- * and glutes stay separate so a squat and a hip thrust do not look the same.
+ * Main muscle for an exercise. An exercise can also list groups it works
+ * (chin-ups: back, also biceps); see suggestSecondaryMuscles. Quads is the
+ * "legs/quads" group: hamstrings and glutes stay separate so a squat and a hip
+ * thrust do not look the same.
  * "other" is the fallback when a name is unrecognized, including calves.
  */
 export const MUSCLE_GROUPS = [
@@ -158,19 +160,144 @@ export function suggestMuscleGroup(name: string): MuscleGroup {
   return "other";
 }
 
+type AlsoCheck = {
+  groups: MuscleGroup[];
+  test: (name: string) => boolean;
+};
+
+/**
+ * Groups a compound lift also works, beyond its main group. Every matching
+ * check adds its groups, so a "pull-up" and a "deadlift row" both pick up
+ * what they share. Isolation lifts match nothing.
+ */
+const ALSO_CHECKS: AlsoCheck[] = [
+  {
+    groups: ["biceps"],
+    test: (name) =>
+      has(name, /\b(pull[- ]?ups?|chin[- ]?ups?|muscle[- ]?ups?|pulldowns?|pull[- ]?downs?)\b/) ||
+      (has(name, /\brows?\b/) && !has(name, /\bupright rows?\b/) && !has(name, /\browing\b/)),
+  },
+  {
+    groups: ["triceps", "shoulders"],
+    test: (name) =>
+      has(name, /\b(bench(?: press(?:es)?)?|push[- ]?ups?|press[- ]?ups?|chest press(?:es)?)\b/) ||
+      (has(name, /\bincline\b/) && has(name, /\bpress\b/)),
+  },
+  {
+    groups: ["triceps"],
+    test: (name) =>
+      has(name, /\b(dips?|overhead press(?:es)?|ohp|military press(?:es)?|push press(?:es)?|arnold press(?:es)?|shoulder press(?:es)?)\b/),
+  },
+  {
+    groups: ["chest"],
+    test: (name) => has(name, /\b(close[- ]grips?|tricep dips?)\b/),
+  },
+  {
+    groups: ["glutes"],
+    test: (name) =>
+      has(
+        name,
+        /\b(squats?|lunges?|leg press(?:es)?|split squats?|bulgarians?|step[- ]?ups?|deadlifts?|rdls?|romanian|good mornings?)\b/,
+      ),
+  },
+  {
+    groups: ["hamstrings"],
+    test: (name) => has(name, /\b(deadlifts?|hip thrusts?|good mornings?)\b/),
+  },
+];
+
+/** Most groups one exercise can list beyond its main one. */
+export const MAX_SECONDARY_MUSCLES = 4;
+
+/**
+ * Best guess at what else a common lift works, never the main group, "other"
+ * or "cardio". Chin-ups are back first and also biceps.
+ */
+export function suggestSecondaryMuscles(name: string, primary: MuscleGroup): MuscleGroup[] {
+  const normalized = name.trim().toLowerCase().replace(/[_/]+/g, " ").replace(/\s+/g, " ");
+  const found = new Set<MuscleGroup>();
+  for (const check of ALSO_CHECKS) {
+    if (check.test(normalized)) {
+      for (const group of check.groups) {
+        found.add(group);
+      }
+    }
+  }
+  return cleanSecondaryMuscles([...found], primary);
+}
+
+/**
+ * Valid, distinct groups in summary order, without the main group or the
+ * catch-alls, and at most MAX_SECONDARY_MUSCLES of them.
+ */
+export function cleanSecondaryMuscles(groups: readonly unknown[], primary: MuscleGroup): MuscleGroup[] {
+  const wanted = new Set(groups.filter(isMuscleGroup));
+  return MUSCLE_GROUPS.filter(
+    (group) => wanted.has(group) && group !== primary && group !== "other" && group !== "cardio",
+  ).slice(0, MAX_SECONDARY_MUSCLES);
+}
+
 /** A saved group wins. A missing one is suggested from the name. */
 export function resolveMuscleGroup(stored: unknown, name: string): MuscleGroup {
   return isMuscleGroup(stored) ? stored : suggestMuscleGroup(name);
 }
 
-export function presentMuscle(exercise: { name: string; muscleGroup?: MuscleGroup | null }): {
+type MuscleFields = {
+  name: string;
+  muscleGroup?: MuscleGroup | null;
+  secondaryMuscles?: readonly MuscleGroup[] | null;
+};
+
+/**
+ * Groups an exercise also works. A saved list wins, even an empty one; a
+ * missing list is suggested from the name. Never includes the main group.
+ */
+export function resolveSecondaryMuscles(exercise: MuscleFields): MuscleGroup[] {
+  const primary = resolveMuscleGroup(exercise.muscleGroup, exercise.name);
+  return Array.isArray(exercise.secondaryMuscles)
+    ? cleanSecondaryMuscles(exercise.secondaryMuscles, primary)
+    : suggestSecondaryMuscles(exercise.name, primary);
+}
+
+export function presentMuscle(exercise: MuscleFields): {
   muscleGroup: MuscleGroup;
   muscleSource: "saved" | "suggested";
+  secondaryMuscles: MuscleGroup[];
+  secondarySource: "saved" | "suggested";
 } {
-  if (isMuscleGroup(exercise.muscleGroup)) {
-    return { muscleGroup: exercise.muscleGroup, muscleSource: "saved" };
+  return {
+    muscleGroup: resolveMuscleGroup(exercise.muscleGroup, exercise.name),
+    muscleSource: isMuscleGroup(exercise.muscleGroup) ? "saved" : "suggested",
+    secondaryMuscles: resolveSecondaryMuscles(exercise),
+    secondarySource: Array.isArray(exercise.secondaryMuscles) ? "saved" : "suggested",
+  };
+}
+
+/** True when the exercise is filed under the group, as main or also works. */
+export function worksMuscle(exercise: MuscleFields, group: MuscleGroup): boolean {
+  return (
+    resolveMuscleGroup(exercise.muscleGroup, exercise.name) === group ||
+    resolveSecondaryMuscles(exercise).includes(group)
+  );
+}
+
+/** Share of a set an "also works" group gets in the weekly muscle counts. */
+export const SECONDARY_SET_SHARE = 0.5;
+
+/**
+ * Adds one exercise's working sets to the weekly muscle counts: full sets to
+ * the main group, half sets to each group it also works.
+ */
+export function addMuscleSets(
+  counts: Map<MuscleGroup, number>,
+  exercise: MuscleFields,
+  sets: number,
+): void {
+  const primary = resolveMuscleGroup(exercise.muscleGroup, exercise.name);
+  counts.set(primary, (counts.get(primary) ?? 0) + sets);
+  for (const group of resolveSecondaryMuscles(exercise)) {
+    counts.set(group, (counts.get(group) ?? 0) + sets * SECONDARY_SET_SHARE);
   }
-  return { muscleGroup: suggestMuscleGroup(exercise.name), muscleSource: "suggested" };
 }
 
 /**
@@ -191,6 +318,25 @@ export function muscleGroupToCopy(
     return from.muscleGroup;
   }
   return null;
+}
+
+/**
+ * Saved "also works" list to copy onto the exercise that survives a merge.
+ * Copied only when the survivor has none saved and both end up with the same
+ * main group, so the list still makes sense.
+ */
+export function secondaryMusclesToCopy(
+  into: MuscleFields,
+  from: MuscleFields,
+): MuscleGroup[] | null {
+  if (Array.isArray(into.secondaryMuscles) || !Array.isArray(from.secondaryMuscles)) {
+    return null;
+  }
+  const primary = resolveMuscleGroup(into.muscleGroup, into.name);
+  if (resolveMuscleGroup(from.muscleGroup, from.name) !== primary) {
+    return null;
+  }
+  return cleanSecondaryMuscles(from.secondaryMuscles, primary);
 }
 
 /** "Chest 12 · Back 6 · Quads 9". Empty when every count is zero. */
