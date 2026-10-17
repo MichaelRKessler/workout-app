@@ -1,7 +1,7 @@
 import { toCentimeters, type LengthUnit } from "../../convex/lib/bodyMeasures";
 import { toPounds, type WeightUnit } from "../../convex/lib/units";
 import { MAX_NOTE_LENGTH } from "../../convex/lib/measures";
-import { VoiceParseError } from "./proposal";
+import { VoiceParseError } from "./errors";
 
 export const MAX_BODY_TEXT_LENGTH = 300;
 
@@ -22,6 +22,14 @@ export const BODY_TEXT_PROMPT = `You log body weight and measurements from a sho
 Return only the structured fields.
 ${MEASURE_RULES}
 Do not invent a measurement the note does not give. "weight 232" is a weight and nothing else.`;
+
+/**
+ * For the main log: the person may give their own weight or measurements
+ * instead of, or as well as, an exercise.
+ */
+export const BODY_IN_WORKOUT_RULES = `body holds the person's own body weight and measurements, such as "I weigh 232", "weight 232", "weighed in at 105 kilos", "body fat 18 percent", or "waist 34". Use 0 for every body field they did not give.
+In body: ${MEASURE_RULES.split("\n").filter((line) => !line.startsWith("note ")).join(" ")} body.note is always an empty string; a remark goes in the workout note.
+Their own body weight is never an exercise and has no sets. When they only give body weight or measurements, exercises is an empty array.`;
 
 export function bodyUnitPrompt(weightUnit: WeightUnit, lengthUnit: LengthUnit): string {
   return `Default weight unit: ${weightUnit}. Default length unit: ${lengthUnit}.`;
@@ -115,6 +123,21 @@ export function normalizeBodyProposal(
   return proposal;
 }
 
+/** The body part of a main-log parse, or null when it gives nothing. */
+export function optionalBodyProposal(
+  value: unknown,
+  defaultWeight: WeightUnit,
+  defaultLength: LengthUnit,
+): BodyProposal | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const given = ["weight", "bodyFatPct", "waist", "chest", "arm", "hips", "thigh"].some(
+    (key) => positive(value[key]) !== null,
+  );
+  return given ? normalizeBodyProposal(value, defaultWeight, defaultLength) : null;
+}
+
 function storedWeight(value: number | null, unit: WeightUnit): number | null {
   if (value === null) {
     return null;
@@ -177,7 +200,10 @@ export function readBodyResponse(payload: unknown): BodyProposal {
   if (!isRecord(payload) || payload.persisted !== false || !isRecord(payload.proposal)) {
     throw new Error("That measurement could not be read. Type it in.");
   }
-  const proposal = payload.proposal;
+  return readBodyProposal(payload.proposal);
+}
+
+export function readBodyProposal(proposal: Record<string, unknown>): BodyProposal {
   return {
     weightLb: numberOrNull(proposal.weightLb),
     bodyFatPct: numberOrNull(proposal.bodyFatPct),

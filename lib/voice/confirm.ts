@@ -9,9 +9,11 @@ import {
 import { resolvedSetType, type SetType } from "../../convex/lib/setType";
 import { parseSetInput } from "../../convex/lib/setInput";
 import { formatWeightAmount, type WeightUnit } from "../../convex/lib/units";
+import { readBodyProposal } from "./bodyProposal";
 import {
   MAX_VOICE_SETS,
   normalizeGeminiWorkout,
+  type VoiceLogResult,
   type VoiceProposal,
   type VoiceSet,
   VoiceParseError,
@@ -68,6 +70,8 @@ export type VoiceLogEvent =
   | { type: "submit-audio" }
   | { type: "submit-text" }
   | { type: "parsed"; proposal: VoiceProposal }
+  /** The clip or note was only a weigh-in, which has its own sheet. */
+  | { type: "parsed-body" }
   | { type: "failed"; message: string }
   | { type: "discard" }
   | { type: "confirm"; proposal: VoiceProposal }
@@ -105,6 +109,8 @@ export function reduceVoiceLog(
       return state.status === "parsing"
         ? { status: "preview", proposal: event.proposal }
         : state;
+    case "parsed-body":
+      return state.status === "parsing" ? { status: "idle" } : state;
     case "failed":
       if (state.status === "saving") {
         return state;
@@ -228,6 +234,19 @@ export function readVoiceResponse(payload: unknown): VoiceProposal {
   }
 
   return normalizeGeminiWorkout(payload.proposal);
+}
+
+/** The main log's preview: sets, a body weigh-in, or both. Same no-save rule as above. */
+export function readVoiceLogResponse(payload: unknown): VoiceLogResult {
+  if (!isRecord(payload) || payload.persisted !== false) {
+    return { proposal: readVoiceResponse(payload) };
+  }
+  const body = isRecord(payload.body) ? readBodyProposal(payload.body) : undefined;
+  if (payload.proposal === undefined && body) {
+    return { body };
+  }
+  const proposal = readVoiceResponse(payload);
+  return body ? { proposal, body } : { proposal };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

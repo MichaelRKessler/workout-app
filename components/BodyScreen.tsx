@@ -1,6 +1,9 @@
 "use client";
 
+import { BodyConfirmSheet } from "@/components/body/BodyConfirmSheet";
+import { MeasureFields } from "@/components/body/MeasureFields";
 import { requestBodyProposal } from "@/components/body/requestBody";
+import { newBodyClientId, toPending } from "@/components/body/saveBodyEntry";
 import { Button } from "@/components/Button";
 import { MicIcon } from "@/components/icons";
 import { useOfflineLog } from "@/components/OfflineSync";
@@ -14,26 +17,22 @@ import { TrendChart } from "@/components/workout/TrendChart";
 import { useRecorder } from "@/components/workout/useRecorder";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import type { LengthUnit } from "@/convex/lib/bodyMeasures";
-import type { WeightUnit } from "@/convex/lib/units";
 import { formatDateInput } from "@/lib/bodyDate";
 import {
-  draftFromProposal,
   draftFromStored,
   emptyBodyDraft,
   formatBodySummary,
   measuresFromDraft,
   weightHint,
   type BodyDraft,
-  type BodySave,
 } from "@/lib/bodyDraft";
 import { readableError } from "@/lib/errors";
 import { formatShortDate } from "@/lib/format";
 import { OFFLINE_VOICE_MESSAGE, QUEUED_SAVE_MESSAGE } from "@/lib/offline/messages";
-import type { PendingBody } from "@/lib/offline/outbox";
+import type { BodyProposal } from "@/lib/voice/bodyProposal";
 import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
 import Link from "next/link";
-import { FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
 type StoredEntry = {
   _id: Id<"bodyEntries">;
@@ -49,29 +48,7 @@ type StoredEntry = {
   clientId: string | null;
 };
 
-type VoicePhase = "idle" | "recording" | "parsing" | "preview";
-
-function newBodyClientId(): string {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID().replaceAll("-", "");
-  }
-  return `b${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`;
-}
-
-function toPending(clientId: string, save: BodySave): Omit<PendingBody, "syncError" | "echoed"> {
-  return {
-    clientId,
-    loggedAt: save.loggedAt,
-    weightLb: save.weightLb ?? null,
-    bodyFatPct: save.bodyFatPct ?? null,
-    waistCm: save.waistCm ?? null,
-    chestCm: save.chestCm ?? null,
-    armCm: save.armCm ?? null,
-    hipsCm: save.hipsCm ?? null,
-    thighCm: save.thighCm ?? null,
-    note: save.note ?? null,
-  };
-}
+type VoicePhase = "idle" | "recording" | "parsing";
 
 export function BodyScreen() {
   const weightUnit = useWeightUnit();
@@ -90,7 +67,7 @@ export function BodyScreen() {
   const [saving, setSaving] = useState(false);
   const [voicePhase, setVoicePhase] = useState<VoicePhase>("idle");
   const [voiceError, setVoiceError] = useState<string | null>(null);
-  const [confirmDraft, setConfirmDraft] = useState<BodyDraft | null>(null);
+  const [voiceProposal, setVoiceProposal] = useState<BodyProposal | null>(null);
   const [editing, setEditing] = useState<StoredEntry | null>(null);
   const [editDraft, setEditDraft] = useState<BodyDraft | null>(null);
   const [editError, setEditError] = useState<string | null>(null);
@@ -234,41 +211,14 @@ export function BodyScreen() {
       if (controller.signal.aborted) {
         return;
       }
-      setConfirmDraft(draftFromProposal(proposal, weightUnit, lengthUnit));
-      setVoicePhase("preview");
+      setVoiceProposal(proposal);
+      setVoicePhase("idle");
       setVoiceError(null);
     } catch (caught) {
       if (!controller.signal.aborted) {
         setVoicePhase("idle");
         setVoiceError(readableError(caught));
       }
-    }
-  }
-
-  async function confirmVoice() {
-    if (!confirmDraft || saving) {
-      return;
-    }
-    const parsed = measuresFromDraft(confirmDraft, weightUnit, lengthUnit);
-    if (!parsed.ok) {
-      setVoiceError(parsed.error);
-      return;
-    }
-    setSaving(true);
-    setVoiceError(null);
-    try {
-      const outcome = await saveBody(toPending(newBodyClientId(), parsed.save));
-      if (outcome.status === "rejected") {
-        setVoiceError(outcome.error ?? "That entry could not be saved.");
-        return;
-      }
-      setConfirmDraft(null);
-      setVoicePhase("idle");
-      setNotice(outcome.status === "queued" ? QUEUED_SAVE_MESSAGE : "Saved.");
-    } catch (caught) {
-      setVoiceError(readableError(caught));
-    } finally {
-      setSaving(false);
     }
   }
 
@@ -414,14 +364,14 @@ export function BodyScreen() {
             {notice}
           </p>
         ) : null}
-        {voiceError && voicePhase !== "preview" ? (
+        {voiceError ? (
           <p role="alert" className="mt-3 text-sm text-danger">
             {voiceError}
           </p>
         ) : null}
         <div className="mt-4 flex gap-2.5">
           <Button type="submit" size="lg" className="flex-1" disabled={!draft || saving}>
-            {saving && voicePhase !== "preview" ? "Saving…" : "Save"}
+            {saving ? "Saving…" : "Save"}
           </Button>
           <button
             type="button"
@@ -506,67 +456,14 @@ export function BodyScreen() {
         />
       ) : null}
 
-      <Sheet
-        open={voicePhase === "preview" && confirmDraft !== null}
-        onClose={() => {
-          if (!saving) {
-            setVoicePhase("idle");
-            setConfirmDraft(null);
-          }
+      <BodyConfirmSheet
+        proposal={voiceProposal}
+        onClose={() => setVoiceProposal(null)}
+        onSaved={(outcome) => {
+          setVoiceProposal(null);
+          setNotice(outcome.status === "queued" ? QUEUED_SAVE_MESSAGE : "Saved.");
         }}
-        labelledBy="body-confirm-title"
-        dismissible={!saving}
-      >
-        {confirmDraft && today ? (
-          <form
-            onSubmit={(event) => {
-              event.preventDefault();
-              void confirmVoice();
-            }}
-          >
-            <h2 id="body-confirm-title" className="mt-2 text-xl font-semibold tracking-[-0.02em]">
-              Save this measurement?
-            </h2>
-            <p className="mt-1.5 text-base leading-normal text-muted">
-              Check it first. Nothing is stored until you save.
-            </p>
-            <MeasureFields
-              idPrefix="confirm"
-              draft={confirmDraft}
-              maxDate={today}
-              weightUnit={weightUnit}
-              lengthUnit={lengthUnit}
-              extraOpen
-              onChange={(patch) =>
-                setConfirmDraft((current) => (current ? { ...current, ...patch } : current))
-              }
-            />
-            {voiceError ? (
-              <p role="alert" className="mt-3 text-sm text-danger">
-                {voiceError}
-              </p>
-            ) : null}
-            <div className="mt-6 flex gap-2.5">
-              <Button
-                type="button"
-                variant="secondary"
-                size="lg"
-                className="flex-1"
-                disabled={saving}
-                onClick={() => {
-                  setVoicePhase("idle");
-                  setConfirmDraft(null);
-                }}
-              >
-                Discard
-              </Button>
-              <Button type="submit" size="lg" className="flex-1" disabled={saving}>
-                {saving ? "Saving…" : "Save"}
-              </Button>
-            </div>
-          </form>
-        ) : null}
-      </Sheet>
+      />
 
       <Sheet
         open={editing !== null && editDraft !== null}
@@ -670,152 +567,3 @@ export function BodyScreen() {
     </div>
   );
 }
-
-function MeasureFields({
-  idPrefix,
-  draft,
-  maxDate,
-  weightUnit,
-  lengthUnit,
-  extraOpen = false,
-  weightPlaceholder,
-  onChange,
-}: {
-  idPrefix: string;
-  draft: BodyDraft;
-  maxDate: string;
-  weightUnit: WeightUnit;
-  lengthUnit: LengthUnit;
-  extraOpen?: boolean;
-  /** Your last weight, so the empty field hints at a real number. */
-  weightPlaceholder?: string;
-  onChange: (patch: Partial<BodyDraft>) => void;
-}) {
-  return (
-    <div className="mt-3 flex flex-col gap-3">
-      <Field label="Date" id={`${idPrefix}-date`}>
-        <input
-          id={`${idPrefix}-date`}
-          type="date"
-          required
-          max={maxDate}
-          value={draft.date}
-          onChange={(event) => onChange({ date: event.target.value })}
-          className={fieldClass}
-        />
-      </Field>
-      <Field label={`Weight (${weightUnit})`} id={`${idPrefix}-weight`}>
-        <input
-          id={`${idPrefix}-weight`}
-          inputMode="decimal"
-          autoComplete="off"
-          placeholder={weightPlaceholder ?? (weightUnit === "kg" ? "80" : "180")}
-          value={draft.weight}
-          onChange={(event) => onChange({ weight: event.target.value })}
-          className={fieldClass}
-        />
-      </Field>
-      <details open={extraOpen || undefined} className="rounded-xl border border-line px-3 py-1">
-        <summary className="flex min-h-11 cursor-pointer items-center text-base font-medium">
-          More measurements
-        </summary>
-        <div className="flex flex-col gap-3 pb-3">
-          <Field label="Body fat (%)" id={`${idPrefix}-fat`}>
-            <input
-              id={`${idPrefix}-fat`}
-              inputMode="decimal"
-              autoComplete="off"
-              value={draft.bodyFat}
-              onChange={(event) => onChange({ bodyFat: event.target.value })}
-              className={fieldClass}
-            />
-          </Field>
-          <LengthField
-            id={`${idPrefix}-waist`}
-            label="Waist"
-            unit={lengthUnit}
-            value={draft.waist}
-            onChange={(waist) => onChange({ waist })}
-          />
-          <LengthField
-            id={`${idPrefix}-chest`}
-            label="Chest"
-            unit={lengthUnit}
-            value={draft.chest}
-            onChange={(chest) => onChange({ chest })}
-          />
-          <LengthField
-            id={`${idPrefix}-arm`}
-            label="Arm"
-            unit={lengthUnit}
-            value={draft.arm}
-            onChange={(arm) => onChange({ arm })}
-          />
-          <LengthField
-            id={`${idPrefix}-hips`}
-            label="Hips"
-            unit={lengthUnit}
-            value={draft.hips}
-            onChange={(hips) => onChange({ hips })}
-          />
-          <LengthField
-            id={`${idPrefix}-thigh`}
-            label="Thigh"
-            unit={lengthUnit}
-            value={draft.thigh}
-            onChange={(thigh) => onChange({ thigh })}
-          />
-          <Field label="Note" id={`${idPrefix}-note`}>
-            <input
-              id={`${idPrefix}-note`}
-              autoComplete="off"
-              maxLength={500}
-              value={draft.note}
-              onChange={(event) => onChange({ note: event.target.value })}
-              className={fieldClass}
-            />
-          </Field>
-        </div>
-      </details>
-    </div>
-  );
-}
-
-function LengthField({
-  id,
-  label,
-  unit,
-  value,
-  onChange,
-}: {
-  id: string;
-  label: string;
-  unit: LengthUnit;
-  value: string;
-  onChange: (value: string) => void;
-}) {
-  return (
-    <Field label={`${label} (${unit})`} id={id}>
-      <input
-        id={id}
-        inputMode="decimal"
-        autoComplete="off"
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className={fieldClass}
-      />
-    </Field>
-  );
-}
-
-function Field({ id, label, children }: { id: string; label: string; children: ReactNode }) {
-  return (
-    <label htmlFor={id} className="block">
-      <span className="text-xs font-medium tracking-[0.06em] text-subtle uppercase">{label}</span>
-      {children}
-    </label>
-  );
-}
-
-const fieldClass =
-  "mt-1.5 h-12 w-full rounded-xl border border-input bg-background px-3 text-base outline-none focus:border-foreground";

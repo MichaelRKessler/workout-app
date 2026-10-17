@@ -22,7 +22,7 @@ export function ListeningOverlay({
   onStop,
   onCancel,
   prompt = "Say the exercise, then the sets, reps and weight.",
-  example = "“Romanian deadlift, 3 sets of 8 at 185”",
+  example = "“Romanian deadlift, 3 sets of 8 at 185” or “weight 232”",
 }: {
   status: "recording" | "parsing";
   analyser: AnalyserNode | null;

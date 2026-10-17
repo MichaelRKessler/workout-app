@@ -1,13 +1,13 @@
-import { readVoiceResponse } from "@/lib/voice/confirm";
-import type { VoiceProposal } from "@/lib/voice/proposal";
+import { readVoiceLogResponse } from "@/lib/voice/confirm";
+import type { VoiceLogResult } from "@/lib/voice/proposal";
 
 type ParseBody = { audioBase64: string; mimeType: string } | { text: string };
 
-/** Asks /api/voice to turn a clip or a typed note into a preview. Nothing is saved. */
+/** Asks /api/voice to turn a clip or a typed note into a preview of sets, a weigh-in, or both. Nothing is saved. */
 export async function requestProposal(
   body: ParseBody,
   signal: AbortSignal,
-): Promise<VoiceProposal> {
+): Promise<VoiceLogResult> {
   const response = await fetch("/api/voice", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -23,7 +23,7 @@ export async function requestProposal(
   if (!response.ok) {
     throw new Error(errorFromPayload(payload));
   }
-  return readVoiceResponse(payload);
+  return readVoiceLogResponse(payload);
 }
 
 export async function blobToBase64(blob: Blob): Promise<string> {

@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { getFunctionName } from "convex/server";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
@@ -9,6 +9,7 @@ const NOW = Date.now();
 const responses: Record<string, unknown> = {};
 const saveSets = vi.fn();
 const removeMany = vi.fn();
+const saveBody = vi.fn();
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
@@ -32,6 +33,7 @@ const offlineLog = {
   accountEmail: "lifter@example.com",
   saveSets,
   removeMany,
+  saveBody,
   editSet: vi.fn(),
   reconcile: vi.fn(),
   rememberWorkout: vi.fn(),
@@ -97,6 +99,99 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  vi.unstubAllGlobals();
+});
+
+function weighIn(extra: Record<string, unknown> = {}) {
+  return {
+    weightLb: 232,
+    bodyFatPct: null,
+    waistCm: null,
+    chestCm: null,
+    armCm: null,
+    hipsCm: null,
+    thighCm: null,
+    dayOffset: 0,
+    note: null,
+    ...extra,
+  };
+}
+
+test("typing weight 232 in the main log opens the body sheet and saves a weigh-in", async () => {
+  const fetchMock = vi.fn(async () =>
+    new Response(JSON.stringify({ body: weighIn(), persisted: false }), { status: 200 }),
+  );
+  vi.stubGlobal("fetch", fetchMock);
+  saveBody.mockResolvedValue({
+    status: "synced",
+    error: null,
+    personalRecords: [],
+    setIds: [],
+    clientIds: ["b1"],
+    sessionId: null,
+    completedAt: null,
+  });
+  const user = userEvent.setup();
+  render(<LogWorkout />);
+
+  await user.type(screen.getByLabelText("Type a set"), "weight 232");
+  await user.click(screen.getByRole("button", { name: "Send" }));
+
+  expect(await screen.findByText("Save this measurement?")).toBeTruthy();
+  expect((screen.getByLabelText("Weight (lb)") as HTMLInputElement).value).toBe("232");
+  expect(saveSets).not.toHaveBeenCalled();
+  expect(saveBody).not.toHaveBeenCalled();
+
+  await user.click(screen.getByRole("button", { name: "Save" }));
+  await waitFor(() => expect(saveBody).toHaveBeenCalledOnce());
+  expect(saveBody.mock.calls[0]?.[0]).toMatchObject({ weightLb: 232, waistCm: null });
+  expect(saveSets).not.toHaveBeenCalled();
+  expect(await screen.findByText("Logged weigh-in · 232 lb")).toBeTruthy();
+});
+
+test("sets and a weigh-in in one note save the sets first, then ask about the weigh-in", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          proposal: {
+            note: null,
+            exercises: [
+              {
+                exerciseName: "Bench press",
+                sets: [
+                  {
+                    reps: 5,
+                    weightLb: 225,
+                    durationSec: null,
+                    distanceM: null,
+                    calories: null,
+                    rpe: null,
+                    setType: "working",
+                  },
+                ],
+              },
+            ],
+          },
+          body: weighIn(),
+          persisted: false,
+        }),
+        { status: 200 },
+      ),
+    ),
+  );
+  const user = userEvent.setup();
+  render(<LogWorkout />);
+
+  await user.type(screen.getByLabelText("Type a set"), "weighed 232, bench 5 at 225");
+  await user.click(screen.getByRole("button", { name: "Send" }));
+  expect(screen.queryByText("Save this measurement?")).toBeNull();
+
+  const dialog = await screen.findByRole("dialog");
+  await user.click(within(dialog).getByRole("button", { name: "Add 1 set" }));
+  await waitFor(() => expect(saveSets).toHaveBeenCalledOnce());
+  expect(await screen.findByText("Save this measurement?")).toBeTruthy();
 });
 
 test("repeating a set saves it to the open workout and offers Undo", async () => {
