@@ -1,6 +1,7 @@
 import {
   LEGACY_SHELL_CACHE_NAME,
   MAX_CACHE_ENTRIES,
+  NAVIGATION_TIMEOUT_MS,
   NEVER_CACHE_PREFIXES,
   SHELL_CACHE_PREFIX,
   STATIC_PATHS,
@@ -8,8 +9,10 @@ import {
 } from "./cachePolicy.ts";
 
 /**
- * Network-first service worker. Online loads always hit the network, so an
- * installed copy picks up new deploys. The cache is only the offline fallback.
+ * Network-first service worker. Online loads always ask the network, so an
+ * installed copy picks up new deploys. A cached page is shown offline, or when
+ * the network has not answered within NAVIGATION_TIMEOUT_MS. Responses stream
+ * to the page while the offline copy is saved in the background.
  * Cross-origin requests (Google, Convex), /api/, and the OAuth `code` return
  * are not intercepted.
  *
@@ -26,6 +29,7 @@ const CACHE_PREFIX = ${JSON.stringify(SHELL_CACHE_PREFIX)};
 const NEVER_PREFIXES = ${JSON.stringify(NEVER_CACHE_PREFIXES)};
 const STATIC_PREFIXES = ${JSON.stringify(STATIC_PREFIXES)};
 const STATIC_PATHS = ${JSON.stringify(STATIC_PATHS)};
+const NAVIGATION_TIMEOUT_MS = ${JSON.stringify(NAVIGATION_TIMEOUT_MS)};
 
 self.addEventListener("install", (event) => {
   event.waitUntil(self.skipWaiting());
@@ -92,41 +96,94 @@ self.addEventListener("fetch", (event) => {
     if (url.pathname.startsWith(prefix)) return;
   }
 
-  const isStatic = isStaticPath(url.pathname);
-  if (request.mode !== "navigate" && !isStatic) return;
+  if (request.mode === "navigate") {
+    event.respondWith(navigation(event));
+    return;
+  }
+  if (!isStaticPath(url.pathname)) return;
 
-  event.respondWith(networkFirst(request));
+  event.respondWith(networkFirst(event));
 });
 
 function isStaticPath(pathname) {
   return STATIC_PATHS.includes(pathname) || STATIC_PREFIXES.some((prefix) => pathname.startsWith(prefix));
 }
 
-async function networkFirst(request) {
-  const cache = await caches.open(CACHE_NAME);
+function offlineResponse() {
+  return new Response("You're offline. Reconnect, then open Spotter again.", {
+    status: 503,
+    headers: { "Content-Type": "text/plain; charset=utf-8" },
+  });
+}
+
+async function cachedCopy(request) {
   try {
-    const response = await fetch(request);
-    if (canStore(request, response)) {
-      const copy = response.clone();
-      try {
-        const stored = await offlineCopy(request, copy);
-        if (stored) {
-          await cache.put(request, stored);
-          await trimCache(cache);
-        }
-      } catch {
-        // The network response is still returned when the cache is full.
-      }
-    }
-    return response;
+    const cache = await caches.open(CACHE_NAME);
+    return (await cache.match(request)) || null;
   } catch {
-    const cached = await cache.match(request);
-    if (cached) return cached;
-    return new Response("You're offline. Reconnect, then open Spotter again.", {
-      status: 503,
-      headers: { "Content-Type": "text/plain; charset=utf-8" },
-    });
+    return null;
   }
+}
+
+// Pages: the network answer wins whenever it arrives in time. After
+// NAVIGATION_TIMEOUT_MS a cached copy of the page, if there is one, is shown
+// instead, and the late network answer still refreshes the cache. The answer
+// streams to the page as it arrives; the offline copy is saved alongside.
+function navigation(event) {
+  const request = event.request;
+  const network = fetch(request);
+  event.waitUntil(network.then((response) => store(request, response), () => undefined));
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (response) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(response);
+    };
+    const timer = setTimeout(() => {
+      void cachedCopy(request).then((cached) => {
+        if (cached) finish(cached);
+      });
+    }, NAVIGATION_TIMEOUT_MS);
+    network.then(finish, async () => {
+      finish((await cachedCopy(request)) || offlineResponse());
+    });
+  });
+}
+
+// Clones before the first await, while the page has not started reading the body.
+async function store(request, response) {
+  if (!canStore(request, response)) return;
+  let copy;
+  try {
+    copy = response.clone();
+  } catch {
+    return;
+  }
+  try {
+    const cache = await caches.open(CACHE_NAME);
+    const stored = await offlineCopy(request, copy);
+    if (stored) {
+      await cache.put(request, stored);
+      await trimCache(cache);
+    }
+  } catch {
+    // The network response is still returned when the cache is full.
+  }
+}
+
+async function networkFirst(event) {
+  const request = event.request;
+  let response;
+  try {
+    response = await fetch(request);
+  } catch {
+    return (await cachedCopy(request)) || offlineResponse();
+  }
+  // Save the copy in the background so the page gets the file right away.
+  event.waitUntil(store(request, response));
+  return response;
 }
 
 function canStore(request, response) {

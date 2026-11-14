@@ -1,6 +1,6 @@
 "use client";
 
-import { BodyConfirmSheet } from "@/components/body/BodyConfirmSheet";
+import { BodyConfirmSheet, ListeningOverlay, usePreloadHomeSheets } from "@/components/workout/lazySheets";
 import { MeasureFields } from "@/components/body/MeasureFields";
 import { requestBodyProposal } from "@/components/body/requestBody";
 import { newBodyClientId, toPending } from "@/components/body/saveBodyEntry";
@@ -11,7 +11,6 @@ import { PageHeader } from "@/components/PageHeader";
 import { Sheet } from "@/components/Sheet";
 import { useBrowserTimeZone } from "@/components/useBrowserTimeZone";
 import { useLengthUnit, useWeightUnit } from "@/components/WeightUnit";
-import { ListeningOverlay } from "@/components/workout/ListeningOverlay";
 import { blobToBase64 } from "@/components/workout/requestProposal";
 import { TrendChart } from "@/components/workout/TrendChart";
 import { useRecorder } from "@/components/workout/useRecorder";
@@ -51,6 +50,7 @@ type StoredEntry = {
 type VoicePhase = "idle" | "recording" | "parsing";
 
 export function BodyScreen() {
+  usePreloadHomeSheets();
   const weightUnit = useWeightUnit();
   const lengthUnit = useLengthUnit();
   const timeZone = useBrowserTimeZone();
