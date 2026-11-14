@@ -10,6 +10,15 @@ const nextConfig: NextConfig = {
       process.env.VERCEL_GIT_COMMIT_SHA ||
       `build-${Date.now().toString(36)}`,
   },
+  experimental: {
+    // Pages are thin server shells around client screens that read live data
+    // from Convex, so a visited or prefetched page can be reused for a few
+    // minutes. Switching tabs then skips a server round trip.
+    staleTimes: {
+      dynamic: 180,
+      static: 300,
+    },
+  },
   async headers() {
     return [
       {

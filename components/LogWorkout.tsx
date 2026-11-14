@@ -1,23 +1,26 @@
 "use client";
 
-import { FinishedWorkout } from "@/components/WorkoutSummaryCard";
-import { BodyConfirmSheet } from "@/components/body/BodyConfirmSheet";
+import {
+  BodyConfirmSheet,
+  ConfirmSheet,
+  FinishedWorkout,
+  FinishSheet,
+  ListeningOverlay,
+  ManualEntrySheet,
+  StaleWorkoutSheet,
+  usePreloadHomeSheets,
+} from "@/components/workout/lazySheets";
 import { useOfflineLog } from "@/components/OfflineSync";
 import { Toast } from "@/components/Toast";
 import { OpenWorkoutSheet } from "@/components/routines/OpenWorkoutSheet";
 import { useBeginWorkout } from "@/components/routines/useBeginWorkout";
 import { ActiveWorkout } from "@/components/workout/ActiveWorkout";
 import { Composer } from "@/components/workout/Composer";
-import { ConfirmSheet } from "@/components/workout/ConfirmSheet";
-import { FinishSheet } from "@/components/workout/FinishSheet";
 import { ExerciseRow } from "@/components/workout/ExerciseRow";
 import { HomeView } from "@/components/workout/HomeView";
 import { WeekSummaryLoader } from "@/components/workout/WeekSummaryLoader";
 import { useWorkoutFreshness } from "@/components/workout/useWorkoutFreshness";
 import { WorkoutPlanList } from "@/components/workout/WorkoutPlanList";
-import { ListeningOverlay } from "@/components/workout/ListeningOverlay";
-import { ManualEntrySheet } from "@/components/workout/ManualEntrySheet";
-import { StaleWorkoutSheet } from "@/components/workout/StaleWorkoutSheet";
 import { blankPlanItem, toPendingExercise, usePlanEditor } from "@/components/workout/usePlanEditor";
 import { useSetActions, type Toasted } from "@/components/workout/useSetActions";
 import { useVoiceLog } from "@/components/workout/useVoiceLog";
@@ -84,6 +87,7 @@ function combinedNote(existing: string | null | undefined, extra: string | null)
  * confirmed by voice, by typing, or by hand opens one.
  */
 export function LogWorkout() {
+  usePreloadHomeSheets();
   const openSession = useQuery(api.sessions.getOpen);
   const routineList = useQuery(api.routines.list);
   const nextRoutine = useQuery(api.routines.nextUp);

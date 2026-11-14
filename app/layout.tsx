@@ -20,9 +20,12 @@ const geist = Geist({
   variable: "--font-geist",
 });
 
+// Only a few numbers use the mono face, so it loads when first used instead
+// of competing with the app's scripts on launch.
 const geistMono = Geist_Mono({
   subsets: ["latin"],
   variable: "--font-geist-mono",
+  preload: false,
 });
 
 export const metadata: Metadata = {
@@ -46,7 +49,9 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const configured = Boolean(process.env.NEXT_PUBLIC_CONVEX_URL);
+  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
+  const configured = Boolean(convexUrl);
+  const convexOrigin = originOf(convexUrl);
   const theme = parseTheme((await cookies()).get(THEME_COOKIE)?.value);
 
   return (
@@ -55,6 +60,9 @@ export default async function RootLayout({
         {/* Chrome reads this from the first HTML chunk. Metadata streamed after
             Convex Auth makes the layout dynamic arrives too late. */}
         <link rel="manifest" href="/manifest.webmanifest" />
+        {/* Resolve and warm the Convex host while the scripts download, so the
+            data connection opens sooner once the app starts. */}
+        {convexOrigin ? <link rel="preconnect" href={convexOrigin} /> : null}
         <link
           rel="apple-touch-icon"
           href="/icons/apple-touch-icon.png"
@@ -94,4 +102,15 @@ export default async function RootLayout({
       </body>
     </html>
   );
+}
+
+function originOf(url: string | undefined): string | null {
+  if (!url) {
+    return null;
+  }
+  try {
+    return new URL(url).origin;
+  } catch {
+    return null;
+  }
 }

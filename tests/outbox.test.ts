@@ -567,7 +567,7 @@ test("the service worker does not cache APIs, voice, or other origins", () => {
   );
   assert.equal(
     fetchDecision({ ...base, url: `${origin}/`, mode: "navigate" }),
-    "network-first",
+    "navigation",
   );
   assert.equal(
     fetchDecision({ ...base, url: `${origin}/_next/static/chunk.js` }),
@@ -611,7 +611,9 @@ test("the service worker does not cache APIs, voice, or other origins", () => {
   assert.match(source, /!response\.redirected/);
   assert.match(source, /url\.origin !== self\.location\.origin/);
   assert.doesNotMatch(source, /cache-first/);
-  assert.equal(source.indexOf("await fetch(request)") < source.indexOf("cache.match(request)"), true);
+  // Pages ask the network first; the cache is read only on failure or timeout.
+  const navigation = source.slice(source.indexOf("function navigation(event)"));
+  assert.equal(navigation.indexOf("fetch(request)") < navigation.indexOf("cachedCopy(request)"), true);
 });
 
 test("a queued weigh-in counts as pending and an old outbox has no body entries", () => {

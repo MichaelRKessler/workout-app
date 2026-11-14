@@ -64,6 +64,8 @@ export function TabBarView({
       <Link
         key={tab.key}
         href={tab.href}
+        // Fetch each tab's whole page ahead of time so a tap opens it at once.
+        prefetch
         aria-current={active ? "page" : undefined}
         className={`relative flex min-w-0 flex-col items-center justify-center gap-1 text-xs leading-none ${
           active ? "font-semibold text-foreground" : "font-medium text-subtle hover:text-foreground"

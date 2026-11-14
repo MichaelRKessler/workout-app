@@ -70,13 +70,18 @@ export function AppShell({ children }: { children: ReactNode }) {
     }
   }, [isAuthenticated, isLoading, offline]);
 
+  // Open on the last known access instead of waiting for the sign-in check and
+  // the access query, online or off. Pages start their own queries at once,
+  // and the server answer replaces the cache as soon as it arrives.
   const useCache =
-    offline &&
     cacheReady &&
     cached !== null &&
     status === undefined &&
     (isLoading || isAuthenticated);
   const effective = status ?? (useCache ? cached : null);
+  // Until the server confirms who is signed in, queued changes wait. Offline
+  // nothing is sent anyway, so that case keeps the old behaviour.
+  const confirmed = status !== undefined || offline;
 
   if (!useCache && (isLoading || (isAuthenticated && status === undefined))) {
     if (offline && isAuthenticated && cacheReady && !cached) {
@@ -96,7 +101,10 @@ export function AppShell({ children }: { children: ReactNode }) {
     );
   }
 
-  if (!isAuthenticated || !effective) {
+  // While the sign-in check is still running, the cached access stands in for
+  // it. Without this an offline relaunch (where the check never finishes)
+  // showed the sign-in screen.
+  if (!effective || (!isAuthenticated && !useCache)) {
     return (
       <main className="mx-auto flex min-h-dvh w-full max-w-lg flex-col justify-center gap-6 px-5">
         <BrandMark className="size-8" />
@@ -126,7 +134,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <main className="with-tabbar mx-auto min-h-dvh w-full max-w-lg">
-      <OfflineSyncProvider email={effective.email}>
+      <OfflineSyncProvider email={effective.email} autoSync={confirmed}>
         <WeightUnitProvider>
           <OfflineBanner />
           <AdminSeed />

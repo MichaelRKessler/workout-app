@@ -4,6 +4,14 @@ export const NEVER_CACHE_PREFIXES = ["/api/"];
 /** Hashed build assets and icons. Network-first, then the offline fallback. */
 export const STATIC_PREFIXES = ["/_next/static/", "/icons/"];
 
+/**
+ * How long a page load waits for the network before the cached copy of that
+ * page is shown instead. The network answer still refreshes the cache. Long
+ * enough that a normal load never falls back, short enough that weak gym
+ * signal does not leave a blank screen.
+ */
+export const NAVIGATION_TIMEOUT_MS = 3000;
+
 export const STATIC_PATHS = ["/manifest.webmanifest"];
 
 /**
@@ -22,7 +30,7 @@ export const SHELL_CACHE_VERSION = "v2";
 /** Cap cached responses so visited URLs cannot grow without bound. */
 export const MAX_CACHE_ENTRIES = 200;
 
-export type FetchDecision = "passthrough" | "network-first";
+export type FetchDecision = "passthrough" | "network-first" | "navigation";
 
 /**
  * What the service worker may intercept. Everything else is the browser's,
@@ -62,8 +70,10 @@ export function fetchDecision(input: {
       return "passthrough";
     }
   }
-  const isStatic = isStaticPath(url.pathname);
-  if (input.mode === "navigate" || isStatic) {
+  if (input.mode === "navigate") {
+    return "navigation";
+  }
+  if (isStaticPath(url.pathname)) {
     return "network-first";
   }
   return "passthrough";
